@@ -305,7 +305,7 @@ The implementation will be divided into phases to allow for incremental developm
    - Implement cryptographic functions ✅
    - Implement HTTP and query string functions ✅
 
-   **Completed**: We have implemented all of the VCL standard library functions, including string manipulation, time functions, math, cryptographic, HTTP, and query string functions. The functions are available in the runtime and the VCL parser has been updated to correctly handle function calls. All tests are now passing, including the error handling tests.
+   **Completed**: We have implemented all of the VCL standard library functions, including string manipulation, time functions, math, cryptographic, HTTP, query string functions, and random functions. The functions are available in the runtime and the VCL parser has been updated to correctly handle function calls. All tests are now passing, including the error handling tests and random functions tests.
 
 5. **Phase 5: Backend Configuration** ✅
    - Implement support for multiple backend definitions ✅
