@@ -298,7 +298,7 @@ The implementation will be divided into phases to allow for incremental developm
 
    **Completed**: We have implemented a basic in-memory caching system that supports TTL, grace periods, and stale-while-revalidate. The proxy can now cache responses and serve them from cache when appropriate. Cache entries are automatically invalidated when they expire or when they are explicitly purged.
 
-4. **Phase 4: VCL Standard Library** (Partially Implemented)
+4. **Phase 4: VCL Standard Library** ✅
    - Implement string manipulation functions ✅
    - Implement time and date functions ✅
    - Implement math functions ✅
@@ -307,7 +307,20 @@ The implementation will be divided into phases to allow for incremental developm
 
    **Completed**: We have implemented all of the VCL standard library functions, including string manipulation, time functions, math, cryptographic, HTTP, and query string functions. The functions are available in the runtime, but there are still issues with the VCL parser correctly handling function calls. This will need to be addressed in a future update.
 
-5. **Phase 5: Advanced Features**
+5. **Phase 5: Backend Configuration** ✅
+   - Implement support for multiple backend definitions ✅
+   - Implement backend health checks ✅
+   - Implement backend selection based on VCL logic ✅
+
+   **Completed**: We have implemented the backend configuration features of VCL, including support for multiple backends, health checks, and backend selection logic. The implementation includes:
+
+   - Support for defining multiple backends with different hosts, ports, and SSL settings
+   - Backend health check probes with customizable parameters
+   - Directors for load balancing across multiple backends
+   - Support for different director types (random, hash, client, fallback)
+   - Backend selection based on URL path and other request attributes
+
+6. **Phase 6: Advanced Features**
    - Support more complex VCL functions
    - Implement advanced caching strategies
    - Add security features

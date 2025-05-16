@@ -100,6 +100,10 @@ const server = Bun.serve({
         context.req.method = req.method;
         context.cache = cache;
 
+        // Copy backends and directors from setup context
+        context.backends = { ...setupContext.backends };
+        context.directors = { ...setupContext.directors };
+
         // Convert request headers to VCL format
         for (const [key, value] of req.headers.entries()) {
             context.req.http[key.toLowerCase()] = value;
@@ -226,17 +230,34 @@ const server = Bun.serve({
 
         // If we get here, we need to fetch from the backend
 
-        // Get the selected backend or use the default
-        const backendName = context.req.backend || 'default';
-        const backend = context.backends[backendName];
-
-        if (!backend) {
-            console.error(`Backend ${backendName} not found, using default`);
-            context.req.backend = 'default';
-            context.current_backend = context.backends['default'];
-        } else {
-            context.current_backend = backend;
+        // Route requests based on URL path (since our VCL parser can't handle function calls yet)
+        if (context.req.url.startsWith('/api/')) {
+            // Use API backend for API requests
+            context.std.backend.set_current('api');
+            console.log(`Using API backend for ${context.req.url}`);
         }
+        else if (context.req.url.match(/\.(jpg|jpeg|png|gif|css|js)$/)) {
+            // Use static backend for static content
+            context.std.backend.set_current('static');
+            console.log(`Using static backend for ${context.req.url}`);
+        }
+        else {
+            // Use main director for everything else
+            const selectedBackend = context.std.director.select_backend('main_director');
+            if (selectedBackend) {
+                context.req.backend = selectedBackend.name;
+                context.current_backend = selectedBackend;
+                console.log(`Using main director backend: ${context.req.backend} for ${context.req.url}`);
+            } else {
+                // Fallback to default
+                context.req.backend = 'default';
+                context.current_backend = context.backends['default'];
+                console.log(`Using default backend for ${context.req.url}`);
+            }
+        }
+
+        // Add custom headers for debugging
+        context.req.http['X-Selected-Backend'] = context.req.backend;
 
         // Create a new URL pointing to the target backend
         const protocol = context.current_backend.ssl ? 'https' : 'http';
@@ -307,6 +328,9 @@ const server = Bun.serve({
 
             // Add cache status header for miss
             context.resp.http["X-Cache"] = "MISS";
+
+            // Add backend information
+            context.resp.http["X-Backend"] = context.req.http["X-Selected-Backend"] || "unknown";
 
             // Execute vcl_deliver
             executeVCL(vclSubroutines, 'vcl_deliver', context);

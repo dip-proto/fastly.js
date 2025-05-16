@@ -2,8 +2,6 @@ Now, I want the application to load a file called "filter.vcl". The content of t
 
 
 Implement the highest-priority task. Test frequently with the "bun run" command. Study the specification of VCL that can be found in the fastly-vcl and vcl-functions directories.
-Finish implementing the highest-priority task. Test frequently with Fastly VCL code snippets. Keep track of your progress in the TODO.md and TECHNICAL_DETAILS.md files. Adjust priorities and add tasks if needed.
-
 
 Finish this. Test frequently with the "bun run" command. Study the specification of VCL that can be found in the fastly-vcl and vcl-functions directories.
-Finish implementing the highest-priority task. Test frequently. Keep track of your progress in the TODO.md and TECHNICAL_DETAILS.md files. Adjust priorities and add tasks if needed.
+Finish implementing the highest-priority task. Test frequently with Fastly VCL code snippets. Keep track of your progress in the TODO.md and TECHNICAL_DETAILS.md files. Adjust priorities and add tasks if needed.
