@@ -1,0 +1,9 @@
+Now, I want the application to load a file called "filter.vcl". The content of that file will is eventually going to be a Fastly VCL script to inspect and modify HTTP queries and responses processed by the proxy. Study and memorize the content of the directories "fastly-vcl" and "fastly-vcl/vcl-functions" which contain the specification of Fastly VCL and VCL code snippets. Read it and create a TODO.md list with list of tasks required to implement all this, sorted by priority, as well as another file to keep track of the technical details. 
+
+
+Implement the highest-priority tak. Test frequently with the "bun run" command. Study the specification of VCL that can be found in the fastly-vcl and vcl-functions directories.
+Finish implementing the highest-priority task. Test frequently. Keep track of your progress in the TODO.md and TECHNICAL_DETAILS.md files. Adjust priorities and add tasks if needed.
+
+
+Finish this. Test frequently with the "bun run" command. Study the specification of VCL that can be found in the fastly-vcl and vcl-functions directories.
+Finish implementing the highest-priority task. Test frequently. Keep track of your progress in the TODO.md and TECHNICAL_DETAILS.md files. Adjust priorities and add tasks if needed.
