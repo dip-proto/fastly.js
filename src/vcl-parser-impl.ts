@@ -99,8 +99,11 @@ export class VCLParser {
   }
 
   private parseStatement(): VCLStatement {
+    console.log(`Parsing statement at position ${this.current}, token: ${this.peek().type} - ${this.peek().value}`);
+
     if (this.match(TokenType.KEYWORD)) {
       const keyword = this.previous().value;
+      console.log(`Found keyword: ${keyword}`);
 
       switch (keyword) {
         case 'if':
@@ -118,13 +121,16 @@ export class VCLParser {
       }
     } else if (this.match(TokenType.IDENTIFIER)) {
       const identifier = this.previous().value;
+      console.log(`Found identifier: ${identifier}`);
 
-      if (identifier === 'std.log') {
+      if (identifier.startsWith('std.log')) {
         return this.parseLogStatement();
       } else if (identifier === 'hash_data') {
         return this.parseHashDataStatement();
       }
     }
+
+    console.log(`Unknown statement, skipping to semicolon`);
 
     // Skip unknown statements
     while (!this.check(TokenType.PUNCTUATION, ';') && !this.isAtEnd()) {
@@ -148,35 +154,60 @@ export class VCLParser {
 
   private parseIfStatement(): VCLIfStatement {
     const token = this.previous();
+    console.log(`Parsing if statement at line ${token.line}, column ${token.column}`);
 
     // Parse the condition
     const test = this.parseExpression();
+    console.log(`Parsed condition: ${JSON.stringify(test)}`);
 
     this.consume(TokenType.PUNCTUATION, "Expected '{' after if condition");
+    console.log(`Found opening brace`);
 
     const consequent: VCLStatement[] = [];
 
     // Parse statements until we reach the closing brace
     while (!this.check(TokenType.PUNCTUATION, '}') && !this.isAtEnd()) {
-      consequent.push(this.parseStatement());
+      const statement = this.parseStatement();
+      console.log(`Parsed consequent statement: ${statement.type}`);
+      consequent.push(statement);
     }
 
     this.consume(TokenType.PUNCTUATION, "Expected '}' after if body");
+    console.log(`Found closing brace`);
 
     // Check for else
     let alternate: VCLStatement[] | undefined;
 
     if (this.match(TokenType.KEYWORD) && this.previous().value === 'else') {
-      this.consume(TokenType.PUNCTUATION, "Expected '{' after else");
+      console.log(`Found else keyword`);
 
-      alternate = [];
+      // Check for else if
+      if (this.check(TokenType.KEYWORD) && this.peek().value === 'if') {
+        console.log(`Found else if`);
+        this.advance(); // Consume the 'if' token
 
-      // Parse statements until we reach the closing brace
-      while (!this.check(TokenType.PUNCTUATION, '}') && !this.isAtEnd()) {
-        alternate.push(this.parseStatement());
+        // Parse the else if as a nested if statement
+        const elseIfStatement = this.parseIfStatement();
+
+        // Create an alternate array with just the else if statement
+        alternate = [elseIfStatement];
+      } else {
+        // Parse the opening brace
+        this.consume(TokenType.PUNCTUATION, "Expected '{' after else");
+        console.log(`Found opening brace for else`);
+
+        alternate = [];
+
+        // Parse statements until we reach the closing brace
+        while (!this.check(TokenType.PUNCTUATION, '}') && !this.isAtEnd()) {
+          const statement = this.parseStatement();
+          console.log(`Parsed alternate statement: ${statement.type}`);
+          alternate.push(statement);
+        }
+
+        this.consume(TokenType.PUNCTUATION, "Expected '}' after else body");
+        console.log(`Found closing brace for else`);
       }
-
-      this.consume(TokenType.PUNCTUATION, "Expected '}' after else body");
     }
 
     return {
@@ -244,16 +275,55 @@ export class VCLParser {
 
   private parseSetStatement(): VCLSetStatement {
     const token = this.previous();
+    console.log(`Parsing set statement at line ${token.line}, column ${token.column}`);
 
-    // Parse the target
-    const target = this.consume(TokenType.IDENTIFIER, "Expected set target").value;
+    // Parse the target (e.g., req.http.X-Header)
+    let target = '';
 
-    this.consume(TokenType.OPERATOR, "Expected '=' after set target");
+    // First part of the target (e.g., req)
+    if (this.match(TokenType.IDENTIFIER)) {
+      target = this.previous().value;
+      console.log(`Target first part: ${target}`);
+
+      // Check for dot notation (e.g., req.http)
+      while (this.match(TokenType.PUNCTUATION, '.')) {
+        if (this.match(TokenType.IDENTIFIER)) {
+          // Handle headers with hyphens (e.g., X-Test)
+          let identifier = this.previous().value;
+
+          // Check for hyphen followed by more text
+          while (this.match(TokenType.PUNCTUATION, '-')) {
+            if (this.match(TokenType.IDENTIFIER)) {
+              identifier += '-' + this.previous().value;
+              console.log(`Extended identifier with hyphen: ${identifier}`);
+            } else {
+              this.error("Expected identifier after '-'");
+              break;
+            }
+          }
+
+          target += '.' + identifier;
+          console.log(`Target extended: ${target}`);
+        } else {
+          this.error("Expected identifier after '.'");
+          break;
+        }
+      }
+    } else {
+      this.error("Expected identifier after 'set'");
+    }
+
+    // Parse the equals sign
+    this.consume(TokenType.OPERATOR, "Expected '=' after identifier");
+    console.log(`Found equals sign`);
 
     // Parse the value
     const value = this.parseExpression();
+    console.log(`Parsed expression: ${JSON.stringify(value)}`);
 
+    // Parse the semicolon
     this.consume(TokenType.PUNCTUATION, "Expected ';' after set statement");
+    console.log(`Found semicolon`);
 
     return {
       type: 'SetStatement',

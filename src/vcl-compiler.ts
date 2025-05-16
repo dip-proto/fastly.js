@@ -402,28 +402,41 @@ export class VCLCompiler {
   }
 
   private executeIfStatement(statement: VCLIfStatement, context: VCLContext): string | void {
+    console.log(`Executing if statement`);
+
     const condition = this.evaluateExpression(statement.test, context);
+    console.log(`Condition evaluated to: ${condition}`);
 
     if (condition) {
+      console.log(`Condition is true, executing consequent statements`);
+
       // Execute the consequent statements
       for (const stmt of statement.consequent) {
+        console.log(`Executing consequent statement: ${stmt.type}`);
         const result = this.executeStatement(stmt, context);
 
         // If the statement returns a value, return it from the if statement
         if (result && typeof result === 'string') {
+          console.log(`Returning from if statement with result: ${result}`);
           return result;
         }
       }
     } else if (statement.alternate) {
+      console.log(`Condition is false, executing alternate statements`);
+
       // Execute the alternate statements
       for (const stmt of statement.alternate) {
+        console.log(`Executing alternate statement: ${stmt.type}`);
         const result = this.executeStatement(stmt, context);
 
         // If the statement returns a value, return it from the if statement
         if (result && typeof result === 'string') {
+          console.log(`Returning from if statement with result: ${result}`);
           return result;
         }
       }
+    } else {
+      console.log(`Condition is false and no alternate statements`);
     }
   }
 
@@ -449,17 +462,49 @@ export class VCLCompiler {
     const parts = statement.target.split('.');
     console.log(`Target parts: ${JSON.stringify(parts)}`);
 
-    if (parts.length === 3 && parts[0] === 'req' && parts[1] === 'http') {
-      context.req.http[parts[2]] = String(value);
-    } else if (parts.length === 3 && parts[0] === 'bereq' && parts[1] === 'http') {
-      context.bereq.http[parts[2]] = String(value);
-    } else if (parts.length === 3 && parts[0] === 'beresp' && parts[1] === 'http') {
-      context.beresp.http[parts[2]] = String(value);
-    } else if (parts.length === 3 && parts[0] === 'resp' && parts[1] === 'http') {
-      context.resp.http[parts[2]] = String(value);
-    } else if (parts.length === 3 && parts[0] === 'obj' && parts[1] === 'http') {
-      context.obj.http[parts[2]] = String(value);
-    } else if (parts.length === 2 && parts[0] === 'beresp' && parts[1] === 'ttl') {
+    // Handle req.http.* headers
+    if (parts.length >= 3 && parts[0] === 'req' && parts[1] === 'http') {
+      const headerName = parts.slice(2).join('.');
+      context.req.http[headerName] = String(value);
+      console.log(`Set req.http.${headerName} = ${context.req.http[headerName]}`);
+    }
+    // Handle bereq.http.* headers
+    else if (parts.length >= 3 && parts[0] === 'bereq' && parts[1] === 'http') {
+      const headerName = parts.slice(2).join('.');
+      context.bereq.http[headerName] = String(value);
+      console.log(`Set bereq.http.${headerName} = ${context.bereq.http[headerName]}`);
+    }
+    // Handle beresp.http.* headers
+    else if (parts.length >= 3 && parts[0] === 'beresp' && parts[1] === 'http') {
+      const headerName = parts.slice(2).join('.');
+      context.beresp.http[headerName] = String(value);
+      console.log(`Set beresp.http.${headerName} = ${context.beresp.http[headerName]}`);
+    }
+    // Handle resp.http.* headers
+    else if (parts.length >= 3 && parts[0] === 'resp' && parts[1] === 'http') {
+      const headerName = parts.slice(2).join('.');
+      context.resp.http[headerName] = String(value);
+      console.log(`Set resp.http.${headerName} = ${context.resp.http[headerName]}`);
+    }
+    // Handle obj.http.* headers
+    else if (parts.length >= 3 && parts[0] === 'obj' && parts[1] === 'http') {
+      const headerName = parts.slice(2).join('.');
+      context.obj.http[headerName] = String(value);
+      console.log(`Set obj.http.${headerName} = ${context.obj.http[headerName]}`);
+    }
+    // Handle req.backend
+    else if (parts.length === 2 && parts[0] === 'req' && parts[1] === 'backend') {
+      context.req.backend = String(value);
+      console.log(`Set req.backend = ${context.req.backend}`);
+
+      // Also update current_backend if the backend exists
+      if (context.backends[context.req.backend]) {
+        context.current_backend = context.backends[context.req.backend];
+        console.log(`Updated current_backend to ${context.req.backend}`);
+      }
+    }
+    // Handle beresp.ttl
+    else if (parts.length === 2 && parts[0] === 'beresp' && parts[1] === 'ttl') {
       // Handle time values (e.g., 5m, 1h)
       const ttlStr = String(value).replace(/"/g, ''); // Remove quotes if present
       let ttl = 0;
@@ -576,18 +621,26 @@ export class VCLCompiler {
   }
 
   private evaluateExpression(expression: VCLExpression, context: VCLContext): any {
+    console.log(`Evaluating expression of type: ${expression.type}`);
+
     switch (expression.type) {
       case 'StringLiteral':
+        console.log(`String literal value: ${(expression as VCLStringLiteral).value}`);
         return (expression as VCLStringLiteral).value;
       case 'NumberLiteral':
+        console.log(`Number literal value: ${(expression as VCLNumberLiteral).value}`);
         return (expression as VCLNumberLiteral).value;
       case 'RegexLiteral':
-        return new RegExp((expression as VCLRegexLiteral).pattern);
+        const pattern = (expression as VCLRegexLiteral).pattern;
+        const flags = (expression as VCLRegexLiteral).flags || '';
+        console.log(`Regex literal pattern: ${pattern}, flags: ${flags}`);
+        return new RegExp(pattern, flags);
       case 'Identifier':
         return this.evaluateIdentifier(expression as VCLIdentifier, context);
       case 'BinaryExpression':
         return this.evaluateBinaryExpression(expression as VCLBinaryExpression, context);
       default:
+        console.error(`Unknown expression type: ${expression.type}`);
         return null;
     }
   }

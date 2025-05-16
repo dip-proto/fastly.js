@@ -47,6 +47,23 @@ export function loadVCL(filePath: string): VCLSubroutines {
   }
 }
 
+
+
+// Export the executeVCL function
+export function executeVCL(subroutines: VCLSubroutines, name: string, context: VCLContext): string {
+  if (!subroutines[name]) {
+    console.log(`Subroutine ${name} not found, using default behavior`);
+    return '';
+  }
+
+  try {
+    return subroutines[name](context) || '';
+  } catch (error) {
+    console.error(`Error executing subroutine ${name}: ${error.message}`);
+    return '';
+  }
+}
+
 // Create a new VCL context
 export function createVCLContext(): VCLContext {
   const context: VCLContext = {

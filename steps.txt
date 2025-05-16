@@ -9,3 +9,5 @@ Finish implementing the highest-priority task. Test frequently with Fastly VCL c
 Add a proper test suite testing with VCL code snippets.
 
 Verify that what is implemented matches the specification from the fastly-vcl and vcl-functions directories.
+Update the TODO.md and TECHNICAL_DETAILS.md files accordingly.
+
