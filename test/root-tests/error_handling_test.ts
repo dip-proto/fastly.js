@@ -2,7 +2,7 @@
  * Test script for VCL error handling and synthetic responses
  */
 
-import { createVCLContext, executeVCL } from './src/vcl';
+import { createVCLContext, executeVCL } from '../../src/vcl';
 
 // Create a VCL context
 const context = createVCLContext();

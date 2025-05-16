@@ -2,11 +2,11 @@
  * Minimal VCL Test
  */
 
-import { loadVCL, createVCLContext, executeVCL } from './src/vcl';
+import { loadVCL, createVCLContext, executeVCL } from '../../src/vcl';
 
 // Load the VCL file
 console.log('Loading VCL file...');
-const subroutines = loadVCL('./minimal_test.vcl');
+const subroutines = loadVCL('./test/fixtures/vcl-root-files/minimal_test.vcl');
 
 // Print the loaded subroutines
 console.log('Loaded subroutines:');

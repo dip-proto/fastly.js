@@ -1,14 +1,14 @@
 /**
  * Simple VCL Test
- * 
+ *
  * This script tests the VCL parser and execution with a simple VCL file.
  */
 
-import { loadVCL, createVCLContext, executeVCL } from './src/vcl';
+import { loadVCL, createVCLContext, executeVCL } from '../../src/vcl';
 
 // Load the VCL file
 console.log('Loading VCL file...');
-const subroutines = loadVCL('./simple_test.vcl');
+const subroutines = loadVCL('./test/fixtures/vcl-root-files/simple_test.vcl');
 
 // Print the loaded subroutines
 console.log('Loaded subroutines:');

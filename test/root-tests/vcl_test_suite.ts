@@ -4,8 +4,8 @@
  * This script tests the VCL implementation with various VCL code snippets.
  */
 
-import { createVCLContext, executeVCL } from './src/vcl';
-import { VCLContext, VCLSubroutines } from './src/vcl-compiler';
+import { createVCLContext, executeVCL } from '../../src/vcl';
+import { VCLContext, VCLSubroutines } from '../../src/vcl-compiler';
 
 // Create a test context
 function createTestContext(): VCLContext {

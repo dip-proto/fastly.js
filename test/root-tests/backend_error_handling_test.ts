@@ -2,7 +2,7 @@
  * Test script for backend error handling
  */
 
-import { createVCLContext, executeVCL } from './src/vcl';
+import { createVCLContext, executeVCL } from '../../src/vcl';
 
 // Create a VCL context
 const context = createVCLContext();

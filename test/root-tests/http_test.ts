@@ -2,7 +2,7 @@
  * Test script for VCL HTTP functions
  */
 
-import { createVCLContext } from './src/vcl';
+import { createVCLContext } from '../../src/vcl';
 
 // Create a VCL context
 const context = createVCLContext();

@@ -4,8 +4,8 @@
  * This script provides examples of how to use the VCL implementation.
  */
 
-import { createVCLContext, executeVCL } from './src/vcl';
-import { VCLContext, VCLSubroutines } from './src/vcl-compiler';
+import { createVCLContext, executeVCL } from '../../src/vcl';
+import { VCLContext, VCLSubroutines } from '../../src/vcl-compiler';
 
 // Example 1: Simple VCL
 function example1() {
