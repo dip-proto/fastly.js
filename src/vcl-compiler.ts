@@ -136,6 +136,9 @@ export interface VCLContext {
     state?: string;
   };
 
+  // Error handler function
+  error?: (status: number, message: string) => string;
+
   // Standard library functions
   std?: {
     // Logging
@@ -593,11 +596,19 @@ export class VCLCompiler {
   }
 
   private executeErrorStatement(statement: VCLErrorStatement, context: VCLContext): string {
+    console.log(`Executing error statement: ${statement.status} ${statement.message}`);
+
     // Set error status and message
     context.obj = context.obj || {};
     context.obj.status = statement.status;
     context.obj.response = statement.message;
     context.obj.http = context.obj.http || {};
+
+    // If the context has an error handler, call it
+    if (typeof context.error === 'function') {
+      console.log(`Calling context error handler with status ${statement.status} and message "${statement.message}"`);
+      context.error(statement.status, statement.message);
+    }
 
     // Execute vcl_error subroutine if it exists
     if (this.program.subroutines.find(s => s.name === 'vcl_error')) {
@@ -617,6 +628,7 @@ export class VCLCompiler {
     // If std.error is defined, call it
     if (context.std && typeof context.std.error === 'function') {
       try {
+        console.log(`Calling std.error with status ${statement.status} and message "${statement.message}"`);
         context.std.error(statement.status, statement.message);
       } catch (e) {
         // If std.error throws, we still want to continue with the error flow

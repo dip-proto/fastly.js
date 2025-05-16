@@ -379,3 +379,25 @@ Each phase will include comprehensive testing to ensure correctness and performa
   - `randomstr`: Generates a random string of a specified length with an optional custom character set
 - Added comprehensive tests for all random functions
 - Ensured that seeded functions produce consistent results with the same seed
+
+### ACL Implementation
+
+- Implemented a robust ACL (Access Control List) system according to Fastly VCL specifications:
+  - Support for IPv4 addresses with CIDR notation (e.g., 192.168.0.0/24)
+  - Support for IPv6 addresses with CIDR notation (e.g., 2001:db8::/32)
+  - Efficient binary-based IP address matching for both IPv4 and IPv6
+  - Support for ACL declarations in VCL files
+  - ACL membership checking using the `~` operator (e.g., `client.ip ~ acl_name`)
+  - Proper handling of edge cases and invalid IP addresses
+- Technical implementation details:
+  - Conversion of IP addresses to binary representation for efficient prefix matching
+  - Support for IPv4-mapped IPv6 addresses (e.g., ::ffff:192.168.0.1)
+  - Normalization of IPv6 addresses to handle abbreviated forms
+  - Validation of IP addresses and subnet masks
+  - Efficient CIDR matching algorithm
+- Added comprehensive tests for ACL functionality:
+  - Tests for IPv4 CIDR matching
+  - Tests for IPv6 CIDR matching
+  - Tests for ACL membership checking
+  - Tests for invalid IP addresses and edge cases
+- Fixed compatibility issues with the VCL compiler to ensure proper handling of ACL declarations and membership checks

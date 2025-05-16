@@ -109,7 +109,11 @@ All high-priority tasks have been completed. The proxy now supports:
 ## Lower Priority Tasks
 
 1. **Advanced VCL Features**
-   - Implement ACLs (Access Control Lists)
+   - Implement ACLs (Access Control Lists) ✅
+     - Support IPv4 CIDR notation ✅
+     - Support IPv6 CIDR notation ✅
+     - Implement ACL membership checking ✅
+     - Support ACL declarations in VCL ✅
    - Support table data structures
    - Implement directors (load balancing) ✅
    - Support Edge Side Includes (ESI)
@@ -181,6 +185,13 @@ All high-priority tasks have been completed. The proxy now supports:
    - Implemented `randomint_seeded` function for generating deterministic random integers ✅
    - Implemented `randomstr` function for generating random strings with optional custom character sets ✅
    - Added comprehensive tests for all random functions ✅
+
+6. **ACL Implementation** ✅
+   - Implemented robust CIDR matching for IPv4 addresses ✅
+   - Added support for IPv6 addresses and CIDR notation ✅
+   - Implemented ACL declaration and membership checking in VCL ✅
+   - Added comprehensive tests for ACL functionality ✅
+   - Fixed compatibility issues with the VCL compiler ✅
 
 ## Completion Criteria
 
