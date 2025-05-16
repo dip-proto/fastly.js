@@ -5,3 +5,7 @@ Implement the highest-priority task. Test frequently with the "bun run" command.
 
 Finish this. Test frequently with the "bun run" command. Study the specification of VCL that can be found in the fastly-vcl and vcl-functions directories.
 Finish implementing the highest-priority task. Test frequently with Fastly VCL code snippets. Keep track of your progress in the TODO.md and TECHNICAL_DETAILS.md files. Adjust priorities and add tasks if needed.
+
+Add a proper test suite testing with VCL code snippets.
+
+Verify that what is implemented matches the specification from the fastly-vcl and vcl-functions directories.
