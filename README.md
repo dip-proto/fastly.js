@@ -30,15 +30,13 @@ Fastly VCL (Varnish Configuration Language) is a domain-specific language used t
 ## Installation
 
 ```bash
-# Clone the repository
-git clone <repository-url>
-cd <repository-directory>
-
 # Install dependencies
 bun install
 ```
 
 ## Usage
+
+### Basic Usage
 
 Start the proxy server with a VCL configuration file:
 
@@ -55,6 +53,150 @@ http://127.0.0.1:8000
 ```
 
 All requests will be processed according to your VCL configuration.
+
+### Examples
+
+#### Example 1: Basic Caching
+
+Create a file named `basic-cache.vcl` with the following content:
+
+```vcl
+sub vcl_recv {
+  # Pass dynamic content directly to the backend
+  if (req.url ~ "^/api/" || req.url ~ "\?") {
+    return(pass);
+  }
+
+  # Continue to cache lookup for static content
+  return(lookup);
+}
+
+sub vcl_fetch {
+  # Cache static assets for 1 hour
+  if (req.url ~ "\.(jpg|jpeg|png|gif|ico|css|js)$") {
+    set beresp.ttl = 1h;
+  } else {
+    # Cache other content for 5 minutes
+    set beresp.ttl = 5m;
+  }
+  return(deliver);
+}
+```
+
+Run the proxy with this configuration:
+
+```bash
+bun run index.ts basic-cache.vcl
+```
+
+#### Example 2: A/B Testing
+
+Create a file named `ab-test.vcl` with the following content:
+
+```vcl
+sub vcl_recv {
+  # Randomly assign users to A or B variant (50/50 split)
+  if (!req.http.X-ABTest) {
+    if (std.random.randombool(0.5)) {
+      set req.http.X-ABTest = "A";
+    } else {
+      set req.http.X-ABTest = "B";
+    }
+  }
+
+  # Add the variant to the cache key
+  set req.http.Fastly-Cache-Key = req.http.X-ABTest;
+
+  return(lookup);
+}
+
+sub vcl_deliver {
+  # Add the variant to the response headers
+  set resp.http.X-ABTest = req.http.X-ABTest;
+
+  return(deliver);
+}
+```
+
+Run the proxy with this configuration:
+
+```bash
+bun run index.ts ab-test.vcl
+```
+
+#### Example 3: Error Handling
+
+Create a file named `error-handling.vcl` with the following content:
+
+```vcl
+sub vcl_recv {
+  # Block access to admin area from non-internal IPs
+  if (req.url ~ "^/admin/" && client.ip !~ "^(127\.0\.0\.1|192\.168\.)") {
+    error 403 "Forbidden";
+  }
+
+  return(lookup);
+}
+
+sub vcl_error {
+  # Custom error page
+  if (obj.status == 403) {
+    set obj.http.Content-Type = "text/html; charset=utf-8";
+    synthetic {"
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Access Denied</title>
+        </head>
+        <body>
+          <h1>Access Denied</h1>
+          <p>You do not have permission to access this area.</p>
+        </body>
+      </html>
+    "};
+    return(deliver);
+  }
+
+  return(deliver);
+}
+```
+
+Run the proxy with this configuration:
+
+```bash
+bun run index.ts error-handling.vcl
+```
+
+### Using with Custom Backends
+
+You can configure multiple backends in your VCL file:
+
+```vcl
+backend api {
+  .host = "api.example.com";
+  .port = "443";
+  .ssl = true;
+}
+
+backend static {
+  .host = "static.example.com";
+  .port = "443";
+  .ssl = true;
+}
+
+sub vcl_recv {
+  # Route requests to appropriate backends
+  if (req.url ~ "^/api/") {
+    set req.backend = api;
+  } else if (req.url ~ "^/static/") {
+    set req.backend = static;
+  }
+
+  return(lookup);
+}
+```
+
+This configuration will route requests to different backends based on the URL path.
 
 ## Testing
 
