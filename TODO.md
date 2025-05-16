@@ -50,12 +50,12 @@ All high-priority tasks have been completed. The proxy now supports:
      - Implement regex functions (`regsub`, `regsuball`) ✅
      - Implement string utility functions (`std.strpad`, `std.strrep`, `std.strrev`, `substr`) ✅
 
-   - **Time Functions** (Partially Implemented)
-     - Implement time arithmetic (`time.add`, `time.sub`)
-     - Implement time comparison (`time.is_after`)
+   - **Time Functions** ✅
+     - Implement time arithmetic (`time.add`, `time.sub`) ✅
+     - Implement time comparison (`time.is_after`) ✅
      - Implement time formatting (`strftime`) ✅
      - Implement time parsing (`std.time`) ✅
-     - Implement time conversion (`time.hex_to_time`)
+     - Implement time conversion (`time.hex_to_time`) ✅
 
    - **Math Functions** ✅
      - Implement type conversion (`std.integer`, `std.real`) ✅
@@ -71,8 +71,8 @@ All high-priority tasks have been completed. The proxy now supports:
 
    - **HTTP Functions** ✅
      - Implement header manipulation (`header.get`, `header.set`, `header.unset`) ✅
-     - Implement header filtering (`header.filter`, `header.filter_except`)
-     - Implement status code handling (`http.status_matches`)
+     - Implement header filtering (`header.filter`, `header.filter_except`) ✅
+     - Implement status code handling (`http.status_matches`) ✅
 
    - **Query String Functions** ✅
      - Implement parameter extraction (`querystring.get`) ✅

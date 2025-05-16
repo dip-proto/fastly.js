@@ -53,7 +53,8 @@ export function createVCLContext(): VCLContext {
     req: {
       url: '',
       method: '',
-      http: {}
+      http: {},
+      backend: 'default'
     },
     bereq: {
       url: '',
@@ -81,6 +82,29 @@ export function createVCLContext(): VCLContext {
     },
     cache: new Map(),
     hashData: [],
+
+    // Initialize backends
+    backends: {
+      // Default backend
+      'default': {
+        name: 'default',
+        host: 'neverssl.com',
+        port: 80,
+        ssl: false,
+        connect_timeout: 1000, // 1 second
+        first_byte_timeout: 15000, // 15 seconds
+        between_bytes_timeout: 10000, // 10 seconds
+        max_connections: 200,
+        is_healthy: true
+      }
+    },
+
+    // Initialize directors
+    directors: {},
+
+    // Set current backend to default
+    current_backend: undefined,
+
     fastly: {
       error: '',
       state: 'recv'
@@ -95,11 +119,104 @@ export function createVCLContext(): VCLContext {
     },
 
     // Time functions
-    time: (format: string) => {
-      return Date.now();
-    },
     strftime: (format: string, time: number) => {
       return new Date(time).toISOString();
+    },
+
+    // Time manipulation functions
+    time: {
+      // Get current time
+      now: () => {
+        return Date.now();
+      },
+      add: (time: number, offset: string | number): number => {
+        const baseTime = new Date(time);
+        let offsetMs = 0;
+        let isNegative = false;
+
+        if (typeof offset === 'number') {
+          offsetMs = offset;
+        } else if (typeof offset === 'string') {
+          // Check if the offset is negative
+          if (offset.startsWith('-')) {
+            isNegative = true;
+            offset = offset.substring(1); // Remove the negative sign
+          }
+
+          // Parse time strings like "1h", "30m", "45s", etc.
+          const match = offset.match(/^(\d+)([smhd])$/);
+          if (match) {
+            const value = parseInt(match[1], 10);
+            const unit = match[2];
+
+            switch (unit) {
+              case 's': // seconds
+                offsetMs = value * 1000;
+                break;
+              case 'm': // minutes
+                offsetMs = value * 60 * 1000;
+                break;
+              case 'h': // hours
+                offsetMs = value * 60 * 60 * 1000;
+                break;
+              case 'd': // days
+                offsetMs = value * 24 * 60 * 60 * 1000;
+                break;
+              default:
+                console.error(`Unknown time unit: ${unit}`);
+                return time;
+            }
+          } else {
+            // Try to parse as milliseconds
+            offsetMs = parseInt(offset, 10);
+            if (isNaN(offsetMs)) {
+              console.error(`Invalid time offset: ${offset}`);
+              return time;
+            }
+          }
+        }
+
+        // Apply the offset (negative or positive)
+        if (isNegative) {
+          offsetMs = -offsetMs;
+        }
+
+        baseTime.setTime(baseTime.getTime() + offsetMs);
+        return baseTime.getTime();
+      },
+
+      sub: (time1: number, time2: number): number => {
+        // Return the difference in milliseconds
+        return time1 - time2;
+      },
+
+      is_after: (time1: number, time2: number): boolean => {
+        // Check if time1 is after time2
+        return time1 > time2;
+      },
+
+      hex_to_time: (hex: string): number => {
+        try {
+          // Validate hex string format
+          if (!hex.match(/^[0-9A-Fa-f]+$/)) {
+            console.error(`Invalid hex timestamp: ${hex}`);
+            return Date.now();
+          }
+
+          // Convert hex string to decimal
+          const timestamp = parseInt(hex, 16);
+          if (isNaN(timestamp)) {
+            console.error(`Invalid hex timestamp: ${hex}`);
+            return Date.now();
+          }
+
+          // Convert to milliseconds if it's in seconds (Unix timestamp)
+          return timestamp * 1000;
+        } catch (e) {
+          console.error(`Error converting hex to time: ${e}`);
+          return Date.now();
+        }
+      }
     },
 
     // String manipulation
@@ -292,6 +409,67 @@ export function createVCLContext(): VCLContext {
             delete headers[key];
           }
         }
+      },
+      filter: (headers: Record<string, string>, pattern: string) => {
+        try {
+          const regex = new RegExp(String(pattern));
+          for (const key of Object.keys(headers)) {
+            if (regex.test(key)) {
+              delete headers[key];
+            }
+          }
+        } catch (e) {
+          console.error(`Invalid regex pattern for header.filter: ${pattern}`, e);
+        }
+      },
+      filter_except: (headers: Record<string, string>, pattern: string) => {
+        try {
+          const regex = new RegExp(String(pattern));
+          const keysToKeep = new Set<string>();
+
+          // First, identify all keys that match the pattern
+          for (const key of Object.keys(headers)) {
+            if (regex.test(key)) {
+              keysToKeep.add(key);
+            }
+          }
+
+          // Then, remove all keys that don't match
+          for (const key of Object.keys(headers)) {
+            if (!keysToKeep.has(key)) {
+              delete headers[key];
+            }
+          }
+        } catch (e) {
+          console.error(`Invalid regex pattern for header.filter_except: ${pattern}`, e);
+        }
+      }
+    },
+
+    // HTTP status functions
+    http: {
+      status_matches: (status: number, pattern: string) => {
+        const statusStr = String(status);
+
+        // Handle category patterns
+        if (pattern === "2xx" || pattern === "success") {
+          return status >= 200 && status < 300;
+        } else if (pattern === "3xx" || pattern === "redirect") {
+          return status >= 300 && status < 400;
+        } else if (pattern === "4xx" || pattern === "client_error") {
+          return status >= 400 && status < 500;
+        } else if (pattern === "5xx" || pattern === "server_error") {
+          return status >= 500 && status < 600;
+        } else if (pattern === "error") {
+          return status >= 400 && status < 600;
+        } else if (pattern.endsWith("xx")) {
+          // Handle patterns like "2xx", "3xx", etc.
+          const prefix = pattern.substring(0, 1);
+          return statusStr.startsWith(prefix);
+        } else {
+          // Handle exact status code matches
+          return statusStr === pattern;
+        }
       }
     },
 
@@ -425,6 +603,226 @@ export function createVCLContext(): VCLContext {
             return url;
           }
         }
+      }
+    }
+  };
+
+  // Add backend management functions
+  context.std.backend = {
+    // Add a new backend
+    add: (name: string, host: string, port: number, ssl: boolean = false, options: any = {}) => {
+      context.backends[name] = {
+        name,
+        host,
+        port,
+        ssl,
+        connect_timeout: options.connect_timeout || 1000, // 1 second
+        first_byte_timeout: options.first_byte_timeout || 15000, // 15 seconds
+        between_bytes_timeout: options.between_bytes_timeout || 10000, // 10 seconds
+        max_connections: options.max_connections || 200,
+        ssl_cert_hostname: options.ssl_cert_hostname || host,
+        ssl_sni_hostname: options.ssl_sni_hostname || host,
+        ssl_check_cert: options.ssl_check_cert !== undefined ? options.ssl_check_cert : true,
+        probe: options.probe,
+        is_healthy: true // Default to healthy
+      };
+      return true;
+    },
+
+    // Remove a backend
+    remove: (name: string) => {
+      if (context.backends[name]) {
+        delete context.backends[name];
+        return true;
+      }
+      return false;
+    },
+
+    // Get a backend by name
+    get: (name: string) => {
+      return context.backends[name] || null;
+    },
+
+    // Set the current backend
+    set_current: (name: string) => {
+      if (context.backends[name]) {
+        context.req.backend = name;
+        context.current_backend = context.backends[name];
+        return true;
+      }
+      return false;
+    },
+
+    // Check if a backend is healthy
+    is_healthy: (name: string) => {
+      const backend = context.backends[name];
+      if (backend) {
+        return backend.is_healthy || false;
+      }
+      return false;
+    },
+
+    // Add a health check probe to a backend
+    add_probe: (backendName: string, options: any) => {
+      const backend = context.backends[backendName];
+      if (backend) {
+        backend.probe = {
+          request: options.request || `HEAD / HTTP/1.1\r\nHost: ${backend.host}\r\nConnection: close\r\n\r\n`,
+          expected_response: options.expected_response || 200,
+          interval: options.interval || 5000, // 5 seconds
+          timeout: options.timeout || 2000, // 2 seconds
+          window: options.window || 5,
+          threshold: options.threshold || 3,
+          initial: options.initial || 2
+        };
+        return true;
+      }
+      return false;
+    }
+  };
+
+  // Add director management functions
+  context.std.director = {
+    // Add a new director
+    add: (name: string, type: string, options: any = {}) => {
+      // Validate director type
+      const validTypes = ['random', 'hash', 'client', 'fallback', 'chash'];
+      if (!validTypes.includes(type)) {
+        console.error(`Invalid director type: ${type}`);
+        return false;
+      }
+
+      context.directors[name] = {
+        name,
+        type: type as any,
+        backends: [],
+        quorum: options.quorum || 0,
+        retries: options.retries || 0
+      };
+      return true;
+    },
+
+    // Remove a director
+    remove: (name: string) => {
+      if (context.directors[name]) {
+        delete context.directors[name];
+        return true;
+      }
+      return false;
+    },
+
+    // Add a backend to a director
+    add_backend: (directorName: string, backendName: string, weight: number = 1) => {
+      const director = context.directors[directorName];
+      const backend = context.backends[backendName];
+
+      if (director && backend) {
+        director.backends.push({
+          backend,
+          weight
+        });
+        return true;
+      }
+      return false;
+    },
+
+    // Remove a backend from a director
+    remove_backend: (directorName: string, backendName: string) => {
+      const director = context.directors[directorName];
+
+      if (director) {
+        const index = director.backends.findIndex(b => b.backend.name === backendName);
+        if (index !== -1) {
+          director.backends.splice(index, 1);
+          return true;
+        }
+      }
+      return false;
+    },
+
+    // Get a backend from a director based on the director's type and the request
+    select_backend: (directorName: string) => {
+      const director = context.directors[directorName];
+
+      if (!director || director.backends.length === 0) {
+        return null;
+      }
+
+      // Filter out unhealthy backends
+      const healthyBackends = director.backends.filter(b => b.backend.is_healthy);
+
+      // Check if we have enough healthy backends to meet the quorum
+      const quorumPercentage = director.quorum / 100;
+      const requiredHealthyBackends = Math.ceil(director.backends.length * quorumPercentage);
+
+      if (healthyBackends.length < requiredHealthyBackends) {
+        console.log(`Director ${directorName} does not have enough healthy backends to meet quorum`);
+        return null;
+      }
+
+      // Select a backend based on the director type
+      switch (director.type) {
+        case 'random':
+          // Select a random backend weighted by the weights
+          const totalWeight = healthyBackends.reduce((sum, b) => sum + b.weight, 0);
+          let random = Math.random() * totalWeight;
+
+          for (const b of healthyBackends) {
+            random -= b.weight;
+            if (random <= 0) {
+              return b.backend;
+            }
+          }
+
+          // Fallback to the first healthy backend
+          return healthyBackends[0].backend;
+
+        case 'hash':
+          // Use the hash data to select a backend
+          if (context.hashData && context.hashData.length > 0) {
+            const hash = context.hashData.join(':');
+            const index = Math.abs(hash.split('').reduce((a, b) => {
+              a = ((a << 5) - a) + b.charCodeAt(0);
+              return a & a;
+            }, 0)) % healthyBackends.length;
+
+            return healthyBackends[index].backend;
+          }
+          // Fallback to the first healthy backend
+          return healthyBackends[0].backend;
+
+        case 'client':
+          // Use the client identity to select a backend
+          const clientIdentity = context.req.http['X-Client-Identity'] || context.req.http['Cookie'] || '';
+          const clientIndex = Math.abs(clientIdentity.split('').reduce((a, b) => {
+            a = ((a << 5) - a) + b.charCodeAt(0);
+            return a & a;
+          }, 0)) % healthyBackends.length;
+
+          return healthyBackends[clientIndex].backend;
+
+        case 'fallback':
+          // Return the first healthy backend
+          return healthyBackends[0].backend;
+
+        case 'chash':
+          // Similar to hash but with consistent hashing
+          // For simplicity, we'll use the same implementation as hash for now
+          if (context.hashData && context.hashData.length > 0) {
+            const hash = context.hashData.join(':');
+            const index = Math.abs(hash.split('').reduce((a, b) => {
+              a = ((a << 5) - a) + b.charCodeAt(0);
+              return a & a;
+            }, 0)) % healthyBackends.length;
+
+            return healthyBackends[index].backend;
+          }
+          // Fallback to the first healthy backend
+          return healthyBackends[0].backend;
+
+        default:
+          // Unknown director type, return the first healthy backend
+          return healthyBackends[0].backend;
       }
     }
   };

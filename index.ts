@@ -5,11 +5,17 @@
  */
 
 // Configuration
-const TARGET_HOST = "neverssl.com";
-const TARGET_URL = `http://${TARGET_HOST}`;
 const PROXY_HOST = "127.0.0.1";
 const PROXY_PORT = 8000;
 const VCL_FILE_PATH = process.argv[2] || "filter.vcl";
+
+// Default backend configuration
+const DEFAULT_BACKEND = {
+    name: "default",
+    host: "neverssl.com",
+    port: 80,
+    ssl: false
+};
 
 // Import VCL module
 import { loadVCL, createVCLContext, executeVCL } from './src/vcl';
@@ -21,6 +27,62 @@ const vclSubroutines = loadVCL(VCL_FILE_PATH);
 
 // Simple in-memory cache
 const cache = new Map();
+
+// Create a VCL context for backend setup
+const setupContext = createVCLContext();
+
+// Set up backends for testing
+console.log('Setting up backends...');
+
+// Main backend (default)
+setupContext.std.backend.add('main', 'neverssl.com', 80, false, {
+    connect_timeout: 1000,
+    first_byte_timeout: 15000,
+    between_bytes_timeout: 10000
+});
+
+// API backend
+setupContext.std.backend.add('api', 'httpbin.org', 80, false, {
+    connect_timeout: 2000,
+    first_byte_timeout: 20000,
+    between_bytes_timeout: 15000
+});
+
+// Static content backend
+setupContext.std.backend.add('static', 'example.com', 80, false);
+
+// Add health check probes
+setupContext.std.backend.add_probe('main', {
+    request: 'HEAD / HTTP/1.1\r\nHost: neverssl.com\r\nConnection: close\r\n\r\n',
+    expected_response: 200,
+    interval: 5000,
+    timeout: 2000
+});
+
+setupContext.std.backend.add_probe('api', {
+    request: 'HEAD /get HTTP/1.1\r\nHost: httpbin.org\r\nConnection: close\r\n\r\n',
+    expected_response: 200,
+    interval: 10000,
+    timeout: 5000
+});
+
+// Create directors
+setupContext.std.director.add('main_director', 'random', {
+    quorum: 50,
+    retries: 3
+});
+
+// Add backends to the main director
+setupContext.std.director.add_backend('main_director', 'main', 2);
+setupContext.std.director.add_backend('main_director', 'static', 1);
+
+// Fallback director
+setupContext.std.director.add('fallback_director', 'fallback');
+setupContext.std.director.add_backend('fallback_director', 'main', 1);
+setupContext.std.director.add_backend('fallback_director', 'api', 1);
+
+console.log(`Backends configured: ${Object.keys(setupContext.backends).join(', ')}`);
+console.log(`Directors configured: ${Object.keys(setupContext.directors).join(', ')}`);
 
 // Start the server
 const server = Bun.serve({
@@ -164,10 +226,23 @@ const server = Bun.serve({
 
         // If we get here, we need to fetch from the backend
 
-        // Create a new URL pointing to the target
-        const targetUrl = new URL(url.pathname + url.search, TARGET_URL);
+        // Get the selected backend or use the default
+        const backendName = context.req.backend || 'default';
+        const backend = context.backends[backendName];
 
-        console.log(`Proxying request: ${req.method} ${url.pathname} -> ${targetUrl}`);
+        if (!backend) {
+            console.error(`Backend ${backendName} not found, using default`);
+            context.req.backend = 'default';
+            context.current_backend = context.backends['default'];
+        } else {
+            context.current_backend = backend;
+        }
+
+        // Create a new URL pointing to the target backend
+        const protocol = context.current_backend.ssl ? 'https' : 'http';
+        const targetUrl = new URL(url.pathname + url.search, `${protocol}://${context.current_backend.host}:${context.current_backend.port}`);
+
+        console.log(`Proxying request: ${req.method} ${url.pathname} -> ${targetUrl} (backend: ${context.current_backend.name})`);
 
         // Prepare backend request
         context.bereq.url = targetUrl.toString();
@@ -189,7 +264,7 @@ const server = Bun.serve({
         // Remove host header to avoid conflicts
         proxyReq.headers.delete("host");
         // Set the host header to the target host
-        proxyReq.headers.set("host", TARGET_HOST);
+        proxyReq.headers.set("host", context.current_backend.host);
 
         // Add the original host as a header
         proxyReq.headers.set("x-forwarded-host", url.host);
@@ -300,5 +375,5 @@ const server = Bun.serve({
 });
 
 console.log(`HTTP Proxy server running at http://${PROXY_HOST}:${PROXY_PORT}`);
-console.log(`Proxying requests to ${TARGET_URL}`);
+console.log(`Default backend: ${DEFAULT_BACKEND.host}:${DEFAULT_BACKEND.port}`);
 console.log(`Using VCL file: ${VCL_FILE_PATH}`);

@@ -24,12 +24,50 @@ import {
   VCLRegexLiteral
 } from './vcl-parser';
 
+// Backend interface
+export interface VCLBackend {
+  name: string;
+  host: string;
+  port: number;
+  ssl: boolean;
+  connect_timeout: number; // in milliseconds
+  first_byte_timeout: number; // in milliseconds
+  between_bytes_timeout: number; // in milliseconds
+  max_connections: number;
+  ssl_cert_hostname?: string;
+  ssl_sni_hostname?: string;
+  ssl_check_cert?: boolean;
+  probe?: VCLProbe;
+  is_healthy?: boolean;
+}
+
+// Health check probe interface
+export interface VCLProbe {
+  request: string;
+  expected_response: number;
+  interval: number; // in milliseconds
+  timeout: number; // in milliseconds
+  window: number;
+  threshold: number;
+  initial: number;
+}
+
+// Director interface
+export interface VCLDirector {
+  name: string;
+  type: 'random' | 'hash' | 'client' | 'fallback' | 'chash';
+  backends: Array<{ backend: VCLBackend, weight: number }>;
+  quorum: number; // percentage (0-100)
+  retries: number;
+}
+
 // VCL Context interface
 export interface VCLContext {
   req: {
     url: string;
     method: string;
     http: Record<string, string>;
+    backend?: string; // Name of the selected backend
   };
   bereq: {
     url: string;
@@ -59,6 +97,11 @@ export interface VCLContext {
   cache: Map<string, any>;
   hashData?: string[];
 
+  // Backend-related properties
+  backends: Record<string, VCLBackend>;
+  directors: Record<string, VCLDirector>;
+  current_backend?: VCLBackend;
+
   // Fastly-specific properties
   fastly?: {
     error?: string;
@@ -71,8 +114,36 @@ export interface VCLContext {
     log: (message: string) => void;
 
     // Time functions
-    time: (format: string) => number;
     strftime: (format: string, time: number) => string;
+
+    // Time manipulation functions
+    time: {
+      // Get current time
+      now: () => number;
+      add: (time: number, offset: string | number) => number;
+      sub: (time1: number, time2: number) => number;
+      is_after: (time1: number, time2: number) => boolean;
+      hex_to_time: (hex: string) => number;
+    };
+
+    // Backend management functions
+    backend?: {
+      add: (name: string, host: string, port: number, ssl?: boolean, options?: any) => boolean;
+      remove: (name: string) => boolean;
+      get: (name: string) => VCLBackend | null;
+      set_current: (name: string) => boolean;
+      is_healthy: (name: string) => boolean;
+      add_probe: (backendName: string, options: any) => boolean;
+    };
+
+    // Director management functions
+    director?: {
+      add: (name: string, type: string, options?: any) => boolean;
+      remove: (name: string) => boolean;
+      add_backend: (directorName: string, backendName: string, weight?: number) => boolean;
+      remove_backend: (directorName: string, backendName: string) => boolean;
+      select_backend: (directorName: string) => VCLBackend | null;
+    };
 
     // String manipulation
     tolower: (str: string) => string;
@@ -127,6 +198,13 @@ export interface VCLContext {
       get: (headers: Record<string, string>, name: string) => string | null;
       set: (headers: Record<string, string>, name: string, value: string) => void;
       remove: (headers: Record<string, string>, name: string) => void;
+      filter: (headers: Record<string, string>, pattern: string) => void;
+      filter_except: (headers: Record<string, string>, pattern: string) => void;
+    };
+
+    // HTTP status functions
+    http: {
+      status_matches: (status: number, pattern: string) => boolean;
     };
 
     // Query string functions
