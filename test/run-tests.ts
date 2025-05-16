@@ -10,6 +10,7 @@ import stdlibTests from './stdlib-tests';
 import cachingTests from './caching-tests';
 import backendErrorTests from './backend-error-tests';
 import randomFunctionsTests from './random-functions-tests';
+import vclFileTests from './vcl-file-tests';
 
 // Run all test suites
 async function runTests() {
@@ -18,7 +19,8 @@ async function runTests() {
     stdlibTests,
     cachingTests,
     backendErrorTests,
-    randomFunctionsTests
+    randomFunctionsTests,
+    vclFileTests
   ]);
 }
 

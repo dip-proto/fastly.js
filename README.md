@@ -1,10 +1,10 @@
-# Fastly VCL Proxy
+# Fastly.JS
 
-A TypeScript implementation of the Fastly edge computing platform with full VCL (Varnish Configuration Language) support, built with the Bun JavaScript runtime.
+An implementation of the Fastly platform with full VCL support, in pure JavaScript.
 
 ## Project Overview
 
-This project aims to reimplement the Fastly CDN and edge computing platform with a focus on VCL compatibility. It provides a local development environment for testing and deploying Fastly VCL configurations without requiring the actual Fastly infrastructure.
+This project aims to provide a local development environment for testing and deploying Fastly VCL configurations without requiring the actual Fastly infrastructure.
 
 ### What is Fastly VCL?
 
@@ -235,12 +235,4 @@ You can modify the following constants in `index.ts` to change the proxy setting
 
 ## Development Status
 
-This project is actively under development. See the `TODO.md` file for a detailed roadmap and current implementation status.
-
-## License
-
-MIT
-
----
-
-This project uses [Bun](https://bun.sh), a fast all-in-one JavaScript runtime.
+See the `TODO.md` file for a detailed roadmap and current implementation status.
