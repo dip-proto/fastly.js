@@ -423,6 +423,20 @@ export class VCLLexer {
     // Handle time units (s, m, h, d, y)
     if (this.position < this.input.length && /[smhdy]/.test(this.input[this.position])) {
       this.advance();
+
+      // Check for VCL time units like "5m" (5 minutes)
+      const value = this.input.substring(start, this.position);
+
+      console.log(`Tokenizing time value: ${value}`);
+
+      this.tokens.push({
+        type: TokenType.STRING, // Treat time values as strings to preserve the unit
+        value: `"${value}"`, // Wrap in quotes to make it a string literal
+        line: startLine,
+        column: startColumn
+      });
+
+      return;
     }
 
     const value = this.input.substring(start, this.position);

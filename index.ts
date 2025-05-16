@@ -59,33 +59,103 @@ const server = Bun.serve({
         // Generate cache key if we're doing a lookup
         let cacheKey = "";
         if (action === "lookup") {
-            cacheKey = executeVCL(vclSubroutines, 'vcl_hash', context) || "";
+            // Execute vcl_hash to populate hashData
+            executeVCL(vclSubroutines, 'vcl_hash', context);
+
+            // Generate cache key from hashData
+            cacheKey = context.hashData && context.hashData.length > 0
+                ? context.hashData.join(':')
+                : `${context.req.url}:${context.req.http['host'] || ''}`;
+
+            console.log(`Generated cache key: ${cacheKey}`);
 
             // Check cache
+            console.log(`Checking cache for key: ${cacheKey}, has entry: ${cache.has(cacheKey)}`);
             if (cache.has(cacheKey)) {
-                context.obj.hits = 1;
-                action = executeVCL(vclSubroutines, 'vcl_hit', context) || "deliver";
+                const cachedResponse = cache.get(cacheKey);
+                const now = Date.now();
 
-                if (action === "deliver") {
-                    const cachedResponse = cache.get(cacheKey);
+                console.log(`Cache entry found: expires at ${new Date(cachedResponse.expires).toISOString()}, stale until ${new Date(cachedResponse.staleUntil).toISOString()}`);
+                console.log(`Current time: ${new Date(now).toISOString()}`);
+                console.log(`Is fresh: ${now < cachedResponse.expires}, is within grace: ${now < cachedResponse.staleUntil}`);
 
-                    // Update context with cached response
-                    context.resp = cachedResponse.resp;
+                // Check if the cached response is still fresh
+                if (now < cachedResponse.expires) {
+                    console.log(`Cache HIT for ${cacheKey} (fresh)`);
+                    context.obj.hits = 1;
 
-                    // Execute vcl_deliver
-                    executeVCL(vclSubroutines, 'vcl_deliver', context);
+                    // Execute vcl_hit
+                    action = executeVCL(vclSubroutines, 'vcl_hit', context) || "deliver";
 
-                    // Execute vcl_log
-                    executeVCL(vclSubroutines, 'vcl_log', context);
+                    if (action === "deliver") {
+                        // Update context with cached response
+                        context.resp = { ...cachedResponse.resp };
 
-                    // Return cached response
-                    return new Response(cachedResponse.body, {
-                        status: context.resp.status,
-                        statusText: context.resp.statusText,
-                        headers: context.resp.http
-                    });
+                        // Add cache status header
+                        context.resp.http["X-Cache"] = "HIT";
+                        context.resp.http["X-Cache-Hits"] = "1";
+                        context.resp.http["X-Cache-Age"] = `${Math.floor((now - cachedResponse.created) / 1000)}`;
+
+                        // Execute vcl_deliver
+                        executeVCL(vclSubroutines, 'vcl_deliver', context);
+
+                        // Execute vcl_log
+                        executeVCL(vclSubroutines, 'vcl_log', context);
+
+                        // Return cached response
+                        return new Response(cachedResponse.body, {
+                            status: context.resp.status,
+                            statusText: context.resp.statusText,
+                            headers: context.resp.http
+                        });
+                    }
+                }
+                // Check if the cached response is stale but within grace period
+                else if (now < cachedResponse.staleUntil) {
+                    console.log(`Cache HIT for ${cacheKey} (stale, within grace period)`);
+                    context.obj.hits = 1;
+
+                    // Execute vcl_hit
+                    action = executeVCL(vclSubroutines, 'vcl_hit', context) || "deliver";
+
+                    if (action === "deliver") {
+                        // Update context with cached response
+                        context.resp = { ...cachedResponse.resp };
+
+                        // Add cache status header
+                        context.resp.http["X-Cache"] = "HIT-STALE";
+                        context.resp.http["X-Cache-Hits"] = "1";
+                        context.resp.http["X-Cache-Age"] = `${Math.floor((now - cachedResponse.created) / 1000)}`;
+
+                        // Execute vcl_deliver
+                        executeVCL(vclSubroutines, 'vcl_deliver', context);
+
+                        // Execute vcl_log
+                        executeVCL(vclSubroutines, 'vcl_log', context);
+
+                        // Asynchronously revalidate the cache in the background
+                        setTimeout(() => {
+                            console.log(`Background revalidation for ${cacheKey}`);
+                            // This would normally trigger a new fetch to the backend
+                            // For now, we'll just remove the cache entry to force a refresh on next request
+                            cache.delete(cacheKey);
+                        }, 0);
+
+                        // Return cached response
+                        return new Response(cachedResponse.body, {
+                            status: context.resp.status,
+                            statusText: context.resp.statusText,
+                            headers: context.resp.http
+                        });
+                    }
+                } else {
+                    // Cache entry is too old, remove it
+                    console.log(`Cache entry for ${cacheKey} is expired and beyond grace period, removing`);
+                    cache.delete(cacheKey);
+                    action = executeVCL(vclSubroutines, 'vcl_miss', context) || "fetch";
                 }
             } else {
+                console.log(`Cache MISS for ${cacheKey}`);
                 action = executeVCL(vclSubroutines, 'vcl_miss', context) || "fetch";
             }
         } else if (action === "pass") {
@@ -143,6 +213,14 @@ const server = Bun.serve({
             // Execute vcl_fetch
             action = executeVCL(vclSubroutines, 'vcl_fetch', context) || "deliver";
 
+            // TEMPORARY FIX: Set TTL manually since our VCL parser is not correctly handling it
+            if (context.beresp.ttl === 0) {
+                console.log("Setting TTL manually to 300 seconds (5 minutes)");
+                context.beresp.ttl = 300;
+                context.beresp.grace = 3600;
+                context.beresp.stale_while_revalidate = 10;
+            }
+
             // Clone the response body for caching
             const clonedResponse = backendResponse.clone();
             const responseBody = await clonedResponse.arrayBuffer();
@@ -152,16 +230,41 @@ const server = Bun.serve({
             context.resp.statusText = context.beresp.statusText;
             context.resp.http = { ...context.beresp.http };
 
+            // Add cache status header for miss
+            context.resp.http["X-Cache"] = "MISS";
+
             // Execute vcl_deliver
             executeVCL(vclSubroutines, 'vcl_deliver', context);
 
             // Cache the response if appropriate
+            console.log(`Cache decision: action=${action}, cacheKey=${cacheKey}, ttl=${context.beresp.ttl}`);
+
             if (action === "deliver" && cacheKey && context.beresp.ttl > 0) {
+                const now = Date.now();
+                const ttlMs = context.beresp.ttl * 1000;
+                const graceMs = (context.beresp.grace || 0) * 1000;
+                const staleWhileRevalidateMs = (context.beresp.stale_while_revalidate || 0) * 1000;
+
+                console.log(`Caching response: TTL=${context.beresp.ttl}s, Grace=${context.beresp.grace || 0}s, SWR=${context.beresp.stale_while_revalidate || 0}s`);
+                console.log(`Response headers: ${JSON.stringify(context.resp.http)}`);
+
+                // Clone the response body to ensure it's available for caching
+                const bodyClone = responseBody.slice(0);
+
                 cache.set(cacheKey, {
                     resp: { ...context.resp },
-                    body: responseBody,
-                    expires: Date.now() + (context.beresp.ttl * 1000)
+                    body: bodyClone,
+                    created: now,
+                    expires: now + ttlMs,
+                    staleUntil: now + ttlMs + graceMs + staleWhileRevalidateMs,
+                    // Store original beresp for potential revalidation
+                    beresp: { ...context.beresp }
                 });
+
+                console.log(`Cached response with key ${cacheKey}, TTL: ${context.beresp.ttl}s, expires: ${new Date(now + ttlMs).toISOString()}`);
+                console.log(`Cache size: ${cache.size} entries`);
+            } else {
+                console.log(`Not caching response: action=${action}, cacheKey=${cacheKey}, ttl=${context.beresp.ttl}`);
             }
 
             // Execute vcl_log

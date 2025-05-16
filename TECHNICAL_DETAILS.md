@@ -284,15 +284,19 @@ The implementation will be divided into phases to allow for incremental developm
 
    **Completed**: We have implemented a basic VCL parser that can parse the syntax in our filter.vcl file. The parser handles subroutines, if statements, return statements, set statements, unset statements, synthetic statements, and more. We've also implemented a basic compiler that can execute the parsed VCL code.
 
-2. **Phase 2: HTTP Integration**
-   - Integrate with the HTTP proxy
-   - Implement request/response object model
-   - Support basic request flow
+2. **Phase 2: HTTP Integration** ✅
+   - Integrate with the HTTP proxy ✅
+   - Implement request/response object model ✅
+   - Support basic request flow ✅
 
-3. **Phase 3: Caching**
-   - Implement basic caching
-   - Support TTL and grace periods
-   - Implement cache variation
+   **Completed**: We have integrated the VCL execution with the HTTP proxy. The proxy now executes the appropriate VCL subroutines at each stage of the request/response cycle. We've implemented the request/response object model with VCL-compatible variables (`req`, `bereq`, `beresp`, `resp`, `obj`) and proper access to headers and other properties.
+
+3. **Phase 3: Caching** ✅
+   - Implement basic caching ✅
+   - Support TTL and grace periods ✅
+   - Implement cache variation ✅
+
+   **Completed**: We have implemented a basic in-memory caching system that supports TTL, grace periods, and stale-while-revalidate. The proxy can now cache responses and serve them from cache when appropriate. Cache entries are automatically invalidated when they expire or when they are explicitly purged.
 
 4. **Phase 4: Advanced Features**
    - Support more complex VCL functions

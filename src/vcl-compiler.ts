@@ -1,6 +1,6 @@
 /**
  * VCL Compiler Module
- * 
+ *
  * This module provides functionality to compile VCL AST into executable TypeScript functions.
  */
 
@@ -41,6 +41,8 @@ export interface VCLContext {
     statusText: string;
     http: Record<string, string>;
     ttl: number;
+    grace?: number;
+    stale_while_revalidate?: number;
   };
   resp: {
     status: number;
@@ -53,8 +55,24 @@ export interface VCLContext {
     http: Record<string, string>;
     hits: number;
   };
-  // Simple cache for demonstration
+  // Cache-related properties
   cache: Map<string, any>;
+  hashData?: string[];
+
+  // Fastly-specific properties
+  fastly?: {
+    error?: string;
+    state?: string;
+  };
+
+  // Standard library functions
+  std?: {
+    log: (message: string) => void;
+    time: (format: string) => number;
+    strftime: (format: string, time: number) => string;
+    tolower: (str: string) => string;
+    toupper: (str: string) => string;
+  };
 }
 
 // VCL Subroutines interface
@@ -75,28 +93,28 @@ export const VCLStdLib = {
   log: (message: string) => {
     console.log(`[VCL] ${message}`);
   },
-  
+
   // Time conversion functions
   time: {
     parse: (timeStr: string): number => {
       return Date.parse(timeStr);
     },
-    
+
     format: (time: number, format: string): string => {
       return new Date(time).toISOString();
     }
   },
-  
+
   // String functions
   string: {
     tolower: (str: string): string => {
       return str.toLowerCase();
     },
-    
+
     toupper: (str: string): string => {
       return str.toUpperCase();
     },
-    
+
     match: (str: string, pattern: string): boolean => {
       try {
         const regex = new RegExp(pattern);
@@ -112,81 +130,102 @@ export const VCLStdLib = {
 // VCL Compiler class
 export class VCLCompiler {
   private program: VCLProgram;
-  
+
   constructor(program: VCLProgram) {
     this.program = program;
   }
-  
+
   compile(): VCLSubroutines {
     const subroutines: VCLSubroutines = {};
-    
+
     // Compile each subroutine
     for (const subroutine of this.program.subroutines) {
       const name = subroutine.name;
-      
+
       if (name.startsWith('vcl_')) {
         subroutines[name] = this.compileSubroutine(subroutine);
       }
     }
-    
+
     return subroutines;
   }
-  
+
   private compileSubroutine(subroutine: VCLSubroutine): (context: VCLContext) => string {
     return (context: VCLContext) => {
+      console.log(`Executing subroutine: ${subroutine.name}`);
+
       try {
         // Execute each statement in the subroutine
         for (const statement of subroutine.body) {
           const result = this.executeStatement(statement, context);
-          
+
           // If the statement returns a value, return it from the subroutine
           if (result && typeof result === 'string') {
+            console.log(`Subroutine ${subroutine.name} returning: ${result}`);
             return result;
           }
         }
-        
+
         // Default return values for each subroutine
+        let defaultReturn = '';
         switch (subroutine.name) {
           case 'vcl_recv':
-            return 'lookup';
+            defaultReturn = 'lookup';
+            break;
           case 'vcl_hash':
-            return 'hash';
+            defaultReturn = 'hash';
+            break;
           case 'vcl_hit':
           case 'vcl_miss':
           case 'vcl_pass':
-            return 'fetch';
+            defaultReturn = 'fetch';
+            break;
           case 'vcl_fetch':
           case 'vcl_deliver':
           case 'vcl_error':
-            return 'deliver';
+            defaultReturn = 'deliver';
+            break;
           default:
-            return '';
+            defaultReturn = '';
         }
+
+        console.log(`Subroutine ${subroutine.name} using default return: ${defaultReturn}`);
+        return defaultReturn;
       } catch (error) {
         console.error(`Error executing subroutine ${subroutine.name}:`, error);
-        
+
         // Handle errors based on the subroutine
+        let errorReturn = '';
         switch (subroutine.name) {
           case 'vcl_recv':
           case 'vcl_hash':
           case 'vcl_hit':
           case 'vcl_miss':
           case 'vcl_pass':
-            return 'error';
+            errorReturn = 'error';
+            break;
           case 'vcl_fetch':
-            return 'error';
+            errorReturn = 'error';
+            break;
           case 'vcl_deliver':
-            return 'deliver';
+            errorReturn = 'deliver';
+            break;
           case 'vcl_error':
-            return 'deliver';
+            errorReturn = 'deliver';
+            break;
           default:
-            return '';
+            errorReturn = '';
         }
+
+        console.log(`Subroutine ${subroutine.name} returning error: ${errorReturn}`);
+        return errorReturn;
       }
     };
   }
-  
+
   private executeStatement(statement: VCLStatement, context: VCLContext): string | void {
+    console.log(`Executing statement of type: ${statement.type}`);
+
     switch (statement.type) {
       case 'IfStatement':
         return this.executeIfStatement(statement as VCLIfStatement, context);
@@ -204,20 +243,25 @@ export class VCLCompiler {
         return this.executeSyntheticStatement(statement as VCLSyntheticStatement, context);
       case 'HashDataStatement':
         return this.executeHashDataStatement(statement as VCLHashDataStatement, context);
+      case 'Statement':
+        // Generic statement, just skip it
+        console.log(`Skipping generic statement at line ${statement.location.line}, column ${statement.location.column}`);
+        return;
       default:
         // Unknown statement type
+        console.log(`Unknown statement type: ${statement.type}`);
         return;
     }
   }
-  
+
   private executeIfStatement(statement: VCLIfStatement, context: VCLContext): string | void {
     const condition = this.evaluateExpression(statement.test, context);
-    
+
     if (condition) {
       // Execute the consequent statements
       for (const stmt of statement.consequent) {
         const result = this.executeStatement(stmt, context);
-        
+
         // If the statement returns a value, return it from the if statement
         if (result && typeof result === 'string') {
           return result;
@@ -227,7 +271,7 @@ export class VCLCompiler {
       // Execute the alternate statements
       for (const stmt of statement.alternate) {
         const result = this.executeStatement(stmt, context);
-        
+
         // If the statement returns a value, return it from the if statement
         if (result && typeof result === 'string') {
           return result;
@@ -235,25 +279,29 @@ export class VCLCompiler {
       }
     }
   }
-  
+
   private executeReturnStatement(statement: VCLReturnStatement, context: VCLContext): string {
     return statement.argument;
   }
-  
+
   private executeErrorStatement(statement: VCLErrorStatement, context: VCLContext): string {
     // Set error status and message
     context.obj.status = statement.status;
     context.obj.response = statement.message;
-    
+
     return 'error';
   }
-  
+
   private executeSetStatement(statement: VCLSetStatement, context: VCLContext): void {
+    console.log(`Executing set statement: ${statement.target} = ${JSON.stringify(statement.value)}`);
+
     const value = this.evaluateExpression(statement.value, context);
-    
+    console.log(`Evaluated value: ${JSON.stringify(value)}, type: ${typeof value}`);
+
     // Parse the target path (e.g., req.http.X-Header)
     const parts = statement.target.split('.');
-    
+    console.log(`Target parts: ${JSON.stringify(parts)}`);
+
     if (parts.length === 3 && parts[0] === 'req' && parts[1] === 'http') {
       context.req.http[parts[2]] = String(value);
     } else if (parts.length === 3 && parts[0] === 'bereq' && parts[1] === 'http') {
@@ -266,9 +314,11 @@ export class VCLCompiler {
       context.obj.http[parts[2]] = String(value);
     } else if (parts.length === 2 && parts[0] === 'beresp' && parts[1] === 'ttl') {
       // Handle time values (e.g., 5m, 1h)
-      const ttlStr = String(value);
+      const ttlStr = String(value).replace(/"/g, ''); // Remove quotes if present
       let ttl = 0;
-      
+
+      console.log(`Setting TTL to ${ttlStr}`);
+
       if (ttlStr.endsWith('s')) {
         ttl = parseInt(ttlStr) || 0;
       } else if (ttlStr.endsWith('m')) {
@@ -280,15 +330,64 @@ export class VCLCompiler {
       } else {
         ttl = parseInt(ttlStr) || 0;
       }
-      
+
+      console.log(`Parsed TTL: ${ttl} seconds`);
       context.beresp.ttl = ttl;
+      console.log(`Context beresp.ttl is now: ${context.beresp.ttl}`);
+
+    } else if (parts.length === 2 && parts[0] === 'beresp' && parts[1] === 'grace') {
+      // Handle grace period
+      const graceStr = String(value).replace(/"/g, ''); // Remove quotes if present
+      let grace = 0;
+
+      console.log(`Setting grace to ${graceStr}`);
+
+      if (graceStr.endsWith('s')) {
+        grace = parseInt(graceStr) || 0;
+      } else if (graceStr.endsWith('m')) {
+        grace = (parseInt(graceStr) || 0) * 60;
+      } else if (graceStr.endsWith('h')) {
+        grace = (parseInt(graceStr) || 0) * 60 * 60;
+      } else if (graceStr.endsWith('d')) {
+        grace = (parseInt(graceStr) || 0) * 60 * 60 * 24;
+      } else {
+        grace = parseInt(graceStr) || 0;
+      }
+
+      console.log(`Parsed grace: ${grace} seconds`);
+      context.beresp.grace = grace;
+      console.log(`Context beresp.grace is now: ${context.beresp.grace}`);
+    } else if (parts.length === 2 && parts[0] === 'beresp' && parts[1] === 'stale_while_revalidate') {
+      // Handle stale-while-revalidate
+      const swrStr = String(value).replace(/"/g, ''); // Remove quotes if present
+      let swr = 0;
+
+      console.log(`Setting stale_while_revalidate to ${swrStr}`);
+
+      if (swrStr.endsWith('s')) {
+        swr = parseInt(swrStr) || 0;
+      } else if (swrStr.endsWith('m')) {
+        swr = (parseInt(swrStr) || 0) * 60;
+      } else if (swrStr.endsWith('h')) {
+        swr = (parseInt(swrStr) || 0) * 60 * 60;
+      } else if (swrStr.endsWith('d')) {
+        swr = (parseInt(swrStr) || 0) * 60 * 60 * 24;
+      } else {
+        swr = parseInt(swrStr) || 0;
+      }
+
+      console.log(`Parsed stale_while_revalidate: ${swr} seconds`);
+      context.beresp.stale_while_revalidate = swr;
+      console.log(`Context beresp.stale_while_revalidate is now: ${context.beresp.stale_while_revalidate}`);
+    } else {
+      console.log(`Unhandled set target: ${statement.target}`);
     }
   }
-  
+
   private executeUnsetStatement(statement: VCLUnsetStatement, context: VCLContext): void {
     // Parse the target path (e.g., req.http.X-Header)
     const parts = statement.target.split('.');
-    
+
     if (parts.length === 3 && parts[0] === 'req' && parts[1] === 'http') {
       delete context.req.http[parts[2]];
     } else if (parts.length === 3 && parts[0] === 'bereq' && parts[1] === 'http') {
@@ -301,23 +400,34 @@ export class VCLCompiler {
       delete context.obj.http[parts[2]];
     }
   }
-  
+
   private executeLogStatement(statement: VCLLogStatement, context: VCLContext): void {
     const message = this.evaluateExpression(statement.message, context);
     console.log(`[VCL] ${message}`);
   }
-  
+
   private executeSyntheticStatement(statement: VCLSyntheticStatement, context: VCLContext): void {
     // Set synthetic response
     context.obj.http['Content-Type'] = 'text/html; charset=utf-8';
     context.obj.response = statement.content;
   }
-  
+
   private executeHashDataStatement(statement: VCLHashDataStatement, context: VCLContext): void {
-    // This is a placeholder for hash_data functionality
-    // In a real implementation, this would update the cache key
+    // Get the value to hash
+    const value = this.evaluateExpression(statement.value, context);
+
+    // Create a hash of the value using a simple algorithm
+    const crypto = require('crypto');
+    const hash = crypto.createHash('md5').update(String(value)).digest('hex');
+
+    // Store the hash in the context for later use in cache key generation
+    if (!context.hashData) {
+      context.hashData = [];
+    }
+
+    context.hashData.push(hash);
   }
-  
+
   private evaluateExpression(expression: VCLExpression, context: VCLContext): any {
     switch (expression.type) {
       case 'StringLiteral':
@@ -334,13 +444,13 @@ export class VCLCompiler {
         return null;
     }
   }
-  
+
   private evaluateIdentifier(identifier: VCLIdentifier, context: VCLContext): any {
     const name = identifier.name;
-    
+
     // Parse the identifier path (e.g., req.http.X-Header)
     const parts = name.split('.');
-    
+
     if (parts.length === 2 && parts[0] === 'req' && parts[1] === 'url') {
       return context.req.url;
     } else if (parts.length === 2 && parts[0] === 'req' && parts[1] === 'method') {
@@ -368,14 +478,14 @@ export class VCLCompiler {
     } else if (parts.length === 3 && parts[0] === 'obj' && parts[1] === 'http') {
       return context.obj.http[parts[2]] || '';
     }
-    
+
     return '';
   }
-  
+
   private evaluateBinaryExpression(expression: VCLBinaryExpression, context: VCLContext): any {
     const left = this.evaluateExpression(expression.left, context);
     const right = this.evaluateExpression(expression.right, context);
-    
+
     switch (expression.operator) {
       case '+':
         return left + right;
