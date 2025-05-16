@@ -382,7 +382,8 @@ Exits the current subroutine and returns control to the caller.
 ### Syntax
 
 ```vcl
-return(action)
+return(action);
+
 ```
 
 ### Parameters
