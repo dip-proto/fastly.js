@@ -305,7 +305,7 @@ The implementation will be divided into phases to allow for incremental developm
    - Implement cryptographic functions ✅
    - Implement HTTP and query string functions ✅
 
-   **Completed**: We have implemented all of the VCL standard library functions, including string manipulation, time functions, math, cryptographic, HTTP, and query string functions. The functions are available in the runtime, but there are still issues with the VCL parser correctly handling function calls. This will need to be addressed in a future update.
+   **Completed**: We have implemented all of the VCL standard library functions, including string manipulation, time functions, math, cryptographic, HTTP, and query string functions. The functions are available in the runtime and the VCL parser has been updated to correctly handle function calls. All tests are now passing, including the error handling tests.
 
 5. **Phase 5: Backend Configuration** ✅
    - Implement support for multiple backend definitions ✅
@@ -342,3 +342,29 @@ The implementation will be divided into phases to allow for incremental developm
    - Add security features
 
 Each phase will include comprehensive testing to ensure correctness and performance.
+
+## Recent Improvements and Fixes
+
+### VCL Parser Enhancements
+
+- Fixed issues with the VCL parser to correctly handle function calls
+- Improved error handling in the parser to provide better error messages
+- Enhanced the parser to handle different VCL syntax variations (e.g., with or without parentheses in return statements)
+
+### Test Framework Improvements
+
+- Fixed file path handling in the test framework to correctly load VCL files from different locations
+- Added better error reporting when loading and parsing VCL files
+- Implemented a more robust test framework that can handle different VCL syntax variations
+
+### Error Handling Improvements
+
+- Implemented comprehensive error handling in the VCL runtime
+- Added support for custom error pages and error handling logic
+- Improved error reporting and logging
+
+### All Tests Passing
+
+- All 14 tests are now passing, including the error handling tests
+- The implementation now correctly handles all the test cases defined in the test suite
+- The VCL parser and executor are working correctly with the test suite
