@@ -20,6 +20,8 @@ export type VCLNodeType =
   | 'SyntheticStatement'
   | 'HashDataStatement'
   | 'BinaryExpression'
+  | 'TernaryExpression'
+  | 'FunctionCall'
   | 'Identifier'
   | 'StringLiteral'
   | 'NumberLiteral'
@@ -102,6 +104,8 @@ export interface VCLHashDataStatement extends VCLStatement {
 
 export type VCLExpression =
   | VCLBinaryExpression
+  | VCLTernaryExpression
+  | VCLFunctionCall
   | VCLIdentifier
   | VCLStringLiteral
   | VCLNumberLiteral
@@ -112,6 +116,19 @@ export interface VCLBinaryExpression extends VCLNode {
   operator: string;
   left: VCLExpression;
   right: VCLExpression;
+}
+
+export interface VCLTernaryExpression extends VCLNode {
+  type: 'TernaryExpression';
+  condition: VCLExpression;
+  trueExpr: VCLExpression;
+  falseExpr: VCLExpression;
+}
+
+export interface VCLFunctionCall extends VCLNode {
+  type: 'FunctionCall';
+  name: string;
+  arguments: VCLExpression[];
 }
 
 export interface VCLIdentifier extends VCLNode {

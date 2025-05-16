@@ -112,8 +112,14 @@ async function runTest(test: Test): Promise<TestResult> {
 
     if (test.vclFile) {
       // Load from file
-      const vclPath = path.resolve(__dirname, test.vclFile);
-      subroutines = loadVCL(vclPath);
+      try {
+        const vclPath = path.join(process.cwd(), test.vclFile);
+        console.log(`Loading VCL file: ${vclPath}`);
+        subroutines = loadVCL(vclPath);
+      } catch (error) {
+        console.error(`Error loading VCL file: ${error.message}`);
+        throw error;
+      }
     } else if (test.vclSnippet) {
       // Create a temporary file with the VCL snippet
       const tempFile = `./test/temp_${Date.now()}.vcl`;

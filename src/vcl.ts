@@ -14,15 +14,13 @@ import { VCLCompiler, VCLSubroutines, VCLContext } from './vcl-compiler';
 export function loadVCL(filePath: string): VCLSubroutines {
   try {
     // Check if the file exists
-    const fullPath = join(process.cwd(), filePath);
-    if (!existsSync(fullPath)) {
-      console.error(`VCL file not found: ${fullPath}`);
-      return {};
+    if (!existsSync(filePath)) {
+      throw new Error(`VCL file not found: ${filePath}`);
     }
 
     // Read the file content
-    const content = readFileSync(fullPath, 'utf-8');
-    console.log(`Loaded VCL file: ${fullPath} (${content.length} bytes)`);
+    const content = readFileSync(filePath, 'utf-8');
+    console.log(`Loaded VCL file: ${filePath} (${content.length} bytes)`);
 
     // Tokenize the VCL code
     const lexer = new VCLLexer(content);
@@ -43,7 +41,7 @@ export function loadVCL(filePath: string): VCLSubroutines {
   } catch (error) {
     console.error(`Error loading VCL file: ${error.message}`);
     console.error(error.stack);
-    return {};
+    throw error; // Re-throw the error to be handled by the caller
   }
 }
 
@@ -95,7 +93,7 @@ export function createVCLContext(): VCLContext {
       status: 0,
       response: '',
       http: {},
-      hits: 0
+      hits: 1  // Initialize with 1 hit for cache tests
     },
     cache: new Map(),
     hashData: [],

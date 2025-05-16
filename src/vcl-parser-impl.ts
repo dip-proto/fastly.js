@@ -130,12 +130,16 @@ export class VCLParser {
           return this.parseUnsetStatement();
         case 'synthetic':
           return this.parseSyntheticStatement();
+        case 'declare':
+          return this.parseDeclareStatement();
       }
     } else if (this.match(TokenType.IDENTIFIER)) {
       const identifier = this.previous().value;
       console.log(`Found identifier: ${identifier}`);
 
-      if (identifier === 'std.log') {
+      if (identifier === 'declare') {
+        return this.parseDeclareStatement();
+      } else if (identifier === 'std.log') {
         // Check if the next token is an opening parenthesis
         if (this.check(TokenType.PUNCTUATION, '(')) {
           return this.parseLogStatement();
@@ -237,6 +241,25 @@ export class VCLParser {
       }
     }
 
+    // Check if this is an if statement without the keyword
+    if (this.check(TokenType.PUNCTUATION, '(')) {
+      console.log(`Found potential if statement without keyword`);
+
+      // Try to parse as if statement
+      const ifToken = {
+        type: TokenType.KEYWORD,
+        value: 'if',
+        line: this.peek().line,
+        column: this.peek().column
+      };
+
+      // Temporarily insert the if token
+      this.tokens.splice(this.current, 0, ifToken);
+
+      // Parse as if statement
+      return this.parseIfStatement();
+    }
+
     console.log(`Unknown statement, skipping to semicolon`);
 
     // Skip unknown statements
@@ -255,6 +278,44 @@ export class VCLParser {
       location: {
         line: this.previous().line,
         column: this.previous().column
+      }
+    };
+  }
+
+  private parseDeclareStatement(): VCLStatement {
+    const token = this.previous();
+    console.log(`Parsing declare statement at line ${token.line}, column ${token.column}`);
+
+    // Check for 'local' keyword
+    if (this.match(TokenType.IDENTIFIER) && this.previous().value === 'local') {
+      console.log(`Found 'local' keyword`);
+    }
+
+    // Parse the variable name
+    if (!this.match(TokenType.IDENTIFIER)) {
+      this.error("Expected variable name after 'declare local'");
+    }
+
+    const variableName = this.previous().value;
+    console.log(`Parsed variable name: ${variableName}`);
+
+    // Parse the variable type
+    if (!this.match(TokenType.IDENTIFIER)) {
+      this.error("Expected variable type after variable name");
+    }
+
+    const variableType = this.previous().value;
+    console.log(`Parsed variable type: ${variableType}`);
+
+    // Parse the semicolon
+    this.consume(TokenType.PUNCTUATION, "Expected ';' after declare statement");
+    console.log(`Found semicolon`);
+
+    return {
+      type: 'Statement', // Using generic Statement for now
+      location: {
+        line: token.line,
+        column: token.column
       }
     };
   }
@@ -599,6 +660,61 @@ export class VCLParser {
     this.consume(TokenType.OPERATOR, "Expected '=' after identifier");
     console.log(`Found equals sign`);
 
+    // Check for ternary if function
+    if (this.check(TokenType.KEYWORD) && this.peek().value === 'if') {
+      console.log(`Found if function call`);
+
+      // Consume the 'if' keyword
+      this.advance();
+
+      // Consume the opening parenthesis
+      this.consume(TokenType.PUNCTUATION, "Expected '(' after 'if'");
+
+      // Parse the condition
+      const condition = this.parseExpression();
+
+      // Consume the comma
+      this.consume(TokenType.PUNCTUATION, "Expected ',' after condition");
+
+      // Parse the true expression
+      const trueExpr = this.parseExpression();
+
+      // Consume the comma
+      this.consume(TokenType.PUNCTUATION, "Expected ',' after true expression");
+
+      // Parse the false expression
+      const falseExpr = this.parseExpression();
+
+      // Consume the closing parenthesis
+      this.consume(TokenType.PUNCTUATION, "Expected ')' after false expression");
+
+      // Parse the semicolon
+      this.consume(TokenType.PUNCTUATION, "Expected ';' after set statement");
+      console.log(`Found semicolon`);
+
+      // Create a ternary expression
+      const value: VCLTernaryExpression = {
+        type: 'TernaryExpression',
+        condition,
+        trueExpr,
+        falseExpr,
+        location: {
+          line: token.line,
+          column: token.column
+        }
+      };
+
+      return {
+        type: 'SetStatement',
+        target,
+        value,
+        location: {
+          line: token.line,
+          column: token.column
+        }
+      };
+    }
+
     // Parse the value
     const value = this.parseExpression();
     console.log(`Parsed expression: ${JSON.stringify(value)}`);
@@ -737,7 +853,63 @@ export class VCLParser {
   }
 
   private parseExpression(): VCLExpression {
-    return this.parseLogicalOr();
+    return this.parseTernary();
+  }
+
+  private parseTernary(): VCLExpression {
+    let expr = this.parseLogicalOr();
+
+    // Check for ternary operator: condition ? trueExpr : falseExpr
+    if (this.match(TokenType.PUNCTUATION, '?') ||
+      (this.match(TokenType.KEYWORD) && this.previous().value === 'if')) {
+
+      console.log(`Parsing ternary expression`);
+
+      // Parse the true expression
+      const trueExpr = this.parseExpression();
+
+      // Check for the colon
+      if (this.match(TokenType.PUNCTUATION, ':') ||
+        (this.match(TokenType.PUNCTUATION, ',') && this.check(TokenType.STRING))) {
+        // Parse the false expression
+        const falseExpr = this.parseExpression();
+
+        // Create a ternary expression
+        return {
+          type: 'TernaryExpression',
+          condition: expr,
+          trueExpr,
+          falseExpr,
+          location: {
+            line: expr.location?.line || 0,
+            column: expr.location?.column || 0
+          }
+        };
+      } else {
+        // If there's no colon, it might be a function call with the 'if' syntax
+        // For example: if(condition, trueExpr, falseExpr)
+        if (this.match(TokenType.PUNCTUATION, ',')) {
+          const falseExpr = this.parseExpression();
+
+          // Check for closing parenthesis
+          this.consume(TokenType.PUNCTUATION, "Expected ')' after ternary expression");
+
+          // Create a ternary expression
+          return {
+            type: 'TernaryExpression',
+            condition: expr,
+            trueExpr,
+            falseExpr,
+            location: {
+              line: expr.location?.line || 0,
+              column: expr.location?.column || 0
+            }
+          };
+        }
+      }
+    }
+
+    return expr;
   }
 
   private parseLogicalOr(): VCLExpression {
@@ -982,6 +1154,12 @@ export class VCLParser {
     if (this.match(TokenType.IDENTIFIER)) {
       const token = this.previous();
       console.log(`Parsed identifier: ${token.value}`);
+
+      // Check if this is a function call
+      if (this.check(TokenType.PUNCTUATION, '(')) {
+        return this.parseFunctionCall(token);
+      }
+
       return {
         type: 'Identifier',
         name: token.value,
@@ -1087,5 +1265,56 @@ export class VCLParser {
 
   private previous(): Token {
     return this.tokens[this.current - 1];
+  }
+
+  private parseFunctionCall(token: Token): VCLExpression {
+    const name = token.value;
+    console.log(`Parsing function call: ${name}`);
+
+    // Consume the opening parenthesis
+    this.consume(TokenType.PUNCTUATION, "Expected '(' after function name");
+
+    const args: VCLExpression[] = [];
+
+    // Parse arguments
+    if (!this.check(TokenType.PUNCTUATION, ')')) {
+      do {
+        args.push(this.parseExpression());
+      } while (this.match(TokenType.PUNCTUATION, ','));
+    }
+
+    // Consume the closing parenthesis
+    this.consume(TokenType.PUNCTUATION, "Expected ')' after function arguments");
+
+    console.log(`Parsed function call with ${args.length} arguments`);
+
+    // Check if there's a member access after the function call (e.g., func().name)
+    let result: VCLExpression = {
+      type: 'FunctionCall',
+      name,
+      arguments: args,
+      location: {
+        line: token.line,
+        column: token.column
+      }
+    };
+
+    // Handle member access (e.g., func().name)
+    if (this.match(TokenType.PUNCTUATION, '.')) {
+      // Parse the property name
+      const propertyToken = this.consume(TokenType.IDENTIFIER, "Expected property name after '.'");
+
+      result = {
+        type: 'MemberAccess',
+        object: result,
+        property: propertyToken.value,
+        location: {
+          line: propertyToken.line,
+          column: propertyToken.column
+        }
+      };
+    }
+
+    return result;
   }
 }
