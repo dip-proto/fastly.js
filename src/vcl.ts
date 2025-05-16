@@ -757,6 +757,74 @@ export function createVCLContext(): VCLContext {
     }
   };
 
+  // Add random functions
+  context.std.random = {
+    // Generate a random boolean with a specified probability
+    randombool: (probability: number): boolean => {
+      if (probability < 0 || probability > 1) {
+        console.error(`Invalid probability: ${probability}. Must be between 0 and 1.`);
+        return false;
+      }
+      return Math.random() < probability;
+    },
+
+    // Generate a random boolean with a specified probability, using a seed
+    randombool_seeded: (probability: number, seed: string): boolean => {
+      if (probability < 0 || probability > 1) {
+        console.error(`Invalid probability: ${probability}. Must be between 0 and 1.`);
+        return false;
+      }
+
+      // Create a seeded random number generator
+      const hash = context.std.digest.hash_sha256(String(seed));
+      const seedValue = parseInt(hash.substring(0, 8), 16) / 0xffffffff;
+
+      return seedValue < probability;
+    },
+
+    // Generate a random integer within a specified range
+    randomint: (from: number, to: number): number => {
+      if (from > to) {
+        console.error(`Invalid range: ${from} to ${to}. 'from' must be less than or equal to 'to'.`);
+        return from;
+      }
+      return Math.floor(Math.random() * (to - from + 1)) + from;
+    },
+
+    // Generate a random integer within a specified range, using a seed
+    randomint_seeded: (from: number, to: number, seed: string): number => {
+      if (from > to) {
+        console.error(`Invalid range: ${from} to ${to}. 'from' must be less than or equal to 'to'.`);
+        return from;
+      }
+
+      // Create a seeded random number generator
+      const hash = context.std.digest.hash_sha256(String(seed));
+      const seedValue = parseInt(hash.substring(0, 8), 16) / 0xffffffff;
+
+      return Math.floor(seedValue * (to - from + 1)) + from;
+    },
+
+    // Generate a random string of a specified length
+    randomstr: (length: number, charset?: string): string => {
+      if (length <= 0) {
+        console.error(`Invalid length: ${length}. Must be greater than 0.`);
+        return '';
+      }
+
+      // Default charset: alphanumeric characters
+      const chars = charset || 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+      let result = '';
+
+      for (let i = 0; i < length; i++) {
+        const randomIndex = Math.floor(Math.random() * chars.length);
+        result += chars.charAt(randomIndex);
+      }
+
+      return result;
+    }
+  };
+
   // Add director management functions
   context.std.director = {
     // Add a new director

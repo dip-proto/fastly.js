@@ -365,6 +365,17 @@ Each phase will include comprehensive testing to ensure correctness and performa
 
 ### All Tests Passing
 
-- All 14 tests are now passing, including the error handling tests
+- All 19 tests are now passing, including the error handling tests and random functions tests
 - The implementation now correctly handles all the test cases defined in the test suite
 - The VCL parser and executor are working correctly with the test suite
+
+### Random Functions Implementation
+
+- Implemented the following random functions according to Fastly VCL specifications:
+  - `randombool`: Generates a random boolean value with a specified probability
+  - `randombool_seeded`: Generates a deterministic random boolean value with a specified probability and seed
+  - `randomint`: Generates a random integer within a specified range
+  - `randomint_seeded`: Generates a deterministic random integer within a specified range and seed
+  - `randomstr`: Generates a random string of a specified length with an optional custom character set
+- Added comprehensive tests for all random functions
+- Ensured that seeded functions produce consistent results with the same seed
