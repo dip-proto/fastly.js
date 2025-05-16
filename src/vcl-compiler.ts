@@ -453,8 +453,35 @@ export class VCLCompiler {
 
   private executeErrorStatement(statement: VCLErrorStatement, context: VCLContext): string {
     // Set error status and message
+    context.obj = context.obj || {};
     context.obj.status = statement.status;
     context.obj.response = statement.message;
+    context.obj.http = context.obj.http || {};
+
+    // Execute vcl_error subroutine if it exists
+    if (this.program.subroutines.find(s => s.name === 'vcl_error')) {
+      console.log('Executing vcl_error subroutine');
+
+      // Find the vcl_error subroutine
+      const errorSubroutine = this.program.subroutines.find(s => s.name === 'vcl_error');
+
+      if (errorSubroutine) {
+        // Execute each statement in the vcl_error subroutine
+        for (const stmt of errorSubroutine.body) {
+          this.executeStatement(stmt, context);
+        }
+      }
+    }
+
+    // If std.error is defined, call it
+    if (context.std && typeof context.std.error === 'function') {
+      try {
+        context.std.error(statement.status, statement.message);
+      } catch (e) {
+        // If std.error throws, we still want to continue with the error flow
+        console.log(`Error in std.error: ${e}`);
+      }
+    }
 
     return 'error';
   }

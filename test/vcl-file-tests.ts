@@ -149,10 +149,55 @@ const vclFileTests = {
           );
         }
       ]
-    }
+    },
 
-    // Error handling test is temporarily disabled due to parser issues
-    // TODO: Fix error handling test once parser issues are resolved
+    // Test 5: Error handling VCL file - forbidden path
+    {
+      name: 'Error handling VCL file - forbidden path',
+      vclFile: 'test/fixtures/vcl-files/error-handling.vcl',
+      run: async (context: VCLContext, subroutines: VCLSubroutines) => {
+        // Set up the context for forbidden path
+        context.req.url = '/forbidden';
+        context.req.method = 'GET';
+
+        // Initialize the context.obj
+        context.obj = context.obj || {};
+        context.obj.http = context.obj.http || {};
+
+        // Execute vcl_recv - this should trigger an error internally
+        const recvResult = executeSubroutine(context, subroutines, 'vcl_recv');
+
+        // The error should have been handled internally and returned 'error'
+        if (recvResult !== 'error') {
+          throw new Error(`Expected recvResult to be 'error', got '${recvResult}'`);
+        }
+
+        // No need to manually execute vcl_error or vcl_deliver as they should have been
+        // executed by the error handling in the VCL compiler
+      },
+      assertions: [
+        // Check if the error was handled correctly
+        (context: VCLContext) => {
+          return assert(
+            context.obj.status === 403,
+            `Expected status to be 403, got ${context.obj.status}`
+          );
+        },
+        // Check if the error headers were set correctly
+        (context: VCLContext) => {
+          return assert(
+            context.obj.http['X-Error-Type'] === 'VCL Error',
+            `Expected X-Error-Type header to be 'VCL Error', got '${context.obj.http['X-Error-Type']}'`
+          );
+        },
+        (context: VCLContext) => {
+          return assert(
+            context.obj.http['X-Error-Status'] === '403',
+            `Expected X-Error-Status header to be '403', got '${context.obj.http['X-Error-Status']}'`
+          );
+        }
+      ]
+    }
   ]
 };
 

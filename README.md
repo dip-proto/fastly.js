@@ -1,14 +1,10 @@
 # Fastly.JS
 
-An implementation of the Fastly platform with full VCL support, in pure JavaScript.
+A reimplementation of the Fastly platform, in JavaScript.
 
 ## Project Overview
 
 This project aims to provide a local development environment for testing and deploying Fastly VCL configurations without requiring the actual Fastly infrastructure.
-
-### What is Fastly VCL?
-
-Fastly VCL (Varnish Configuration Language) is a domain-specific language used to configure and customize how Fastly's edge cloud platform processes HTTP requests and responses. It's based on the open-source Varnish Cache language but includes Fastly-specific extensions and features that enhance its capabilities.
 
 ## Features
 

@@ -241,24 +241,8 @@ export class VCLParser {
       }
     }
 
-    // Check if this is an if statement without the keyword
-    if (this.check(TokenType.PUNCTUATION, '(')) {
-      console.log(`Found potential if statement without keyword`);
-
-      // Try to parse as if statement
-      const ifToken = {
-        type: TokenType.KEYWORD,
-        value: 'if',
-        line: this.peek().line,
-        column: this.peek().column
-      };
-
-      // Temporarily insert the if token
-      this.tokens.splice(this.current, 0, ifToken);
-
-      // Parse as if statement
-      return this.parseIfStatement();
-    }
+    // We no longer try to parse parentheses as if statements without keywords
+    // This was causing issues with return(lookup) statements
 
     console.log(`Unknown statement, skipping to semicolon`);
 
