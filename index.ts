@@ -9,7 +9,7 @@ const TARGET_HOST = "neverssl.com";
 const TARGET_URL = `http://${TARGET_HOST}`;
 const PROXY_HOST = "127.0.0.1";
 const PROXY_PORT = 8000;
-const VCL_FILE_PATH = "filter.vcl";
+const VCL_FILE_PATH = process.argv[2] || "filter.vcl";
 
 // Import VCL module
 import { loadVCL, createVCLContext, executeVCL } from './src/vcl';

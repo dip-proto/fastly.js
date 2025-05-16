@@ -67,11 +67,76 @@ export interface VCLContext {
 
   // Standard library functions
   std?: {
+    // Logging
     log: (message: string) => void;
+
+    // Time functions
     time: (format: string) => number;
     strftime: (format: string, time: number) => string;
+
+    // String manipulation
     tolower: (str: string) => string;
     toupper: (str: string) => string;
+    strlen: (str: string) => number;
+    strstr: (haystack: string, needle: string) => string | null;
+    substr: (str: string, offset: number, length?: number) => string;
+    prefixof: (str: string, prefix: string) => boolean;
+    suffixof: (str: string, suffix: string) => boolean;
+    replace: (str: string, search: string, replacement: string) => string;
+    replaceall: (str: string, search: string, replacement: string) => string;
+
+    // Regular expressions
+    regsub: (str: string, regex: string, replacement: string) => string;
+    regsuball: (str: string, regex: string, replacement: string) => string;
+
+    // Type conversion
+    integer: (value: any) => number;
+    real: (value: any) => number;
+
+    // Math functions
+    math: {
+      round: (num: number) => number;
+      floor: (num: number) => number;
+      ceil: (num: number) => number;
+      pow: (base: number, exponent: number) => number;
+      log: (num: number) => number;
+      min: (a: number, b: number) => number;
+      max: (a: number, b: number) => number;
+      abs: (num: number) => number;
+    };
+
+    // Encoding/decoding
+    base64: (str: string) => string;
+    base64_decode: (str: string) => string;
+    base64url: (str: string) => string;
+    base64url_decode: (str: string) => string;
+
+    // Digest functions
+    digest: {
+      hash_md5: (str: string) => string;
+      hash_sha1: (str: string) => string;
+      hash_sha256: (str: string) => string;
+      hmac_md5: (key: string, message: string) => string;
+      hmac_sha1: (key: string, message: string) => string;
+      hmac_sha256: (key: string, message: string) => string;
+      secure_is_equal: (a: string, b: string) => boolean;
+    };
+
+    // HTTP functions
+    header: {
+      get: (headers: Record<string, string>, name: string) => string | null;
+      set: (headers: Record<string, string>, name: string, value: string) => void;
+      remove: (headers: Record<string, string>, name: string) => void;
+    };
+
+    // Query string functions
+    querystring: {
+      get: (url: string, name: string) => string | null;
+      set: (url: string, name: string, value: string) => string;
+      remove: (url: string, name: string) => string;
+      filter: (url: string, names: string[]) => string;
+      filter_except: (url: string, names: string[]) => string;
+    };
   };
 }
 
