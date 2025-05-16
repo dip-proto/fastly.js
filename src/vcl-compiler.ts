@@ -25,6 +25,7 @@ import {
   VCLNumberLiteral,
   VCLRegexLiteral
 } from './vcl-parser';
+import { createVCLContext } from './vcl';
 
 // Backend interface
 export interface VCLBackend {
@@ -61,6 +62,18 @@ export interface VCLDirector {
   backends: Array<{ backend: VCLBackend, weight: number }>;
   quorum: number; // percentage (0-100)
   retries: number;
+}
+
+// ACL Entry interface
+export interface VCLACLEntry {
+  ip: string;
+  subnet?: number; // CIDR notation (e.g., 24 for /24)
+}
+
+// ACL interface
+export interface VCLACL {
+  name: string;
+  entries: VCLACLEntry[];
 }
 
 // VCL Context interface
@@ -103,6 +116,14 @@ export interface VCLContext {
   backends: Record<string, VCLBackend>;
   directors: Record<string, VCLDirector>;
   current_backend?: VCLBackend;
+
+  // ACL-related properties
+  acls: Record<string, VCLACL>;
+
+  // Client-related properties
+  client?: {
+    ip: string;
+  };
 
   // Regex-related properties
   re?: {
@@ -292,25 +313,67 @@ export class VCLCompiler {
   compile(): VCLSubroutines {
     const subroutines: VCLSubroutines = {};
 
+    // Initialize the context
+    const context = createVCLContext();
+
+    // Process ACL declarations
+    if (this.program.acls) {
+      for (const acl of this.program.acls) {
+        console.log(`Processing ACL: ${acl.name}`);
+
+        // Add the ACL to the context
+        context.std.acl.add(acl.name);
+
+        // Add entries to the ACL
+        for (const entry of acl.entries) {
+          context.std.acl.add_entry(acl.name, entry.ip, entry.subnet);
+        }
+
+        console.log(`Added ACL ${acl.name} with ${acl.entries.length} entries`);
+      }
+    }
+
     // Compile each subroutine
     for (const subroutine of this.program.subroutines) {
       const name = subroutine.name;
 
       if (name.startsWith('vcl_')) {
-        subroutines[name] = this.compileSubroutine(subroutine);
+        // Pass the context with ACLs to the subroutine
+        subroutines[name] = this.compileSubroutine(subroutine, context);
       }
     }
 
     return subroutines;
   }
 
-  private compileSubroutine(subroutine: VCLSubroutine): (context: VCLContext) => string {
+  private compileSubroutine(subroutine: VCLSubroutine, initialContext?: VCLContext): (context: VCLContext) => string {
     return (context: VCLContext) => {
+      // Merge the initial context (with ACLs) into the current context
+      if (initialContext && initialContext.acls) {
+        context.acls = { ...initialContext.acls, ...context.acls };
+      }
       console.log(`Executing subroutine: ${subroutine.name}`);
 
       try {
         // Execute each statement in the subroutine
-        for (const statement of subroutine.body) {
+        // Handle both body and statements properties for backward compatibility
+        let statements = [];
+
+        if (subroutine.body && Array.isArray(subroutine.body)) {
+          statements = subroutine.body;
+        } else if (subroutine.statements && Array.isArray(subroutine.statements)) {
+          statements = subroutine.statements;
+
+          // Copy the statements to the body property for compatibility
+          subroutine.body = [...subroutine.statements];
+        }
+
+        for (const statement of statements) {
+          // Make sure the statement has a test property if it's an IfStatement
+          if (statement.type === 'IfStatement' && !statement.test && statement.condition) {
+            statement.test = statement.condition;
+          }
+
           const result = this.executeStatement(statement, context);
 
           // If the statement returns a value, return it from the subroutine
@@ -411,6 +474,84 @@ export class VCLCompiler {
   private executeIfStatement(statement: VCLIfStatement, context: VCLContext): string | void {
     console.log(`Executing if statement`);
 
+    // Make sure the statement has a test property
+    if (!statement.test && statement.condition) {
+      statement.test = statement.condition;
+    }
+
+    console.log(`Statement test:`, JSON.stringify(statement.test));
+    console.log(`Context:`, JSON.stringify(context));
+
+    // Check if the test is a binary expression with the ~ operator
+    if (statement.test && statement.test.type === 'BinaryExpression' &&
+        (statement.test as VCLBinaryExpression).operator === '~') {
+
+      const binaryExpr = statement.test as VCLBinaryExpression;
+      console.log(`Binary expression:`, JSON.stringify(binaryExpr));
+
+      // Check if this is an ACL check (client.ip ~ acl_name)
+      if (binaryExpr.left && binaryExpr.left.type === 'Identifier' &&
+          (binaryExpr.left as VCLIdentifier).name === 'client.ip' &&
+          binaryExpr.right && binaryExpr.right.type === 'Identifier') {
+
+        const aclName = (binaryExpr.right as VCLIdentifier).name;
+        const clientIp = context.client?.ip || '';
+
+        console.log(`Special case: ACL check for ${clientIp} in ${aclName}`);
+        console.log(`Available ACLs:`, Object.keys(context.acls || {}));
+
+        // Check if the ACL exists in the context
+        if (context.acls && context.acls[aclName]) {
+          console.log(`ACL ${aclName} found in context`);
+          console.log(`ACL entries:`, JSON.stringify(context.acls[aclName].entries));
+
+          // Use our ACL checking function
+          const isInAcl = this.isIpInAcl(clientIp, context.acls[aclName], context);
+
+          console.log(`ACL check result: ${isInAcl}`);
+
+          if (isInAcl) {
+            console.log(`IP ${clientIp} is in ACL ${aclName}, executing consequent statements`);
+
+            // Execute the consequent statements
+            for (const stmt of statement.consequent) {
+              console.log(`Executing consequent statement: ${stmt.type}`);
+              const result = this.executeStatement(stmt, context);
+
+              // If the statement returns a value, return it from the if statement
+              if (result && typeof result === 'string') {
+                console.log(`Returning from if statement with result: ${result}`);
+                return result;
+              }
+            }
+
+            return;
+          } else if (statement.alternate) {
+            console.log(`IP ${clientIp} is NOT in ACL ${aclName}, executing alternate statements`);
+
+            // Execute the alternate statements
+            for (const stmt of statement.alternate) {
+              console.log(`Executing alternate statement: ${stmt.type}`);
+              const result = this.executeStatement(stmt, context);
+
+              // If the statement returns a value, return it from the if statement
+              if (result && typeof result === 'string') {
+                console.log(`Returning from if statement with result: ${result}`);
+                return result;
+              }
+            }
+
+            return;
+          }
+
+          return;
+        } else {
+          console.log(`ACL ${aclName} not found in context`);
+        }
+      }
+    }
+
+    // Regular condition evaluation
     const condition = this.evaluateExpression(statement.test, context);
     console.log(`Condition evaluated to: ${condition}`);
 
@@ -698,6 +839,18 @@ export class VCLCompiler {
   }
 
   private evaluateExpression(expression: VCLExpression, context: VCLContext): any {
+    // Check if expression is defined
+    if (!expression) {
+      console.error('Undefined expression');
+      return null;
+    }
+
+    // Check if expression has a type
+    if (!expression.type) {
+      console.error('Expression has no type:', expression);
+      return null;
+    }
+
     console.log(`Evaluating expression of type: ${expression.type}`);
 
     switch (expression.type) {
@@ -888,6 +1041,8 @@ export class VCLCompiler {
       return context.req.backend || '';
     } else if (parts.length === 3 && parts[0] === 'req' && parts[1] === 'http') {
       return context.req.http[parts[2]] || '';
+    } else if (parts.length === 2 && parts[0] === 'client' && parts[1] === 'ip') {
+      return context.client?.ip || '127.0.0.1';
     } else if (parts.length === 2 && parts[0] === 'bereq' && parts[1] === 'url') {
       return context.bereq.url;
     } else if (parts.length === 2 && parts[0] === 'bereq' && parts[1] === 'method') {
@@ -942,8 +1097,16 @@ export class VCLCompiler {
   }
 
   private evaluateBinaryExpression(expression: VCLBinaryExpression, context: VCLContext): any {
+    // Check if expression is valid
+    if (!expression || !expression.left || !expression.right) {
+      console.error('Invalid binary expression:', expression);
+      return false;
+    }
+
     const left = this.evaluateExpression(expression.left, context);
     const right = this.evaluateExpression(expression.right, context);
+
+    console.log(`Binary expression: ${left} ${expression.operator} ${right}`);
 
     switch (expression.operator) {
       case '+':
@@ -969,6 +1132,20 @@ export class VCLCompiler {
       case '<=':
         return left <= right;
       case '~':
+        // Check if this is an ACL match (e.g., client.ip ~ internal_acl)
+        if (typeof right === 'string' && context.acls && context.acls[right]) {
+          // This is an ACL match
+          const acl = context.acls[right];
+          const ip = String(left);
+
+          console.log(`Checking if IP ${ip} is in ACL ${right}`);
+
+          // Check if the IP is in the ACL
+          const result = this.isIpInAcl(ip, acl, context);
+          console.log(`ACL check result: ${result}`);
+          return result;
+        }
+
         // Regex match
         try {
           let regex: RegExp;
@@ -1007,6 +1184,20 @@ export class VCLCompiler {
           return false;
         }
       case '!~':
+        // Check if this is an ACL non-match (e.g., client.ip !~ internal_acl)
+        if (typeof right === 'string' && context.acls && context.acls[right]) {
+          // This is an ACL non-match
+          const acl = context.acls[right];
+          const ip = String(left);
+
+          console.log(`Checking if IP ${ip} is NOT in ACL ${right}`);
+
+          // Check if the IP is not in the ACL
+          const result = !this.isIpInAcl(ip, acl, context);
+          console.log(`ACL non-match check result: ${result}`);
+          return result;
+        }
+
         // Regex non-match
         try {
           let regex: RegExp;
@@ -1039,7 +1230,263 @@ export class VCLCompiler {
           return true;
         }
       default:
+        console.error(`Unknown operator: ${expression.operator}`);
         return false;
+    }
+  }
+
+  // Helper function to check if an IP is in an ACL
+  private isIpInAcl(ip: string, acl: VCLACL, context: VCLContext): boolean {
+    console.log(`Checking if IP ${ip} is in ACL ${acl.name}`);
+
+    // Check if the context has the std.acl.check function
+    if (context.std && context.std.acl && typeof context.std.acl.check === 'function') {
+      // Use the std.acl.check function
+      return context.std.acl.check(ip, acl.name);
+    }
+
+    // Fallback implementation
+    for (const entry of acl.entries) {
+      if (entry.subnet) {
+        // Check CIDR match
+        console.log(`Checking CIDR match: ${ip} in ${entry.ip}/${entry.subnet}`);
+        if (context.std && context.std.acl && typeof context.std.acl.isIpInCidr === 'function') {
+          // Use the std.acl.isIpInCidr function if available
+          if (context.std.acl.isIpInCidr(ip, entry.ip, entry.subnet)) {
+            return true;
+          }
+        } else {
+          // Use our own implementation
+          if (this.isIpInCidr(ip, entry.ip, entry.subnet)) {
+            return true;
+          }
+        }
+      } else {
+        // Check exact match
+        console.log(`Checking exact match: ${ip} === ${entry.ip}`);
+        if (ip === entry.ip) {
+          return true;
+        }
+      }
+    }
+
+    return false;
+  }
+
+  // Helper function to check if an IP is in a CIDR range
+  private isIpInCidr(ip: string, cidrIp: string, cidrSubnet: number): boolean {
+    try {
+      // Determine IP type (IPv4 or IPv6)
+      const ipType = this.getIPType(ip);
+      const cidrType = this.getIPType(cidrIp);
+
+      // Ensure both IPs are of the same type
+      if (!ipType || !cidrType || ipType !== cidrType) {
+        console.error(`IP type mismatch or invalid IP: ${ip} (${ipType}) vs ${cidrIp} (${cidrType})`);
+        return false;
+      }
+
+      // Handle IPv4
+      if (ipType === 'ipv4') {
+        // Validate subnet mask for IPv4
+        if (cidrSubnet < 0 || cidrSubnet > 32) {
+          console.error(`Invalid IPv4 subnet mask: ${cidrSubnet}`);
+          return false;
+        }
+
+        // Convert IPs to binary
+        const ipBinary = this.ipv4ToBinary(ip);
+        const cidrBinary = this.ipv4ToBinary(cidrIp);
+
+        if (!ipBinary || !cidrBinary) {
+          return false;
+        }
+
+        // Compare the network portions
+        return ipBinary.substring(0, cidrSubnet) === cidrBinary.substring(0, cidrSubnet);
+      }
+
+      // Handle IPv6
+      if (ipType === 'ipv6') {
+        // Validate subnet mask for IPv6
+        if (cidrSubnet < 0 || cidrSubnet > 128) {
+          console.error(`Invalid IPv6 subnet mask: ${cidrSubnet}`);
+          return false;
+        }
+
+        // Convert IPs to binary
+        const ipBinary = this.ipv6ToBinary(ip);
+        const cidrBinary = this.ipv6ToBinary(cidrIp);
+
+        if (!ipBinary || !cidrBinary) {
+          return false;
+        }
+
+        // Compare the network portions
+        return ipBinary.substring(0, cidrSubnet) === cidrBinary.substring(0, cidrSubnet);
+      }
+
+      return false;
+    } catch (e) {
+      console.error(`Error checking CIDR match: ${e}`);
+      return false;
+    }
+  }
+
+  /**
+   * Determines if an IP address is IPv4 or IPv6
+   * @param ip The IP address to check
+   * @returns 'ipv4' if IPv4, 'ipv6' if IPv6, or null if invalid
+   */
+  private getIPType(ip: string): 'ipv4' | 'ipv6' | null {
+    if (ip.includes('.') && !ip.includes(':')) {
+      // Simple IPv4 check
+      const parts = ip.split('.');
+      if (parts.length === 4 && parts.every(part => {
+        const num = parseInt(part, 10);
+        return !isNaN(num) && num >= 0 && num <= 255;
+      })) {
+        return 'ipv4';
+      }
+    } else if (ip.includes(':')) {
+      // IPv6 check - more validation
+      try {
+        // Check for invalid IPv6 addresses with multiple :: notations
+        const doubleColonCount = (ip.match(/::/g) || []).length;
+        if (doubleColonCount > 1) {
+          return null; // Multiple :: not allowed
+        }
+
+        // Basic validation for IPv6
+        const parts = ip.split(':');
+
+        // IPv6 addresses can have at most 8 segments
+        if (parts.length > 8) {
+          return null;
+        }
+
+        // Validate each segment
+        for (const part of parts) {
+          if (part === '') continue; // Empty segment is allowed for ::
+
+          // Each segment must be a valid hex number between 0 and ffff
+          if (!/^[0-9A-Fa-f]{1,4}$/.test(part)) {
+            return null;
+          }
+        }
+
+        return 'ipv6';
+      } catch (e) {
+        return null;
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Converts an IPv4 address to its binary representation
+   * @param ip The IPv4 address to convert
+   * @returns A 32-bit binary string representation of the IP
+   */
+  private ipv4ToBinary(ip: string): string {
+    try {
+      // Split the IP into octets
+      const octets = ip.split('.');
+
+      // Ensure we have 4 octets
+      if (octets.length !== 4) {
+        throw new Error(`Invalid IPv4 address: ${ip}`);
+      }
+
+      // Convert each octet to binary and pad to 8 bits
+      return octets.map(octet => {
+        const num = parseInt(octet, 10);
+        if (isNaN(num) || num < 0 || num > 255) {
+          throw new Error(`Invalid IPv4 octet: ${octet}`);
+        }
+        return num.toString(2).padStart(8, '0');
+      }).join('');
+    } catch (e) {
+      console.error(`Error converting IPv4 to binary: ${e}`);
+      return '';
+    }
+  }
+
+  /**
+   * Converts an IPv6 address to its binary representation
+   * @param ip The IPv6 address to convert
+   * @returns A 128-bit binary string representation of the IP
+   */
+  private ipv6ToBinary(ip: string): string {
+    try {
+      // Normalize the IPv6 address first
+      const normalizedIP = this.normalizeIPv6(ip);
+      if (!normalizedIP) {
+        return '';
+      }
+
+      // Split the normalized IP into segments
+      const segments = normalizedIP.split(':');
+
+      // Convert each segment to binary and pad to 16 bits
+      return segments.map(segment => {
+        const num = parseInt(segment, 16);
+        if (isNaN(num) || num < 0 || num > 65535) {
+          throw new Error(`Invalid IPv6 segment: ${segment}`);
+        }
+        return num.toString(2).padStart(16, '0');
+      }).join('');
+    } catch (e) {
+      console.error(`Error converting IPv6 to binary: ${e}`);
+      return '';
+    }
+  }
+
+  /**
+   * Normalizes an IPv6 address to its full form
+   * @param ip The IPv6 address to normalize
+   * @returns The normalized IPv6 address
+   */
+  private normalizeIPv6(ip: string): string {
+    try {
+      // Handle :: shorthand notation
+      if (ip.includes('::')) {
+        const parts = ip.split('::');
+        if (parts.length !== 2) {
+          throw new Error(`Invalid IPv6 address with multiple :: notations: ${ip}`);
+        }
+
+        const leftParts = parts[0] ? parts[0].split(':') : [];
+        const rightParts = parts[1] ? parts[1].split(':') : [];
+
+        // Calculate how many 0 blocks we need to insert
+        const missingBlocks = 8 - (leftParts.length + rightParts.length);
+        if (missingBlocks < 0) {
+          throw new Error(`Invalid IPv6 address with too many segments: ${ip}`);
+        }
+
+        // Create the expanded address
+        const expandedParts = [
+          ...leftParts,
+          ...Array(missingBlocks).fill('0'),
+          ...rightParts
+        ];
+
+        ip = expandedParts.join(':');
+      }
+
+      // Ensure we have 8 segments
+      const parts = ip.split(':');
+      if (parts.length !== 8) {
+        throw new Error(`Invalid IPv6 address with wrong number of segments: ${ip}`);
+      }
+
+      // Pad each segment to 4 hex digits
+      return parts.map(part => part.padStart(4, '0')).join(':');
+    } catch (e) {
+      console.error(`Error normalizing IPv6 address: ${e}`);
+      return '';
     }
   }
 }

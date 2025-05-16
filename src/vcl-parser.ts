@@ -26,7 +26,9 @@ export type VCLNodeType =
   | 'StringLiteral'
   | 'NumberLiteral'
   | 'RegexLiteral'
-  | 'Comment';
+  | 'Comment'
+  | 'ACL'
+  | 'ACLEntry';
 
 export interface VCLNode {
   type: VCLNodeType;
@@ -40,6 +42,19 @@ export interface VCLProgram extends VCLNode {
   type: 'Program';
   subroutines: VCLSubroutine[];
   comments: VCLComment[];
+  acls: VCLACL[];
+}
+
+export interface VCLACL extends VCLNode {
+  type: 'ACL';
+  name: string;
+  entries: VCLACLEntry[];
+}
+
+export interface VCLACLEntry extends VCLNode {
+  type: 'ACLEntry';
+  ip: string;
+  subnet?: number; // CIDR notation (e.g., 24 for /24)
 }
 
 export interface VCLSubroutine extends VCLNode {
@@ -183,7 +198,7 @@ export interface Token {
 const VCL_KEYWORDS = [
   'sub', 'if', 'else', 'elseif', 'return', 'set', 'unset', 'error',
   'synthetic', 'hash_data', 'true', 'false', 'deliver', 'fetch',
-  'pass', 'hash', 'lookup', 'restart', 'purge'
+  'pass', 'hash', 'lookup', 'restart', 'purge', 'acl'
 ];
 
 // Lexer class to tokenize VCL code

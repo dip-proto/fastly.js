@@ -25,7 +25,9 @@ import {
   VCLStringLiteral,
   VCLNumberLiteral,
   VCLRegexLiteral,
-  VCLComment
+  VCLComment,
+  VCLACL,
+  VCLACLEntry
 } from './vcl-parser';
 
 // Parser class to convert tokens into an AST
@@ -41,15 +43,18 @@ export class VCLParser {
     const program: VCLProgram = {
       type: 'Program',
       subroutines: [],
-      comments: []
+      comments: [],
+      acls: []
     };
 
-    // Parse comments and subroutines
+    // Parse comments, subroutines, and ACLs
     while (!this.isAtEnd()) {
       if (this.match(TokenType.COMMENT)) {
         program.comments.push(this.parseComment());
       } else if (this.match(TokenType.KEYWORD) && this.previous().value === 'sub') {
         program.subroutines.push(this.parseSubroutine());
+      } else if (this.match(TokenType.KEYWORD) && this.previous().value === 'acl') {
+        program.acls.push(this.parseACL());
       } else {
         // Skip unknown tokens
         this.advance();
@@ -57,6 +62,68 @@ export class VCLParser {
     }
 
     return program;
+  }
+
+  private parseACL(): VCLACL {
+    // We've already consumed the 'acl' keyword
+    const nameToken = this.consume(TokenType.IDENTIFIER, "Expected ACL name");
+
+    this.consume(TokenType.PUNCTUATION, "Expected '{' after ACL name");
+
+    const entries: VCLACLEntry[] = [];
+
+    // Parse entries until we reach the closing brace
+    while (!this.check(TokenType.PUNCTUATION, '}') && !this.isAtEnd()) {
+      // Parse an IP address or CIDR notation
+      if (this.match(TokenType.STRING)) {
+        const ipToken = this.previous();
+        let ip = ipToken.value;
+
+        // Remove quotes
+        if (ip.startsWith('"') && ip.endsWith('"')) {
+          ip = ip.slice(1, -1);
+        } else if (ip.startsWith("'") && ip.endsWith("'")) {
+          ip = ip.slice(1, -1);
+        }
+
+        let subnet: number | undefined = undefined;
+
+        // Check for CIDR notation
+        if (ip.includes('/')) {
+          const parts = ip.split('/');
+          ip = parts[0];
+          subnet = parseInt(parts[1], 10);
+        }
+
+        // Consume the semicolon
+        this.consume(TokenType.PUNCTUATION, "Expected ';' after ACL entry");
+
+        entries.push({
+          type: 'ACLEntry',
+          ip,
+          subnet,
+          location: {
+            line: ipToken.line,
+            column: ipToken.column
+          }
+        });
+      } else {
+        // Skip unknown tokens
+        this.advance();
+      }
+    }
+
+    this.consume(TokenType.PUNCTUATION, "Expected '}' after ACL entries");
+
+    return {
+      type: 'ACL',
+      name: nameToken.value,
+      entries,
+      location: {
+        line: nameToken.line,
+        column: nameToken.column
+      }
+    };
   }
 
   private parseComment(): VCLComment {
