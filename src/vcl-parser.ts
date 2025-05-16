@@ -165,7 +165,7 @@ export interface Token {
 // VCL Keywords
 const VCL_KEYWORDS = [
   'sub', 'if', 'else', 'elseif', 'return', 'set', 'unset', 'error',
-  'synthetic', 'hash_data', 'std.log', 'true', 'false', 'deliver', 'fetch',
+  'synthetic', 'hash_data', 'true', 'false', 'deliver', 'fetch',
   'pass', 'hash', 'lookup', 'restart', 'purge'
 ];
 
@@ -215,9 +215,10 @@ export class VCLLexer {
         continue;
       }
 
-      // Handle regex literals
-      if (char === '~') {
-        this.tokenizeRegex();
+      // Handle regex operators
+      if (char === '~' || (char === '!' && this.position + 1 < this.input.length && this.input[this.position + 1] === '~')) {
+        // Tokenize as an operator, not a regex
+        this.tokenizeOperator();
         continue;
       }
 
@@ -454,12 +455,34 @@ export class VCLLexer {
     const startLine = this.line;
     const startColumn = this.column;
 
-    // Read identifier characters (letters, digits, underscore, dot)
-    while (this.position < this.input.length && /[a-zA-Z0-9_.]/.test(this.input[this.position])) {
-      this.advance();
+    // Read identifier characters (letters, digits, underscore, dot, hyphen)
+    // We'll include hyphens in identifiers to handle headers like X-Test
+    let includeHyphen = false;
+
+    while (this.position < this.input.length) {
+      const char = this.input[this.position];
+
+      // Always accept letters, digits, underscore, dot
+      if (/[a-zA-Z0-9_.]/.test(char)) {
+        this.advance();
+        // After we've seen a letter, digit, underscore, or dot, we can accept hyphens
+        includeHyphen = true;
+      }
+      // Accept hyphens only after we've seen a letter, digit, underscore, or dot
+      // This prevents operators like "-" from being treated as part of an identifier
+      else if (includeHyphen && char === '-') {
+        this.advance();
+        // After a hyphen, we need to see a letter, digit, underscore, or dot
+        includeHyphen = false;
+      }
+      else {
+        break;
+      }
     }
 
     const value = this.input.substring(start, this.position);
+
+    console.log(`Tokenized identifier: ${value}`);
 
     // Check if it's a keyword
     if (VCL_KEYWORDS.includes(value)) {
@@ -484,8 +507,15 @@ export class VCLLexer {
     const startLine = this.line;
     const startColumn = this.column;
 
-    // Skip the ~ character
-    this.advance();
+    // Skip the ~ or !~ operator
+    if (this.input[this.position] === '~') {
+      this.advance();
+    } else if (this.position + 1 < this.input.length &&
+      this.input[this.position] === '!' &&
+      this.input[this.position + 1] === '~') {
+      this.advance(); // Skip !
+      this.advance(); // Skip ~
+    }
 
     // Skip whitespace
     while (this.position < this.input.length && /\s/.test(this.input[this.position])) {
@@ -496,13 +526,16 @@ export class VCLLexer {
       this.advance();
     }
 
-    // Check for opening quote
-    if (this.position < this.input.length && this.input[this.position] === '"') {
+    // Check for opening quote (either " or ')
+    if (this.position < this.input.length &&
+      (this.input[this.position] === '"' || this.input[this.position] === "'")) {
+      const quoteChar = this.input[this.position];
+
       // Skip the opening quote
       this.advance();
 
       // Read until closing quote
-      while (this.position < this.input.length && this.input[this.position] !== '"') {
+      while (this.position < this.input.length && this.input[this.position] !== quoteChar) {
         // Handle escape sequences
         if (this.input[this.position] === '\\' && this.position + 1 < this.input.length) {
           this.advance(); // Skip the backslash
@@ -523,6 +556,7 @@ export class VCLLexer {
     }
 
     const value = this.input.substring(start, this.position);
+    console.log(`Tokenized regex: ${value}`);
 
     this.tokens.push({
       type: TokenType.REGEX,

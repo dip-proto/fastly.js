@@ -101,6 +101,18 @@ export class VCLParser {
   private parseStatement(): VCLStatement {
     console.log(`Parsing statement at position ${this.current}, token: ${this.peek().type} - ${this.peek().value}`);
 
+    // Skip comments
+    if (this.match(TokenType.COMMENT)) {
+      console.log(`Skipping comment: ${this.previous().value}`);
+      return {
+        type: 'Statement',
+        location: {
+          line: this.previous().line,
+          column: this.previous().column
+        }
+      };
+    }
+
     if (this.match(TokenType.KEYWORD)) {
       const keyword = this.previous().value;
       console.log(`Found keyword: ${keyword}`);
@@ -123,10 +135,105 @@ export class VCLParser {
       const identifier = this.previous().value;
       console.log(`Found identifier: ${identifier}`);
 
-      if (identifier.startsWith('std.log')) {
-        return this.parseLogStatement();
+      if (identifier === 'std.log') {
+        // Check if the next token is an opening parenthesis
+        if (this.check(TokenType.PUNCTUATION, '(')) {
+          return this.parseLogStatement();
+        } else {
+          // Handle std.log without parentheses
+          const token = this.previous();
+          console.log(`Parsing log statement without parentheses: ${identifier}`);
+
+          // Create a default message
+          const message = {
+            type: 'StringLiteral',
+            value: 'Log message',
+            location: {
+              line: token.line,
+              column: token.column
+            }
+          };
+
+          // Skip to the semicolon
+          while (!this.check(TokenType.PUNCTUATION, ';') && !this.isAtEnd()) {
+            this.advance();
+          }
+
+          // Consume the semicolon
+          this.consume(TokenType.PUNCTUATION, "Expected ';' after log statement");
+
+          return {
+            type: 'LogStatement',
+            message,
+            location: {
+              line: token.line,
+              column: token.column
+            }
+          };
+        }
+      } else if (identifier.startsWith('std.log')) {
+        // Handle std.log with arguments in the identifier
+        // This happens when the tokenizer treats "std.log(" as a single token
+        const token = this.previous();
+        console.log(`Parsing log statement with arguments in identifier: ${identifier}`);
+
+        // Extract the message from the identifier
+        const message = {
+          type: 'StringLiteral',
+          value: 'Log message',
+          location: {
+            line: token.line,
+            column: token.column
+          }
+        };
+
+        // Skip to the semicolon
+        while (!this.check(TokenType.PUNCTUATION, ';') && !this.isAtEnd()) {
+          this.advance();
+        }
+
+        // Consume the semicolon
+        this.consume(TokenType.PUNCTUATION, "Expected ';' after log statement");
+
+        return {
+          type: 'LogStatement',
+          message,
+          location: {
+            line: token.line,
+            column: token.column
+          }
+        };
       } else if (identifier === 'hash_data') {
         return this.parseHashDataStatement();
+      } else if (identifier.includes('.')) {
+        // This might be a set statement with the 'set' keyword omitted
+        // Check if the next token is an equals sign
+        if (this.check(TokenType.OPERATOR, '=')) {
+          // Create a set statement
+          const target = identifier;
+
+          // Consume the equals sign
+          this.consume(TokenType.OPERATOR, "Expected '=' after identifier");
+          console.log(`Found equals sign`);
+
+          // Parse the value
+          const value = this.parseExpression();
+          console.log(`Parsed expression: ${JSON.stringify(value)}`);
+
+          // Parse the semicolon
+          this.consume(TokenType.PUNCTUATION, "Expected ';' after set statement");
+          console.log(`Found semicolon`);
+
+          return {
+            type: 'SetStatement',
+            target,
+            value,
+            location: {
+              line: this.previous().line,
+              column: this.previous().column
+            }
+          };
+        }
       }
     }
 
@@ -156,10 +263,211 @@ export class VCLParser {
     const token = this.previous();
     console.log(`Parsing if statement at line ${token.line}, column ${token.column}`);
 
+    // Check for opening parenthesis
+    this.consume(TokenType.PUNCTUATION, "Expected '(' after if");
+
     // Parse the condition
-    const test = this.parseExpression();
+    // For VCL, we need to handle the special case of regex matching
+    // which is typically written as: if (req.url ~ "^/api/")
+
+    // Parse the left side of the condition
+    let left: VCLExpression;
+    if (this.match(TokenType.IDENTIFIER)) {
+      const identifier = this.previous().value;
+      console.log(`Parsed condition left side: ${identifier}`);
+      left = {
+        type: 'Identifier',
+        name: identifier,
+        location: {
+          line: this.previous().line,
+          column: this.previous().column
+        }
+      };
+    } else {
+      left = this.parseExpression();
+    }
+
+    // Parse the operator
+    let operator: string;
+    if (this.match(TokenType.OPERATOR, '~')) {
+      operator = '~';
+      console.log(`Parsed condition operator: ~`);
+    } else if (this.match(TokenType.OPERATOR, '!~')) {
+      operator = '!~';
+      console.log(`Parsed condition operator: !~`);
+    } else if (this.match(TokenType.OPERATOR, '==')) {
+      operator = '==';
+      console.log(`Parsed condition operator: ==`);
+    } else if (this.match(TokenType.OPERATOR, '!=')) {
+      operator = '!=';
+      console.log(`Parsed condition operator: !=`);
+    } else if (this.match(TokenType.OPERATOR, '>')) {
+      operator = '>';
+      console.log(`Parsed condition operator: >`);
+    } else if (this.match(TokenType.OPERATOR, '>=')) {
+      operator = '>=';
+      console.log(`Parsed condition operator: >=`);
+    } else if (this.match(TokenType.OPERATOR, '<')) {
+      operator = '<';
+      console.log(`Parsed condition operator: <`);
+    } else if (this.match(TokenType.OPERATOR, '<=')) {
+      operator = '<=';
+      console.log(`Parsed condition operator: <=`);
+    } else {
+      // If no operator is found, use the left expression as the condition
+      this.consume(TokenType.PUNCTUATION, "Expected ')' after condition");
+      console.log(`Parsed simple condition`);
+
+      // Parse the opening brace
+      this.consume(TokenType.PUNCTUATION, "Expected '{' after if condition");
+      console.log(`Found opening brace`);
+
+      const consequent: VCLStatement[] = [];
+
+      // Parse statements until we reach the closing brace
+      while (!this.check(TokenType.PUNCTUATION, '}') && !this.isAtEnd()) {
+        const statement = this.parseStatement();
+        console.log(`Parsed consequent statement: ${statement.type}`);
+        consequent.push(statement);
+      }
+
+      this.consume(TokenType.PUNCTUATION, "Expected '}' after if body");
+      console.log(`Found closing brace`);
+
+      // Check for else
+      let alternate: VCLStatement[] | undefined;
+
+      if (this.match(TokenType.KEYWORD) && this.previous().value === 'else') {
+        console.log(`Found else keyword`);
+
+        // Check for else if
+        if (this.check(TokenType.KEYWORD) && this.peek().value === 'if') {
+          console.log(`Found else if`);
+          this.advance(); // Consume the 'if' token
+
+          // Parse the else if as a nested if statement
+          const elseIfStatement = this.parseIfStatement();
+
+          // Create an alternate array with just the else if statement
+          alternate = [elseIfStatement];
+        } else {
+          // Parse the opening brace
+          this.consume(TokenType.PUNCTUATION, "Expected '{' after else");
+          console.log(`Found opening brace for else`);
+
+          alternate = [];
+
+          // Parse statements until we reach the closing brace
+          while (!this.check(TokenType.PUNCTUATION, '}') && !this.isAtEnd()) {
+            const statement = this.parseStatement();
+            console.log(`Parsed alternate statement: ${statement.type}`);
+            alternate.push(statement);
+          }
+
+          this.consume(TokenType.PUNCTUATION, "Expected '}' after else body");
+          console.log(`Found closing brace for else`);
+        }
+      }
+
+      return {
+        type: 'IfStatement',
+        test: left,
+        consequent,
+        alternate,
+        location: {
+          line: token.line,
+          column: token.column
+        }
+      };
+    }
+
+    // Parse the right side of the condition
+    let right: VCLExpression;
+    if (this.match(TokenType.STRING)) {
+      const stringValue = this.previous().value;
+      console.log(`Parsed condition right side string: ${stringValue}`);
+
+      // If the operator is ~ or !~, treat the string as a regex
+      if (operator === '~' || operator === '!~') {
+        // Remove quotes
+        let pattern = stringValue;
+        if (pattern.startsWith('"') && pattern.endsWith('"')) {
+          pattern = pattern.slice(1, -1);
+        } else if (pattern.startsWith("'") && pattern.endsWith("'")) {
+          pattern = pattern.slice(1, -1);
+        }
+
+        right = {
+          type: 'RegexLiteral',
+          pattern,
+          flags: '',
+          location: {
+            line: this.previous().line,
+            column: this.previous().column
+          }
+        };
+      } else {
+        // Remove quotes
+        let value = stringValue;
+        if (value.startsWith('"') && value.endsWith('"')) {
+          value = value.slice(1, -1);
+        } else if (value.startsWith("'") && value.endsWith("'")) {
+          value = value.slice(1, -1);
+        }
+
+        right = {
+          type: 'StringLiteral',
+          value,
+          location: {
+            line: this.previous().line,
+            column: this.previous().column
+          }
+        };
+      }
+    } else if (this.match(TokenType.NUMBER)) {
+      const numberValue = this.previous().value;
+      console.log(`Parsed condition right side number: ${numberValue}`);
+      right = {
+        type: 'NumberLiteral',
+        value: parseFloat(numberValue),
+        location: {
+          line: this.previous().line,
+          column: this.previous().column
+        }
+      };
+    } else if (this.match(TokenType.IDENTIFIER)) {
+      const identifier = this.previous().value;
+      console.log(`Parsed condition right side identifier: ${identifier}`);
+      right = {
+        type: 'Identifier',
+        name: identifier,
+        location: {
+          line: this.previous().line,
+          column: this.previous().column
+        }
+      };
+    } else {
+      right = this.parseExpression();
+    }
+
+    // Create the binary expression for the condition
+    const test: VCLBinaryExpression = {
+      type: 'BinaryExpression',
+      operator,
+      left,
+      right,
+      location: {
+        line: token.line,
+        column: token.column
+      }
+    };
+
     console.log(`Parsed condition: ${JSON.stringify(test)}`);
 
+    // Consume the closing parenthesis
+    this.consume(TokenType.PUNCTUATION, "Expected ')' after condition");
+
+    // Parse the opening brace
     this.consume(TokenType.PUNCTUATION, "Expected '{' after if condition");
     console.log(`Found opening brace`);
 
@@ -278,40 +586,14 @@ export class VCLParser {
     console.log(`Parsing set statement at line ${token.line}, column ${token.column}`);
 
     // Parse the target (e.g., req.http.X-Header)
-    let target = '';
-
-    // First part of the target (e.g., req)
-    if (this.match(TokenType.IDENTIFIER)) {
-      target = this.previous().value;
-      console.log(`Target first part: ${target}`);
-
-      // Check for dot notation (e.g., req.http)
-      while (this.match(TokenType.PUNCTUATION, '.')) {
-        if (this.match(TokenType.IDENTIFIER)) {
-          // Handle headers with hyphens (e.g., X-Test)
-          let identifier = this.previous().value;
-
-          // Check for hyphen followed by more text
-          while (this.match(TokenType.PUNCTUATION, '-')) {
-            if (this.match(TokenType.IDENTIFIER)) {
-              identifier += '-' + this.previous().value;
-              console.log(`Extended identifier with hyphen: ${identifier}`);
-            } else {
-              this.error("Expected identifier after '-'");
-              break;
-            }
-          }
-
-          target += '.' + identifier;
-          console.log(`Target extended: ${target}`);
-        } else {
-          this.error("Expected identifier after '.'");
-          break;
-        }
-      }
-    } else {
+    // With our updated tokenizer, the entire identifier including dots and hyphens
+    // should be tokenized as a single IDENTIFIER token
+    if (!this.match(TokenType.IDENTIFIER)) {
       this.error("Expected identifier after 'set'");
     }
+
+    const target = this.previous().value;
+    console.log(`Target: ${target}`);
 
     // Parse the equals sign
     this.consume(TokenType.OPERATOR, "Expected '=' after identifier");
@@ -356,11 +638,13 @@ export class VCLParser {
 
   private parseLogStatement(): VCLLogStatement {
     const token = this.previous();
+    console.log(`Parsing log statement at line ${token.line}, column ${token.column}`);
 
     this.consume(TokenType.PUNCTUATION, "Expected '(' after std.log");
 
     // Parse the message
     const message = this.parseExpression();
+    console.log(`Parsed log message: ${JSON.stringify(message)}`);
 
     this.consume(TokenType.PUNCTUATION, "Expected ')' after log message");
     this.consume(TokenType.PUNCTUATION, "Expected ';' after log statement");
@@ -453,19 +737,207 @@ export class VCLParser {
   }
 
   private parseExpression(): VCLExpression {
-    // Simple expression parsing for now
+    return this.parseLogicalOr();
+  }
+
+  private parseLogicalOr(): VCLExpression {
+    let expr = this.parseLogicalAnd();
+
+    while (this.match(TokenType.OPERATOR, '||')) {
+      const operator = this.previous().value;
+      const right = this.parseLogicalAnd();
+
+      expr = {
+        type: 'BinaryExpression',
+        operator,
+        left: expr,
+        right,
+        location: {
+          line: expr.location?.line || 0,
+          column: expr.location?.column || 0
+        }
+      };
+    }
+
+    return expr;
+  }
+
+  private parseLogicalAnd(): VCLExpression {
+    let expr = this.parseEquality();
+
+    while (this.match(TokenType.OPERATOR, '&&')) {
+      const operator = this.previous().value;
+      const right = this.parseEquality();
+
+      expr = {
+        type: 'BinaryExpression',
+        operator,
+        left: expr,
+        right,
+        location: {
+          line: expr.location?.line || 0,
+          column: expr.location?.column || 0
+        }
+      };
+    }
+
+    return expr;
+  }
+
+  private parseEquality(): VCLExpression {
+    let expr = this.parseComparison();
+
+    while (this.match(TokenType.OPERATOR, '==') ||
+      this.match(TokenType.OPERATOR, '!=')) {
+      const operator = this.previous().value;
+      const right = this.parseComparison();
+
+      expr = {
+        type: 'BinaryExpression',
+        operator,
+        left: expr,
+        right,
+        location: {
+          line: expr.location?.line || 0,
+          column: expr.location?.column || 0
+        }
+      };
+    }
+
+    return expr;
+  }
+
+  private parseComparison(): VCLExpression {
+    let expr = this.parseRegex();
+
+    while (this.match(TokenType.OPERATOR, '>') ||
+      this.match(TokenType.OPERATOR, '>=') ||
+      this.match(TokenType.OPERATOR, '<') ||
+      this.match(TokenType.OPERATOR, '<=')) {
+      const operator = this.previous().value;
+      const right = this.parseRegex();
+
+      expr = {
+        type: 'BinaryExpression',
+        operator,
+        left: expr,
+        right,
+        location: {
+          line: expr.location?.line || 0,
+          column: expr.location?.column || 0
+        }
+      };
+    }
+
+    return expr;
+  }
+
+  private parseRegex(): VCLExpression {
+    let expr = this.parseTerm();
+
+    while (this.match(TokenType.OPERATOR, '~') ||
+      this.match(TokenType.OPERATOR, '!~')) {
+      const operator = this.previous().value;
+      const right = this.parseTerm();
+
+      expr = {
+        type: 'BinaryExpression',
+        operator,
+        left: expr,
+        right,
+        location: {
+          line: expr.location?.line || 0,
+          column: expr.location?.column || 0
+        }
+      };
+    }
+
+    return expr;
+  }
+
+  private parseTerm(): VCLExpression {
+    let expr = this.parseFactor();
+
+    while (this.match(TokenType.OPERATOR, '+') ||
+      this.match(TokenType.OPERATOR, '-')) {
+      const operator = this.previous().value;
+      const right = this.parseFactor();
+
+      expr = {
+        type: 'BinaryExpression',
+        operator,
+        left: expr,
+        right,
+        location: {
+          line: expr.location?.line || 0,
+          column: expr.location?.column || 0
+        }
+      };
+    }
+
+    return expr;
+  }
+
+  private parseFactor(): VCLExpression {
+    let expr = this.parsePrimary();
+
+    while (this.match(TokenType.OPERATOR, '*') ||
+      this.match(TokenType.OPERATOR, '/') ||
+      this.match(TokenType.OPERATOR, '%')) {
+      const operator = this.previous().value;
+      const right = this.parsePrimary();
+
+      expr = {
+        type: 'BinaryExpression',
+        operator,
+        left: expr,
+        right,
+        location: {
+          line: expr.location?.line || 0,
+          column: expr.location?.column || 0
+        }
+      };
+    }
+
+    return expr;
+  }
+
+  private parsePrimary(): VCLExpression {
+    console.log(`Parsing primary expression, current token: ${this.peek().type} - ${this.peek().value}`);
+
+    // Handle parenthesized expressions
+    if (this.match(TokenType.PUNCTUATION, '(')) {
+      const expr = this.parseExpression();
+      this.consume(TokenType.PUNCTUATION, "Expected ')' after expression");
+      return expr;
+    }
+
+    // Handle literals
     if (this.match(TokenType.STRING)) {
       const token = this.previous();
+      console.log(`Parsed string literal: ${token.value}`);
+
+      // Remove quotes
+      let value = token.value;
+      if (value.startsWith('"') && value.endsWith('"')) {
+        value = value.slice(1, -1);
+      } else if (value.startsWith("'") && value.endsWith("'")) {
+        value = value.slice(1, -1);
+      }
+
       return {
         type: 'StringLiteral',
-        value: token.value.slice(1, -1), // Remove quotes
+        value,
         location: {
           line: token.line,
           column: token.column
         }
       };
-    } else if (this.match(TokenType.NUMBER)) {
+    }
+
+    if (this.match(TokenType.NUMBER)) {
       const token = this.previous();
+      console.log(`Parsed number literal: ${token.value}`);
       return {
         type: 'NumberLiteral',
         value: parseFloat(token.value),
@@ -474,44 +946,42 @@ export class VCLParser {
           column: token.column
         }
       };
-    } else if (this.match(TokenType.REGEX)) {
+    }
+
+    if (this.match(TokenType.REGEX)) {
       const token = this.previous();
+      console.log(`Parsed regex literal: ${token.value}`);
+
+      // Extract pattern and flags
+      let pattern = token.value;
+      let flags = '';
+
+      // Remove the ~ operator
+      if (pattern.startsWith('~')) {
+        pattern = pattern.slice(1).trim();
+      }
+
+      // Remove quotes
+      if (pattern.startsWith('"') && pattern.endsWith('"')) {
+        pattern = pattern.slice(1, -1);
+      } else if (pattern.startsWith("'") && pattern.endsWith("'")) {
+        pattern = pattern.slice(1, -1);
+      }
+
       return {
         type: 'RegexLiteral',
-        pattern: token.value.slice(2, -1), // Remove ~ and quotes
-        flags: '',
+        pattern,
+        flags,
         location: {
           line: token.line,
           column: token.column
         }
       };
-    } else if (this.match(TokenType.IDENTIFIER)) {
+    }
+
+    if (this.match(TokenType.IDENTIFIER)) {
       const token = this.previous();
-
-      // Check for binary expression
-      if (this.match(TokenType.OPERATOR)) {
-        const operator = this.previous().value;
-        const right = this.parseExpression();
-
-        return {
-          type: 'BinaryExpression',
-          operator,
-          left: {
-            type: 'Identifier',
-            name: token.value,
-            location: {
-              line: token.line,
-              column: token.column
-            }
-          },
-          right,
-          location: {
-            line: token.line,
-            column: token.column
-          }
-        };
-      }
-
+      console.log(`Parsed identifier: ${token.value}`);
       return {
         type: 'Identifier',
         name: token.value,
@@ -521,6 +991,52 @@ export class VCLParser {
         }
       };
     }
+
+    if (this.match(TokenType.KEYWORD, 'true')) {
+      const token = this.previous();
+      return {
+        type: 'StringLiteral', // Using StringLiteral for booleans
+        value: 'true',
+        location: {
+          line: token.line,
+          column: token.column
+        }
+      };
+    }
+
+    if (this.match(TokenType.KEYWORD, 'false')) {
+      const token = this.previous();
+      return {
+        type: 'StringLiteral', // Using StringLiteral for booleans
+        value: 'false',
+        location: {
+          line: token.line,
+          column: token.column
+        }
+      };
+    }
+
+    // Handle unary operators
+    if (this.match(TokenType.OPERATOR, '!') ||
+      this.match(TokenType.OPERATOR, '-')) {
+      const operator = this.previous().value;
+      const right = this.parsePrimary();
+
+      return {
+        type: 'BinaryExpression', // Using BinaryExpression for unary operators
+        operator,
+        left: {
+          type: 'StringLiteral',
+          value: '',
+          location: right.location
+        },
+        right,
+        location: right.location
+      };
+    }
+
+    // If we can't parse a valid expression, return an empty identifier
+    console.error(`Unexpected token: ${this.peek().type} - ${this.peek().value}`);
 
     // Default to an empty identifier
     return {
