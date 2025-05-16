@@ -4,9 +4,6 @@
  * Processes requests through a VCL filter loaded from filter.vcl
  */
 
-import { readFileSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
-
 // Configuration
 const TARGET_HOST = "neverssl.com";
 const TARGET_URL = `http://${TARGET_HOST}`;
@@ -14,131 +11,13 @@ const PROXY_HOST = "127.0.0.1";
 const PROXY_PORT = 8000;
 const VCL_FILE_PATH = "filter.vcl";
 
-// VCL state and context
-interface VCLContext {
-    req: {
-        url: string;
-        method: string;
-        http: Record<string, string>;
-    };
-    bereq: {
-        url: string;
-        method: string;
-        http: Record<string, string>;
-    };
-    beresp: {
-        status: number;
-        statusText: string;
-        http: Record<string, string>;
-        ttl: number;
-    };
-    resp: {
-        status: number;
-        statusText: string;
-        http: Record<string, string>;
-    };
-    obj: {
-        status: number;
-        response: string;
-        http: Record<string, string>;
-        hits: number;
-    };
-    // Simple cache for demonstration
-    cache: Map<string, any>;
-}
-
-// VCL subroutines
-interface VCLSubroutines {
-    vcl_recv?: (context: VCLContext) => string;
-    vcl_hash?: (context: VCLContext) => string;
-    vcl_hit?: (context: VCLContext) => string;
-    vcl_miss?: (context: VCLContext) => string;
-    vcl_pass?: (context: VCLContext) => string;
-    vcl_fetch?: (context: VCLContext) => string;
-    vcl_deliver?: (context: VCLContext) => string;
-    vcl_error?: (context: VCLContext) => string;
-    vcl_log?: (context: VCLContext) => void;
-}
-
-// Load VCL file
-function loadVCLFile(filePath: string): string {
-    try {
-        const fullPath = join(process.cwd(), filePath);
-        if (!existsSync(fullPath)) {
-            console.error(`VCL file not found: ${fullPath}`);
-            return "";
-        }
-
-        const content = readFileSync(fullPath, 'utf-8');
-        console.log(`Loaded VCL file: ${fullPath}`);
-        return content;
-    } catch (error) {
-        console.error(`Error loading VCL file: ${error.message}`);
-        return "";
-    }
-}
-
-// Parse VCL file (placeholder for actual parser)
-function parseVCL(vclContent: string): VCLSubroutines {
-    console.log("VCL file loaded successfully. Parsing not yet implemented.");
-    console.log(`VCL file size: ${vclContent.length} bytes`);
-
-    // This is a placeholder. In a real implementation, we would parse the VCL
-    // and return actual functions that implement the VCL logic.
-    return {
-        vcl_recv: (context) => {
-            console.log(`[vcl_recv] Processing request: ${context.req.method} ${context.req.url}`);
-            // Add a custom header to demonstrate VCL processing
-            context.req.http["X-VCL-Processed"] = "true";
-            return "lookup";
-        },
-        vcl_hash: (context) => {
-            // Simple hash function for demonstration
-            const hash = `${context.req.url}|${context.req.http["host"] || ""}`;
-            console.log(`[vcl_hash] Generated hash: ${hash}`);
-            return hash;
-        },
-        vcl_hit: (context) => {
-            console.log(`[vcl_hit] Cache hit for: ${context.req.url}`);
-            return "deliver";
-        },
-        vcl_miss: (context) => {
-            console.log(`[vcl_miss] Cache miss for: ${context.req.url}`);
-            return "fetch";
-        },
-        vcl_pass: (context) => {
-            console.log(`[vcl_pass] Cache pass for: ${context.req.url}`);
-            return "fetch";
-        },
-        vcl_fetch: (context) => {
-            console.log(`[vcl_fetch] Processing backend response: ${context.beresp.status}`);
-            // Set a default TTL for demonstration
-            context.beresp.ttl = 300; // 5 minutes
-            // Add a custom header to demonstrate VCL processing
-            context.beresp.http["X-VCL-Cache-TTL"] = context.beresp.ttl.toString();
-            return "deliver";
-        },
-        vcl_deliver: (context) => {
-            console.log(`[vcl_deliver] Delivering response: ${context.resp.status}`);
-            // Add cache status header
-            context.resp.http["X-Cache"] = context.obj.hits > 0 ? "HIT" : "MISS";
-            // Add a custom header to demonstrate VCL processing
-            context.resp.http["X-Powered-By"] = "VCL Proxy";
-            return "deliver";
-        },
-        vcl_error: (context) => {
-            console.log(`[vcl_error] Error: ${context.obj.status} ${context.obj.response}`);
-            return "deliver";
-        },
-        vcl_log: (context) => {
-            console.log(`[vcl_log] Completed: ${context.req.method} ${context.req.url} - Status: ${context.resp.status}`);
-        }
-    };
-}
+// Import VCL module
+import { loadVCL, createVCLContext, executeVCL } from './src/vcl';
+import { VCLContext, VCLSubroutines } from './src/vcl-compiler';
 
 // Initialize VCL
-const vclContent = loadVCLFile(VCL_FILE_PATH);
-const vclSubroutines = parseVCL(vclContent);
+console.log(`Loading VCL file: ${VCL_FILE_PATH}`);
+const vclSubroutines = loadVCL(VCL_FILE_PATH);
 
 // Simple in-memory cache
 const cache = new Map();
@@ -154,36 +33,10 @@ const server = Bun.serve({
         const url = new URL(req.url);
 
         // Initialize VCL context
-        const context: VCLContext = {
-            req: {
-                url: url.pathname + url.search,
-                method: req.method,
-                http: {}
-            },
-            bereq: {
-                url: "",
-                method: req.method,
-                http: {}
-            },
-            beresp: {
-                status: 0,
-                statusText: "",
-                http: {},
-                ttl: 0
-            },
-            resp: {
-                status: 0,
-                statusText: "",
-                http: {}
-            },
-            obj: {
-                status: 0,
-                response: "",
-                http: {},
-                hits: 0
-            },
-            cache
-        };
+        const context = createVCLContext();
+        context.req.url = url.pathname + url.search;
+        context.req.method = req.method;
+        context.cache = cache;
 
         // Convert request headers to VCL format
         for (const [key, value] of req.headers.entries()) {
@@ -191,16 +44,11 @@ const server = Bun.serve({
         }
 
         // Execute vcl_recv
-        let action = "lookup";
-        if (vclSubroutines.vcl_recv) {
-            action = vclSubroutines.vcl_recv(context);
-        }
+        let action = executeVCL(vclSubroutines, 'vcl_recv', context) || "lookup";
 
         // Handle error action from vcl_recv
         if (action === "error") {
-            if (vclSubroutines.vcl_error) {
-                vclSubroutines.vcl_error(context);
-            }
+            executeVCL(vclSubroutines, 'vcl_error', context);
 
             return new Response(`Error: ${context.obj.status} ${context.obj.response}`, {
                 status: context.obj.status || 500,
@@ -210,44 +58,38 @@ const server = Bun.serve({
 
         // Generate cache key if we're doing a lookup
         let cacheKey = "";
-        if (action === "lookup" && vclSubroutines.vcl_hash) {
-            cacheKey = vclSubroutines.vcl_hash(context);
+        if (action === "lookup") {
+            cacheKey = executeVCL(vclSubroutines, 'vcl_hash', context) || "";
 
             // Check cache
             if (cache.has(cacheKey)) {
                 context.obj.hits = 1;
-                if (vclSubroutines.vcl_hit) {
-                    action = vclSubroutines.vcl_hit(context);
+                action = executeVCL(vclSubroutines, 'vcl_hit', context) || "deliver";
 
-                    if (action === "deliver") {
-                        const cachedResponse = cache.get(cacheKey);
+                if (action === "deliver") {
+                    const cachedResponse = cache.get(cacheKey);
 
-                        // Update context with cached response
-                        context.resp = cachedResponse.resp;
+                    // Update context with cached response
+                    context.resp = cachedResponse.resp;
 
-                        // Execute vcl_deliver
-                        if (vclSubroutines.vcl_deliver) {
-                            vclSubroutines.vcl_deliver(context);
-                        }
+                    // Execute vcl_deliver
+                    executeVCL(vclSubroutines, 'vcl_deliver', context);
 
-                        // Execute vcl_log
-                        if (vclSubroutines.vcl_log) {
-                            vclSubroutines.vcl_log(context);
-                        }
+                    // Execute vcl_log
+                    executeVCL(vclSubroutines, 'vcl_log', context);
 
-                        // Return cached response
-                        return new Response(cachedResponse.body, {
-                            status: context.resp.status,
-                            statusText: context.resp.statusText,
-                            headers: context.resp.http
-                        });
-                    }
+                    // Return cached response
+                    return new Response(cachedResponse.body, {
+                        status: context.resp.status,
+                        statusText: context.resp.statusText,
+                        headers: context.resp.http
+                    });
                 }
-            } else if (vclSubroutines.vcl_miss) {
-                action = vclSubroutines.vcl_miss(context);
+            } else {
+                action = executeVCL(vclSubroutines, 'vcl_miss', context) || "fetch";
             }
-        } else if (action === "pass" && vclSubroutines.vcl_pass) {
-            action = vclSubroutines.vcl_pass(context);
+        } else if (action === "pass") {
+            action = executeVCL(vclSubroutines, 'vcl_pass', context) || "fetch";
         }
 
         // If we get here, we need to fetch from the backend
@@ -299,10 +141,7 @@ const server = Bun.serve({
             }
 
             // Execute vcl_fetch
-            action = "deliver";
-            if (vclSubroutines.vcl_fetch) {
-                action = vclSubroutines.vcl_fetch(context);
-            }
+            action = executeVCL(vclSubroutines, 'vcl_fetch', context) || "deliver";
 
             // Clone the response body for caching
             const clonedResponse = backendResponse.clone();
@@ -314,9 +153,7 @@ const server = Bun.serve({
             context.resp.http = { ...context.beresp.http };
 
             // Execute vcl_deliver
-            if (vclSubroutines.vcl_deliver) {
-                vclSubroutines.vcl_deliver(context);
-            }
+            executeVCL(vclSubroutines, 'vcl_deliver', context);
 
             // Cache the response if appropriate
             if (action === "deliver" && cacheKey && context.beresp.ttl > 0) {
@@ -328,9 +165,7 @@ const server = Bun.serve({
             }
 
             // Execute vcl_log
-            if (vclSubroutines.vcl_log) {
-                vclSubroutines.vcl_log(context);
-            }
+            executeVCL(vclSubroutines, 'vcl_log', context);
 
             // Create a new response with the processed headers
             return new Response(responseBody, {
@@ -348,14 +183,10 @@ const server = Bun.serve({
                 : `Proxy error: ${error.message}`;
 
             // Execute vcl_error
-            if (vclSubroutines.vcl_error) {
-                vclSubroutines.vcl_error(context);
-            }
+            executeVCL(vclSubroutines, 'vcl_error', context);
 
             // Execute vcl_log
-            if (vclSubroutines.vcl_log) {
-                vclSubroutines.vcl_log(context);
-            }
+            executeVCL(vclSubroutines, 'vcl_log', context);
 
             return new Response(context.obj.response, {
                 status: context.obj.status,

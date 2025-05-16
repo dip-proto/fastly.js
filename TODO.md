@@ -4,10 +4,10 @@ This document outlines the tasks required to implement a Fastly VCL-compatible H
 
 ## High Priority Tasks
 
-1. **Basic VCL File Loading**
-   - Implement loading of the `filter.vcl` file
-   - Parse VCL syntax into a usable structure
-   - Handle basic VCL syntax errors
+1. **Basic VCL File Loading** ✅
+   - Implement loading of the `filter.vcl` file ✅
+   - Parse VCL syntax into a usable structure ✅
+   - Handle basic VCL syntax errors ✅
 
 2. **Core VCL Subroutines Implementation**
    - Implement `vcl_recv` - Request reception handling
