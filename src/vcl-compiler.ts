@@ -207,6 +207,10 @@ export interface VCLContext {
       status_matches: (status: number, pattern: string) => boolean;
     };
 
+    // Error handling and synthetic responses
+    synthetic: (content: string) => void;
+    error: (status: number, message?: string) => void;
+
     // Query string functions
     querystring: {
       get: (url: string, name: string) => string | null;

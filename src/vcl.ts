@@ -473,6 +473,67 @@ export function createVCLContext(): VCLContext {
       }
     },
 
+    // Error handling and synthetic responses
+    synthetic: (content: string) => {
+      // Set the synthetic response content
+      context.obj.response = String(content);
+
+      // If no Content-Type is set, default to text/html
+      if (!context.obj.http['content-type']) {
+        context.obj.http['content-type'] = 'text/html; charset=utf-8';
+      }
+    },
+
+    error: (status: number, message?: string) => {
+      // Set the error status code
+      context.obj.status = status;
+
+      // Set the error message if provided
+      if (message) {
+        context.obj.response = String(message);
+      } else {
+        // Default error messages based on status code
+        switch (status) {
+          case 400:
+            context.obj.response = 'Bad Request';
+            break;
+          case 401:
+            context.obj.response = 'Unauthorized';
+            break;
+          case 403:
+            context.obj.response = 'Forbidden';
+            break;
+          case 404:
+            context.obj.response = 'Not Found';
+            break;
+          case 429:
+            context.obj.response = 'Too Many Requests';
+            break;
+          case 500:
+            context.obj.response = 'Internal Server Error';
+            break;
+          case 502:
+            context.obj.response = 'Bad Gateway';
+            break;
+          case 503:
+            context.obj.response = 'Service Unavailable';
+            break;
+          case 504:
+            context.obj.response = 'Gateway Timeout';
+            break;
+          default:
+            context.obj.response = 'Error';
+        }
+      }
+
+      // Set the fastly error state
+      context.fastly.error = context.obj.response;
+      context.fastly.state = 'error';
+
+      // Return 'error' to trigger vcl_error
+      return 'error';
+    },
+
     // Query string functions
     querystring: {
       get: (url: string, name: string) => {

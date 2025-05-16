@@ -231,29 +231,62 @@ const server = Bun.serve({
         // If we get here, we need to fetch from the backend
 
         // Route requests based on URL path (since our VCL parser can't handle function calls yet)
-        if (context.req.url.startsWith('/api/')) {
-            // Use API backend for API requests
-            context.std.backend.set_current('api');
-            console.log(`Using API backend for ${context.req.url}`);
-        }
-        else if (context.req.url.match(/\.(jpg|jpeg|png|gif|css|js)$/)) {
-            // Use static backend for static content
-            context.std.backend.set_current('static');
-            console.log(`Using static backend for ${context.req.url}`);
-        }
-        else {
-            // Use main director for everything else
-            const selectedBackend = context.std.director.select_backend('main_director');
-            if (selectedBackend) {
-                context.req.backend = selectedBackend.name;
-                context.current_backend = selectedBackend;
-                console.log(`Using main director backend: ${context.req.backend} for ${context.req.url}`);
-            } else {
-                // Fallback to default
-                context.req.backend = 'default';
-                context.current_backend = context.backends['default'];
-                console.log(`Using default backend for ${context.req.url}`);
+        try {
+            if (context.req.url.startsWith('/api/')) {
+                // Use API backend for API requests
+                if (!context.std.backend.set_current('api')) {
+                    throw new Error(`Backend 'api' not found or not available`);
+                }
+                console.log(`Using API backend for ${context.req.url}`);
             }
+            else if (context.req.url.match(/\.(jpg|jpeg|png|gif|css|js)$/)) {
+                // Use static backend for static content
+                if (!context.std.backend.set_current('static')) {
+                    throw new Error(`Backend 'static' not found or not available`);
+                }
+                console.log(`Using static backend for ${context.req.url}`);
+            }
+            else {
+                // Use main director for everything else
+                const selectedBackend = context.std.director.select_backend('main_director');
+                if (selectedBackend) {
+                    context.req.backend = selectedBackend.name;
+                    context.current_backend = selectedBackend;
+                    console.log(`Using main director backend: ${context.req.backend} for ${context.req.url}`);
+                } else {
+                    // Try fallback director
+                    const fallbackBackend = context.std.director.select_backend('fallback_director');
+                    if (fallbackBackend) {
+                        context.req.backend = fallbackBackend.name;
+                        context.current_backend = fallbackBackend;
+                        console.log(`Using fallback director backend: ${context.req.backend} for ${context.req.url}`);
+                    } else {
+                        // Fallback to default
+                        if (!context.backends['default']) {
+                            throw new Error(`No available backends for ${context.req.url}`);
+                        }
+                        context.req.backend = 'default';
+                        context.current_backend = context.backends['default'];
+                        console.log(`Using default backend for ${context.req.url}`);
+                    }
+                }
+            }
+
+            // Check if the selected backend is healthy
+            if (context.current_backend && !context.std.backend.is_healthy(context.current_backend.name)) {
+                throw new Error(`Backend '${context.current_backend.name}' is not healthy`);
+            }
+        } catch (error) {
+            console.error(`Backend selection error: ${error.message}`);
+            // Trigger error handling
+            context.std.error(503, `Service Unavailable: ${error.message}`);
+            // Execute vcl_error
+            executeVCL(vclSubroutines, 'vcl_error', context);
+            // Return a synthetic response
+            return new Response(context.obj.response, {
+                status: context.obj.status,
+                headers: context.obj.http
+            });
         }
 
         // Add custom headers for debugging
@@ -297,102 +330,154 @@ const server = Bun.serve({
 
             console.log(`Response received: ${backendResponse.status} ${backendResponse.statusText}`);
 
-            // Update beresp context
-            context.beresp.status = backendResponse.status;
-            context.beresp.statusText = backendResponse.statusText;
+            // Check for backend error responses
+            if (backendResponse.status >= 500) {
+                console.warn(`Backend returned error status: ${backendResponse.status}`);
 
-            // Copy backend response headers to beresp
-            for (const [key, value] of backendResponse.headers.entries()) {
-                context.beresp.http[key.toLowerCase()] = value;
+                // If we have a fallback director, try to use it
+                if (context.directors['fallback_director'] && context.current_backend.name !== 'default') {
+                    console.log('Attempting to use fallback director');
+                    const fallbackBackend = context.std.director.select_backend('fallback_director');
+
+                    if (fallbackBackend && fallbackBackend.name !== context.current_backend.name) {
+                        console.log(`Retrying with fallback backend: ${fallbackBackend.name}`);
+
+                        // Update the current backend
+                        context.req.backend = fallbackBackend.name;
+                        context.current_backend = fallbackBackend;
+
+                        // Create a new URL pointing to the fallback backend
+                        const protocol = fallbackBackend.ssl ? 'https' : 'http';
+                        const fallbackUrl = new URL(url.pathname + url.search, `${protocol}://${fallbackBackend.host}:${fallbackBackend.port}`);
+
+                        // Create a new request
+                        const fallbackReq = new Request(fallbackUrl, {
+                            method: req.method,
+                            headers: new Headers(context.bereq.http),
+                            body: req.method !== "GET" && req.method !== "HEAD" ? req.body : undefined,
+                            signal: AbortSignal.timeout(15000), // 15 seconds timeout
+                        });
+
+                        // Remove host header to avoid conflicts
+                        fallbackReq.headers.delete("host");
+                        // Set the host header to the fallback host
+                        fallbackReq.headers.set("host", fallbackBackend.host);
+
+                        // Try the fallback request
+                        try {
+                            const fallbackResponse = await fetch(fallbackReq);
+                            console.log(`Fallback response received: ${fallbackResponse.status} ${fallbackResponse.statusText}`);
+
+                            // Use the fallback response instead
+                            return await handleBackendResponse(fallbackResponse, context, vclSubroutines, cacheKey, action, req, url);
+                        } catch (fallbackError) {
+                            console.error(`Fallback request failed: ${fallbackError.message}`);
+                            // Continue with the original response
+                        }
+                    }
+                }
             }
 
-            // Execute vcl_fetch
-            action = executeVCL(vclSubroutines, 'vcl_fetch', context) || "deliver";
-
-            // TEMPORARY FIX: Set TTL manually since our VCL parser is not correctly handling it
-            if (context.beresp.ttl === 0) {
-                console.log("Setting TTL manually to 300 seconds (5 minutes)");
-                context.beresp.ttl = 300;
-                context.beresp.grace = 3600;
-                context.beresp.stale_while_revalidate = 10;
-            }
-
-            // Clone the response body for caching
-            const clonedResponse = backendResponse.clone();
-            const responseBody = await clonedResponse.arrayBuffer();
-
-            // Update resp context
-            context.resp.status = context.beresp.status;
-            context.resp.statusText = context.beresp.statusText;
-            context.resp.http = { ...context.beresp.http };
-
-            // Add cache status header for miss
-            context.resp.http["X-Cache"] = "MISS";
-
-            // Add backend information
-            context.resp.http["X-Backend"] = context.req.http["X-Selected-Backend"] || "unknown";
-
-            // Execute vcl_deliver
-            executeVCL(vclSubroutines, 'vcl_deliver', context);
-
-            // Cache the response if appropriate
-            console.log(`Cache decision: action=${action}, cacheKey=${cacheKey}, ttl=${context.beresp.ttl}`);
-
-            if (action === "deliver" && cacheKey && context.beresp.ttl > 0) {
-                const now = Date.now();
-                const ttlMs = context.beresp.ttl * 1000;
-                const graceMs = (context.beresp.grace || 0) * 1000;
-                const staleWhileRevalidateMs = (context.beresp.stale_while_revalidate || 0) * 1000;
-
-                console.log(`Caching response: TTL=${context.beresp.ttl}s, Grace=${context.beresp.grace || 0}s, SWR=${context.beresp.stale_while_revalidate || 0}s`);
-                console.log(`Response headers: ${JSON.stringify(context.resp.http)}`);
-
-                // Clone the response body to ensure it's available for caching
-                const bodyClone = responseBody.slice(0);
-
-                cache.set(cacheKey, {
-                    resp: { ...context.resp },
-                    body: bodyClone,
-                    created: now,
-                    expires: now + ttlMs,
-                    staleUntil: now + ttlMs + graceMs + staleWhileRevalidateMs,
-                    // Store original beresp for potential revalidation
-                    beresp: { ...context.beresp }
-                });
-
-                console.log(`Cached response with key ${cacheKey}, TTL: ${context.beresp.ttl}s, expires: ${new Date(now + ttlMs).toISOString()}`);
-                console.log(`Cache size: ${cache.size} entries`);
-            } else {
-                console.log(`Not caching response: action=${action}, cacheKey=${cacheKey}, ttl=${context.beresp.ttl}`);
-            }
-
-            // Execute vcl_log
-            executeVCL(vclSubroutines, 'vcl_log', context);
-
-            // Create a new response with the processed headers
-            return new Response(responseBody, {
-                status: context.resp.status,
-                statusText: context.resp.statusText,
-                headers: context.resp.http
-            });
+            // Handle the backend response
+            return await handleBackendResponse(backendResponse, context, vclSubroutines, cacheKey, action, req, url);
         } catch (error) {
             console.error("Proxy error:", error);
 
+            // Set default error status and message
+            let errorStatus = 500;
+            let errorMessage = `Proxy error: ${error.message}`;
+
+            // Handle specific error types
+            if (error.name === "TimeoutError" || error.name === "AbortError") {
+                errorStatus = 504;
+                errorMessage = "Request timed out while connecting to the target server";
+            } else if (error.name === "TypeError" && error.message.includes("fetch")) {
+                errorStatus = 502;
+                errorMessage = "Bad Gateway: Unable to connect to the backend server";
+            } else if (error.name === "TypeError" && error.message.includes("Failed to parse URL")) {
+                errorStatus = 400;
+                errorMessage = "Bad Request: Invalid URL";
+            }
+
             // Update error context
-            context.obj.status = error.name === "TimeoutError" || error.name === "AbortError" ? 504 : 500;
-            context.obj.response = error.name === "TimeoutError" || error.name === "AbortError"
-                ? "Request timed out while connecting to the target server"
-                : `Proxy error: ${error.message}`;
+            context.obj.status = errorStatus;
+            context.obj.response = errorMessage;
+            context.obj.http = { "Content-Type": "text/html; charset=utf-8" };
+
+            // Set the fastly error state
+            context.fastly.error = errorMessage;
+            context.fastly.state = 'error';
 
             // Execute vcl_error
-            executeVCL(vclSubroutines, 'vcl_error', context);
+            const errorAction = executeVCL(vclSubroutines, 'vcl_error', context);
+
+            // If vcl_error returns 'deliver', use the synthetic response
+            if (errorAction === 'deliver') {
+                console.log(`Delivering synthetic response: status=${context.obj.status}`);
+            } else {
+                // If no custom error page is defined, create a default one
+                if (!context.obj.response || context.obj.response === errorMessage) {
+                    const defaultErrorPage = `
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Error ${context.obj.status}</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .error-container {
+            max-width: 800px;
+            margin: 0 auto;
+            background-color: white;
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            padding: 20px;
+        }
+        h1 {
+            color: #e74c3c;
+            margin-top: 0;
+        }
+        .error-details {
+            background-color: #f9f9f9;
+            padding: 10px;
+            border-radius: 3px;
+            margin-top: 20px;
+        }
+        .error-id {
+            color: #777;
+            font-size: 0.9em;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="error-container">
+        <h1>Error ${context.obj.status}</h1>
+        <p>${errorMessage}</p>
+        <div class="error-details">
+            <p><strong>Request:</strong> ${req.method} ${url.pathname}</p>
+            <p><strong>Backend:</strong> ${context.current_backend ? context.current_backend.name : 'unknown'}</p>
+        </div>
+        <p class="error-id">Error ID: ${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 7)}</p>
+    </div>
+</body>
+</html>`;
+                    context.obj.response = defaultErrorPage;
+                    context.obj.http['Content-Type'] = 'text/html; charset=utf-8';
+                }
+            }
 
             // Execute vcl_log
             executeVCL(vclSubroutines, 'vcl_log', context);
 
+            // Return the error response
             return new Response(context.obj.response, {
                 status: context.obj.status,
-                headers: { "Content-Type": "text/plain", ...context.obj.http }
+                headers: context.obj.http
             });
         }
     },
@@ -401,3 +486,93 @@ const server = Bun.serve({
 console.log(`HTTP Proxy server running at http://${PROXY_HOST}:${PROXY_PORT}`);
 console.log(`Default backend: ${DEFAULT_BACKEND.host}:${DEFAULT_BACKEND.port}`);
 console.log(`Using VCL file: ${VCL_FILE_PATH}`);
+
+// Handle backend response
+async function handleBackendResponse(
+    backendResponse: Response,
+    context: VCLContext,
+    vclSubroutines: VCLSubroutines,
+    cacheKey: string,
+    action: string,
+    req: Request,
+    url: URL
+): Promise<Response> {
+    // Update beresp context
+    context.beresp.status = backendResponse.status;
+    context.beresp.statusText = backendResponse.statusText;
+
+    // Copy backend response headers to beresp
+    for (const [key, value] of backendResponse.headers.entries()) {
+        context.beresp.http[key.toLowerCase()] = value;
+    }
+
+    // Execute vcl_fetch
+    action = executeVCL(vclSubroutines, 'vcl_fetch', context) || "deliver";
+
+    // TEMPORARY FIX: Set TTL manually since our VCL parser is not correctly handling it
+    if (context.beresp.ttl === 0) {
+        console.log("Setting TTL manually to 300 seconds (5 minutes)");
+        context.beresp.ttl = 300;
+        context.beresp.grace = 3600;
+        context.beresp.stale_while_revalidate = 10;
+    }
+
+    // Clone the response body for caching
+    const clonedResponse = backendResponse.clone();
+    const responseBody = await clonedResponse.arrayBuffer();
+
+    // Update resp context
+    context.resp.status = context.beresp.status;
+    context.resp.statusText = context.beresp.statusText;
+    context.resp.http = { ...context.beresp.http };
+
+    // Add cache status header for miss
+    context.resp.http["X-Cache"] = "MISS";
+
+    // Add backend information
+    context.resp.http["X-Backend"] = context.req.http["X-Selected-Backend"] || "unknown";
+
+    // Execute vcl_deliver
+    executeVCL(vclSubroutines, 'vcl_deliver', context);
+
+    // Cache the response if appropriate
+    console.log(`Cache decision: action=${action}, cacheKey=${cacheKey}, ttl=${context.beresp.ttl}`);
+
+    if (action === "deliver" && cacheKey && context.beresp.ttl > 0) {
+        const now = Date.now();
+        const ttlMs = context.beresp.ttl * 1000;
+        const graceMs = (context.beresp.grace || 0) * 1000;
+        const staleWhileRevalidateMs = (context.beresp.stale_while_revalidate || 0) * 1000;
+
+        console.log(`Caching response: TTL=${context.beresp.ttl}s, Grace=${context.beresp.grace || 0}s, SWR=${context.beresp.stale_while_revalidate || 0}s`);
+        console.log(`Response headers: ${JSON.stringify(context.resp.http)}`);
+
+        // Clone the response body to ensure it's available for caching
+        const bodyClone = responseBody.slice(0);
+
+        cache.set(cacheKey, {
+            resp: { ...context.resp },
+            body: bodyClone,
+            created: now,
+            expires: now + ttlMs,
+            staleUntil: now + ttlMs + graceMs + staleWhileRevalidateMs,
+            // Store original beresp for potential revalidation
+            beresp: { ...context.beresp }
+        });
+
+        console.log(`Cached response with key ${cacheKey}, TTL: ${context.beresp.ttl}s, expires: ${new Date(now + ttlMs).toISOString()}`);
+        console.log(`Cache size: ${cache.size} entries`);
+    } else {
+        console.log(`Not caching response: action=${action}, cacheKey=${cacheKey}, ttl=${context.beresp.ttl}`);
+    }
+
+    // Execute vcl_log
+    executeVCL(vclSubroutines, 'vcl_log', context);
+
+    // Create a new response with the processed headers
+    return new Response(responseBody, {
+        status: context.resp.status,
+        statusText: context.resp.statusText,
+        headers: context.resp.http
+    });
+}
