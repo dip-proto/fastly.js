@@ -4,7 +4,17 @@ A reimplementation of the Fastly platform, in JavaScript.
 
 ## Project Overview
 
-This project aims to provide a local development environment for testing and deploying Fastly VCL configurations without requiring the actual Fastly infrastructure.
+This project aims to provide a local development environment for testing and deploying Fastly VCL configurations without requiring the actual Fastly infrastructure. Fastly.JS allows you to run and test your VCL configurations locally, making it easier to develop, debug, and iterate on your Fastly configurations.
+
+## Documentation
+
+For comprehensive documentation, tutorials, and examples, please visit the [documentation](docs/README.md).
+
+- [Getting Started Guide](docs/getting-started.md)
+- [Tutorials](docs/README.md#tutorials)
+- [Examples](docs/README.md#examples)
+- [API Reference](docs/README.md#api-reference)
+- [Troubleshooting](docs/troubleshooting.md)
 
 ## Features
 
