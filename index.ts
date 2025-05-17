@@ -18,12 +18,17 @@ const DEFAULT_BACKEND = {
 };
 
 // Import VCL module
-import { loadVCL, createVCLContext, executeVCL } from './src/vcl';
-import { VCLContext, VCLSubroutines } from './src/vcl-compiler';
+import {loadVCL, createVCLContext, executeVCL} from './src/vcl';
+import {VCLContext, VCLSubroutines} from './src/vcl-compiler';
+import {SecurityModule} from './src/vcl-security';
 
 // Initialize VCL
-console.log(`Loading VCL file: ${VCL_FILE_PATH}`);
+console.log(`Loading VCL file: ${ VCL_FILE_PATH }`);
 const vclSubroutines = loadVCL(VCL_FILE_PATH);
+
+// Initialize security module
+console.log('Initializing security module...');
+SecurityModule.init();
 
 // Simple in-memory cache
 const cache = new Map();
@@ -81,8 +86,8 @@ setupContext.std.director.add('fallback_director', 'fallback');
 setupContext.std.director.add_backend('fallback_director', 'main', 1);
 setupContext.std.director.add_backend('fallback_director', 'api', 1);
 
-console.log(`Backends configured: ${Object.keys(setupContext.backends).join(', ')}`);
-console.log(`Directors configured: ${Object.keys(setupContext.directors).join(', ')}`);
+console.log(`Backends configured: ${ Object.keys(setupContext.backends).join(', ') }`);
+console.log(`Directors configured: ${ Object.keys(setupContext.directors).join(', ') }`);
 
 // Start the server
 const server = Bun.serve({
@@ -101,8 +106,8 @@ const server = Bun.serve({
         context.cache = cache;
 
         // Copy backends and directors from setup context
-        context.backends = { ...setupContext.backends };
-        context.directors = { ...setupContext.directors };
+        context.backends = {...setupContext.backends};
+        context.directors = {...setupContext.directors};
 
         // Convert request headers to VCL format
         for (const [key, value] of req.headers.entries()) {
@@ -116,7 +121,7 @@ const server = Bun.serve({
         if (action === "error") {
             executeVCL(vclSubroutines, 'vcl_error', context);
 
-            return new Response(`Error: ${context.obj.status} ${context.obj.response}`, {
+            return new Response(`Error: ${ context.obj.status } ${ context.obj.response }`, {
                 status: context.obj.status || 500,
                 headers: context.obj.http
             });
@@ -131,23 +136,23 @@ const server = Bun.serve({
             // Generate cache key from hashData
             cacheKey = context.hashData && context.hashData.length > 0
                 ? context.hashData.join(':')
-                : `${context.req.url}:${context.req.http['host'] || ''}`;
+                : `${ context.req.url }:${ context.req.http['host'] || '' }`;
 
-            console.log(`Generated cache key: ${cacheKey}`);
+            console.log(`Generated cache key: ${ cacheKey }`);
 
             // Check cache
-            console.log(`Checking cache for key: ${cacheKey}, has entry: ${cache.has(cacheKey)}`);
+            console.log(`Checking cache for key: ${ cacheKey }, has entry: ${ cache.has(cacheKey) }`);
             if (cache.has(cacheKey)) {
                 const cachedResponse = cache.get(cacheKey);
                 const now = Date.now();
 
-                console.log(`Cache entry found: expires at ${new Date(cachedResponse.expires).toISOString()}, stale until ${new Date(cachedResponse.staleUntil).toISOString()}`);
-                console.log(`Current time: ${new Date(now).toISOString()}`);
-                console.log(`Is fresh: ${now < cachedResponse.expires}, is within grace: ${now < cachedResponse.staleUntil}`);
+                console.log(`Cache entry found: expires at ${ new Date(cachedResponse.expires).toISOString() }, stale until ${ new Date(cachedResponse.staleUntil).toISOString() }`);
+                console.log(`Current time: ${ new Date(now).toISOString() }`);
+                console.log(`Is fresh: ${ now < cachedResponse.expires }, is within grace: ${ now < cachedResponse.staleUntil }`);
 
                 // Check if the cached response is still fresh
                 if (now < cachedResponse.expires) {
-                    console.log(`Cache HIT for ${cacheKey} (fresh)`);
+                    console.log(`Cache HIT for ${ cacheKey } (fresh)`);
                     context.obj.hits = 1;
 
                     // Execute vcl_hit
@@ -155,12 +160,12 @@ const server = Bun.serve({
 
                     if (action === "deliver") {
                         // Update context with cached response
-                        context.resp = { ...cachedResponse.resp };
+                        context.resp = {...cachedResponse.resp};
 
                         // Add cache status header
                         context.resp.http["X-Cache"] = "HIT";
                         context.resp.http["X-Cache-Hits"] = "1";
-                        context.resp.http["X-Cache-Age"] = `${Math.floor((now - cachedResponse.created) / 1000)}`;
+                        context.resp.http["X-Cache-Age"] = `${ Math.floor((now - cachedResponse.created) / 1000) }`;
 
                         // Execute vcl_deliver
                         executeVCL(vclSubroutines, 'vcl_deliver', context);
@@ -178,7 +183,7 @@ const server = Bun.serve({
                 }
                 // Check if the cached response is stale but within grace period
                 else if (now < cachedResponse.staleUntil) {
-                    console.log(`Cache HIT for ${cacheKey} (stale, within grace period)`);
+                    console.log(`Cache HIT for ${ cacheKey } (stale, within grace period)`);
                     context.obj.hits = 1;
 
                     // Execute vcl_hit
@@ -186,12 +191,12 @@ const server = Bun.serve({
 
                     if (action === "deliver") {
                         // Update context with cached response
-                        context.resp = { ...cachedResponse.resp };
+                        context.resp = {...cachedResponse.resp};
 
                         // Add cache status header
                         context.resp.http["X-Cache"] = "HIT-STALE";
                         context.resp.http["X-Cache-Hits"] = "1";
-                        context.resp.http["X-Cache-Age"] = `${Math.floor((now - cachedResponse.created) / 1000)}`;
+                        context.resp.http["X-Cache-Age"] = `${ Math.floor((now - cachedResponse.created) / 1000) }`;
 
                         // Execute vcl_deliver
                         executeVCL(vclSubroutines, 'vcl_deliver', context);
@@ -201,7 +206,7 @@ const server = Bun.serve({
 
                         // Asynchronously revalidate the cache in the background
                         setTimeout(() => {
-                            console.log(`Background revalidation for ${cacheKey}`);
+                            console.log(`Background revalidation for ${ cacheKey }`);
                             // This would normally trigger a new fetch to the backend
                             // For now, we'll just remove the cache entry to force a refresh on next request
                             cache.delete(cacheKey);
@@ -216,12 +221,12 @@ const server = Bun.serve({
                     }
                 } else {
                     // Cache entry is too old, remove it
-                    console.log(`Cache entry for ${cacheKey} is expired and beyond grace period, removing`);
+                    console.log(`Cache entry for ${ cacheKey } is expired and beyond grace period, removing`);
                     cache.delete(cacheKey);
                     action = executeVCL(vclSubroutines, 'vcl_miss', context) || "fetch";
                 }
             } else {
-                console.log(`Cache MISS for ${cacheKey}`);
+                console.log(`Cache MISS for ${ cacheKey }`);
                 action = executeVCL(vclSubroutines, 'vcl_miss', context) || "fetch";
             }
         } else if (action === "pass") {
@@ -237,14 +242,14 @@ const server = Bun.serve({
                 if (!context.std.backend.set_current('api')) {
                     throw new Error(`Backend 'api' not found or not available`);
                 }
-                console.log(`Using API backend for ${context.req.url}`);
+                console.log(`Using API backend for ${ context.req.url }`);
             }
             else if (context.req.url.match(/\.(jpg|jpeg|png|gif|css|js)$/)) {
                 // Use static backend for static content
                 if (!context.std.backend.set_current('static')) {
                     throw new Error(`Backend 'static' not found or not available`);
                 }
-                console.log(`Using static backend for ${context.req.url}`);
+                console.log(`Using static backend for ${ context.req.url }`);
             }
             else {
                 // Use main director for everything else
@@ -252,34 +257,34 @@ const server = Bun.serve({
                 if (selectedBackend) {
                     context.req.backend = selectedBackend.name;
                     context.current_backend = selectedBackend;
-                    console.log(`Using main director backend: ${context.req.backend} for ${context.req.url}`);
+                    console.log(`Using main director backend: ${ context.req.backend } for ${ context.req.url }`);
                 } else {
                     // Try fallback director
                     const fallbackBackend = context.std.director.select_backend('fallback_director');
                     if (fallbackBackend) {
                         context.req.backend = fallbackBackend.name;
                         context.current_backend = fallbackBackend;
-                        console.log(`Using fallback director backend: ${context.req.backend} for ${context.req.url}`);
+                        console.log(`Using fallback director backend: ${ context.req.backend } for ${ context.req.url }`);
                     } else {
                         // Fallback to default
                         if (!context.backends['default']) {
-                            throw new Error(`No available backends for ${context.req.url}`);
+                            throw new Error(`No available backends for ${ context.req.url }`);
                         }
                         context.req.backend = 'default';
                         context.current_backend = context.backends['default'];
-                        console.log(`Using default backend for ${context.req.url}`);
+                        console.log(`Using default backend for ${ context.req.url }`);
                     }
                 }
             }
 
             // Check if the selected backend is healthy
             if (context.current_backend && !context.std.backend.is_healthy(context.current_backend.name)) {
-                throw new Error(`Backend '${context.current_backend.name}' is not healthy`);
+                throw new Error(`Backend '${ context.current_backend.name }' is not healthy`);
             }
         } catch (error) {
-            console.error(`Backend selection error: ${error.message}`);
+            console.error(`Backend selection error: ${ error.message }`);
             // Trigger error handling
-            context.std.error(503, `Service Unavailable: ${error.message}`);
+            context.std.error(503, `Service Unavailable: ${ error.message }`);
             // Execute vcl_error
             executeVCL(vclSubroutines, 'vcl_error', context);
             // Return a synthetic response
@@ -294,9 +299,9 @@ const server = Bun.serve({
 
         // Create a new URL pointing to the target backend
         const protocol = context.current_backend.ssl ? 'https' : 'http';
-        const targetUrl = new URL(url.pathname + url.search, `${protocol}://${context.current_backend.host}:${context.current_backend.port}`);
+        const targetUrl = new URL(url.pathname + url.search, `${ protocol }://${ context.current_backend.host }:${ context.current_backend.port }`);
 
-        console.log(`Proxying request: ${req.method} ${url.pathname} -> ${targetUrl} (backend: ${context.current_backend.name})`);
+        console.log(`Proxying request: ${ req.method } ${ url.pathname } -> ${ targetUrl } (backend: ${ context.current_backend.name })`);
 
         // Prepare backend request
         context.bereq.url = targetUrl.toString();
@@ -328,11 +333,11 @@ const server = Bun.serve({
             // Forward the request and get the response
             const backendResponse = await fetch(proxyReq);
 
-            console.log(`Response received: ${backendResponse.status} ${backendResponse.statusText}`);
+            console.log(`Response received: ${ backendResponse.status } ${ backendResponse.statusText }`);
 
             // Check for backend error responses
             if (backendResponse.status >= 500) {
-                console.warn(`Backend returned error status: ${backendResponse.status}`);
+                console.warn(`Backend returned error status: ${ backendResponse.status }`);
 
                 // If we have a fallback director, try to use it
                 if (context.directors['fallback_director'] && context.current_backend.name !== 'default') {
@@ -340,7 +345,7 @@ const server = Bun.serve({
                     const fallbackBackend = context.std.director.select_backend('fallback_director');
 
                     if (fallbackBackend && fallbackBackend.name !== context.current_backend.name) {
-                        console.log(`Retrying with fallback backend: ${fallbackBackend.name}`);
+                        console.log(`Retrying with fallback backend: ${ fallbackBackend.name }`);
 
                         // Update the current backend
                         context.req.backend = fallbackBackend.name;
@@ -348,7 +353,7 @@ const server = Bun.serve({
 
                         // Create a new URL pointing to the fallback backend
                         const protocol = fallbackBackend.ssl ? 'https' : 'http';
-                        const fallbackUrl = new URL(url.pathname + url.search, `${protocol}://${fallbackBackend.host}:${fallbackBackend.port}`);
+                        const fallbackUrl = new URL(url.pathname + url.search, `${ protocol }://${ fallbackBackend.host }:${ fallbackBackend.port }`);
 
                         // Create a new request
                         const fallbackReq = new Request(fallbackUrl, {
@@ -366,12 +371,12 @@ const server = Bun.serve({
                         // Try the fallback request
                         try {
                             const fallbackResponse = await fetch(fallbackReq);
-                            console.log(`Fallback response received: ${fallbackResponse.status} ${fallbackResponse.statusText}`);
+                            console.log(`Fallback response received: ${ fallbackResponse.status } ${ fallbackResponse.statusText }`);
 
                             // Use the fallback response instead
                             return await handleBackendResponse(fallbackResponse, context, vclSubroutines, cacheKey, action, req, url);
                         } catch (fallbackError) {
-                            console.error(`Fallback request failed: ${fallbackError.message}`);
+                            console.error(`Fallback request failed: ${ fallbackError.message }`);
                             // Continue with the original response
                         }
                     }
@@ -385,7 +390,7 @@ const server = Bun.serve({
 
             // Set default error status and message
             let errorStatus = 500;
-            let errorMessage = `Proxy error: ${error.message}`;
+            let errorMessage = `Proxy error: ${ error.message }`;
 
             // Handle specific error types
             if (error.name === "TimeoutError" || error.name === "AbortError") {
@@ -402,7 +407,7 @@ const server = Bun.serve({
             // Update error context
             context.obj.status = errorStatus;
             context.obj.response = errorMessage;
-            context.obj.http = { "Content-Type": "text/html; charset=utf-8" };
+            context.obj.http = {"Content-Type": "text/html; charset=utf-8"};
 
             // Set the fastly error state
             context.fastly.error = errorMessage;
@@ -413,7 +418,7 @@ const server = Bun.serve({
 
             // If vcl_error returns 'deliver', use the synthetic response
             if (errorAction === 'deliver') {
-                console.log(`Delivering synthetic response: status=${context.obj.status}`);
+                console.log(`Delivering synthetic response: status=${ context.obj.status }`);
             } else {
                 // If no custom error page is defined, create a default one
                 if (!context.obj.response || context.obj.response === errorMessage) {
@@ -421,7 +426,7 @@ const server = Bun.serve({
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Error ${context.obj.status}</title>
+    <title>Error ${ context.obj.status }</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -456,13 +461,13 @@ const server = Bun.serve({
 </head>
 <body>
     <div class="error-container">
-        <h1>Error ${context.obj.status}</h1>
-        <p>${errorMessage}</p>
+        <h1>Error ${ context.obj.status }</h1>
+        <p>${ errorMessage }</p>
         <div class="error-details">
-            <p><strong>Request:</strong> ${req.method} ${url.pathname}</p>
-            <p><strong>Backend:</strong> ${context.current_backend ? context.current_backend.name : 'unknown'}</p>
+            <p><strong>Request:</strong> ${ req.method } ${ url.pathname }</p>
+            <p><strong>Backend:</strong> ${ context.current_backend ? context.current_backend.name : 'unknown' }</p>
         </div>
-        <p class="error-id">Error ID: ${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 7)}</p>
+        <p class="error-id">Error ID: ${ Date.now().toString(36) }-${ Math.random().toString(36).substring(2, 7) }</p>
     </div>
 </body>
 </html>`;
@@ -483,9 +488,9 @@ const server = Bun.serve({
     },
 });
 
-console.log(`HTTP Proxy server running at http://${PROXY_HOST}:${PROXY_PORT}`);
-console.log(`Default backend: ${DEFAULT_BACKEND.host}:${DEFAULT_BACKEND.port}`);
-console.log(`Using VCL file: ${VCL_FILE_PATH}`);
+console.log(`HTTP Proxy server running at http://${ PROXY_HOST }:${ PROXY_PORT }`);
+console.log(`Default backend: ${ DEFAULT_BACKEND.host }:${ DEFAULT_BACKEND.port }`);
+console.log(`Using VCL file: ${ VCL_FILE_PATH }`);
 
 // Handle backend response
 async function handleBackendResponse(
@@ -524,7 +529,7 @@ async function handleBackendResponse(
     // Update resp context
     context.resp.status = context.beresp.status;
     context.resp.statusText = context.beresp.statusText;
-    context.resp.http = { ...context.beresp.http };
+    context.resp.http = {...context.beresp.http};
 
     // Add cache status header for miss
     context.resp.http["X-Cache"] = "MISS";
@@ -536,7 +541,7 @@ async function handleBackendResponse(
     executeVCL(vclSubroutines, 'vcl_deliver', context);
 
     // Cache the response if appropriate
-    console.log(`Cache decision: action=${action}, cacheKey=${cacheKey}, ttl=${context.beresp.ttl}`);
+    console.log(`Cache decision: action=${ action }, cacheKey=${ cacheKey }, ttl=${ context.beresp.ttl }`);
 
     if (action === "deliver" && cacheKey && context.beresp.ttl > 0) {
         const now = Date.now();
@@ -544,26 +549,26 @@ async function handleBackendResponse(
         const graceMs = (context.beresp.grace || 0) * 1000;
         const staleWhileRevalidateMs = (context.beresp.stale_while_revalidate || 0) * 1000;
 
-        console.log(`Caching response: TTL=${context.beresp.ttl}s, Grace=${context.beresp.grace || 0}s, SWR=${context.beresp.stale_while_revalidate || 0}s`);
-        console.log(`Response headers: ${JSON.stringify(context.resp.http)}`);
+        console.log(`Caching response: TTL=${ context.beresp.ttl }s, Grace=${ context.beresp.grace || 0 }s, SWR=${ context.beresp.stale_while_revalidate || 0 }s`);
+        console.log(`Response headers: ${ JSON.stringify(context.resp.http) }`);
 
         // Clone the response body to ensure it's available for caching
         const bodyClone = responseBody.slice(0);
 
         cache.set(cacheKey, {
-            resp: { ...context.resp },
+            resp: {...context.resp},
             body: bodyClone,
             created: now,
             expires: now + ttlMs,
             staleUntil: now + ttlMs + graceMs + staleWhileRevalidateMs,
             // Store original beresp for potential revalidation
-            beresp: { ...context.beresp }
+            beresp: {...context.beresp}
         });
 
-        console.log(`Cached response with key ${cacheKey}, TTL: ${context.beresp.ttl}s, expires: ${new Date(now + ttlMs).toISOString()}`);
-        console.log(`Cache size: ${cache.size} entries`);
+        console.log(`Cached response with key ${ cacheKey }, TTL: ${ context.beresp.ttl }s, expires: ${ new Date(now + ttlMs).toISOString() }`);
+        console.log(`Cache size: ${ cache.size } entries`);
     } else {
-        console.log(`Not caching response: action=${action}, cacheKey=${cacheKey}, ttl=${context.beresp.ttl}`);
+        console.log(`Not caching response: action=${ action }, cacheKey=${ cacheKey }, ttl=${ context.beresp.ttl }`);
     }
 
     // Execute vcl_log

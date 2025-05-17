@@ -9,6 +9,7 @@ import {join} from 'node:path';
 import {VCLLexer} from './vcl-parser';
 import {VCLParser} from './vcl-parser-impl';
 import {VCLCompiler, VCLSubroutines, VCLContext} from './vcl-compiler';
+import {SecurityModule} from './vcl-security';
 
 // Load and parse a VCL file
 export function loadVCL(filePath: string): VCLSubroutines {
@@ -130,6 +131,20 @@ export function createVCLContext(): VCLContext {
 
     // Set current backend to default
     current_backend: undefined,
+
+    // Initialize security-related state
+    waf: {
+      allowed: false,
+      blocked: false,
+      blockStatus: 0,
+      blockMessage: ''
+    },
+
+    // Initialize rate limiting state
+    ratelimit: {
+      counters: {},
+      penaltyboxes: {}
+    },
 
     fastly: {
       error: '',
@@ -1081,6 +1096,67 @@ export function createVCLContext(): VCLContext {
       }
 
       return key in table.entries;
+    }
+  };
+
+  // Add WAF functions
+  context.std.waf = {
+    // Explicitly allows a request that might otherwise be blocked by WAF rules
+    allow: () => {
+      return SecurityModule.waf.allow(context);
+    },
+
+    // Explicitly blocks a request with a specified status code and message
+    block: (status: number, message: string) => {
+      return SecurityModule.waf.block(context, status, message);
+    },
+
+    // Logs a message to the WAF logging endpoint
+    log: (message: string) => {
+      return SecurityModule.waf.log(context, message);
+    },
+
+    // Implements a token bucket rate limiter
+    rate_limit: (key: string, limit: number, window: number) => {
+      return SecurityModule.waf.rate_limit(context, key, limit, window);
+    },
+
+    // Returns the number of tokens remaining in a rate limit bucket
+    rate_limit_tokens: (key: string) => {
+      return SecurityModule.waf.rate_limit_tokens(context, key);
+    }
+  };
+
+  // Add rate limiting functions
+  context.std.ratelimit = {
+    // Opens a rate counter window with the specified duration
+    open_window: (windowSeconds: number) => {
+      return SecurityModule.ratelimit.open_window(context, windowSeconds);
+    },
+
+    // Increments a named rate counter by a specified amount
+    ratecounter_increment: (counterName: string, incrementBy: number = 1) => {
+      return SecurityModule.ratelimit.ratecounter_increment(context, counterName, incrementBy);
+    },
+
+    // Checks if a rate limit has been exceeded
+    check_rate: (counterName: string, ratePerSecond: number) => {
+      return SecurityModule.ratelimit.check_rate(context, counterName, ratePerSecond);
+    },
+
+    // Checks if any of multiple rate limits have been exceeded
+    check_rates: (counterName: string, rates: string) => {
+      return SecurityModule.ratelimit.check_rates(context, counterName, rates);
+    },
+
+    // Adds an identifier to a penalty box for a specified duration
+    penaltybox_add: (penaltyboxName: string, identifier: string, duration: number) => {
+      return SecurityModule.ratelimit.penaltybox_add(context, penaltyboxName, identifier, duration);
+    },
+
+    // Checks if an identifier is in a penalty box
+    penaltybox_has: (penaltyboxName: string, identifier: string) => {
+      return SecurityModule.ratelimit.penaltybox_has(context, penaltyboxName, identifier);
     }
   };
 
