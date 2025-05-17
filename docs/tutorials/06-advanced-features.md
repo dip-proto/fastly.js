@@ -51,7 +51,7 @@ sub vcl_recv {
   if (req.url ~ "^/admin/" && !(client.ip ~ internal)) {
     error 403 "Forbidden";
   }
-  
+
   # Allow trusted partners to access the API
   if (req.url ~ "^/api/partners/" && !(client.ip ~ trusted_partners)) {
     error 403 "Forbidden";
@@ -113,10 +113,10 @@ table boolean_values {
 sub vcl_recv {
   # String lookup
   set req.http.X-String = table.lookup(string_values, "key1");
-  
+
   # Integer lookup
   set req.http.X-Integer = table.lookup_integer(integer_values, "key1");
-  
+
   # Boolean lookup
   if (table.lookup_bool(boolean_values, "key1")) {
     # Do something
@@ -261,7 +261,7 @@ You can generate a random string of a specified length:
 sub vcl_recv {
   # Generate a random string of 10 characters
   set req.http.X-Random = std.random.randomstr(10);
-  
+
   # Generate a random string of 10 characters from a custom character set
   set req.http.X-Random-Hex = std.random.randomstr(10, "0123456789abcdef");
 }
@@ -280,13 +280,13 @@ sub vcl_recv {
     } else {
       set req.http.X-ABTest = "B";
     }
-    
+
     # Set a cookie to maintain the variant across requests
     add resp.http.Set-Cookie = "ABTest=" + req.http.X-ABTest + "; path=/; max-age=3600";
   } else {
     set req.http.X-ABTest = req.http.Cookie:ABTest;
   }
-  
+
   # Add the variant to the cache key
   set req.http.Fastly-Cache-Key = req.http.X-ABTest;
 }
@@ -333,10 +333,10 @@ sub vcl_fetch {
   if (beresp.http.Content-Type ~ "text/html") {
     # Create a synthetic response with modified content
     synthetic beresp.body;
-    
+
     # Modify the synthetic response
     set beresp.body = regsub(beresp.body, "<title>(.*)</title>", "<title>Modified: \1</title>");
-    
+
     return(deliver);
   }
 }
@@ -352,7 +352,7 @@ sub vcl_recv {
   set req.http.X-Country = client.geo.country_code;
   set req.http.X-Region = client.geo.region;
   set req.http.X-City = client.geo.city;
-  
+
   # Redirect users based on country
   if (client.geo.country_code == "US") {
     set req.http.Location = "https://us.example.com" + req.url;
@@ -366,7 +366,102 @@ sub vcl_recv {
 
 ## Edge Side Includes (ESI)
 
-Edge Side Includes (ESI) allow you to assemble dynamic content at the edge. Fastly.JS doesn't currently support ESI, but it's on the roadmap for future development.
+Edge Side Includes (ESI) allow you to assemble dynamic content at the edge. Fastly.JS now fully supports ESI processing, allowing you to include dynamic content in otherwise static pages.
+
+### Enabling ESI Processing
+
+To enable ESI processing, set the `beresp.do_esi` variable to `true` in your VCL:
+
+```vcl
+sub vcl_fetch {
+  # Enable ESI processing for HTML content
+  if (beresp.http.Content-Type ~ "text/html") {
+    set beresp.do_esi = true;
+  }
+  return(deliver);
+}
+```
+
+### Basic ESI Include Tags
+
+The most common ESI tag is the include tag, which allows you to include content from another URL:
+
+```html
+<html>
+  <head>
+    <title>My Page</title>
+  </head>
+  <body>
+    <div class="header">
+      <esi:include src="/header" />
+    </div>
+    <div class="content">
+      <p>This is the main content.</p>
+    </div>
+    <div class="footer">
+      <esi:include src="/footer" />
+    </div>
+  </body>
+</html>
+```
+
+### ESI Remove Tags
+
+ESI remove tags allow you to remove content from the response:
+
+```html
+<html>
+  <body>
+    <h1>Welcome</h1>
+    <esi:remove>
+      <div class="debug">
+        Debug information that should be removed in production
+      </div>
+    </esi:remove>
+    <p>This content will remain.</p>
+  </body>
+</html>
+```
+
+### ESI Comment Tags
+
+ESI comment tags allow you to add comments that will be removed from the response:
+
+```html
+<html>
+  <body>
+    <h1>Welcome</h1>
+    <esi:comment text="This comment will be removed from the output" />
+    <p>This content will remain.</p>
+  </body>
+</html>
+```
+
+### ESI Conditional Tags
+
+ESI conditional tags allow you to include content based on conditions:
+
+```html
+<html>
+  <body>
+    <h1>Welcome</h1>
+    <esi:choose>
+      <esi:when test="$(HTTP_COOKIE{user_type}) == 'premium'">
+        <div class="premium-content">
+          Premium content here
+        </div>
+      </esi:when>
+      <esi:otherwise>
+        <div class="standard-content">
+          Standard content here
+        </div>
+      </esi:otherwise>
+    </esi:choose>
+  </body>
+</html>
+```
+
+This will include different content based on the value of the `user_type` cookie.
 
 ## Next Steps
 

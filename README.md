@@ -25,6 +25,7 @@ For comprehensive documentation, tutorials, and examples, please visit the [docu
 - **Caching**: Advanced caching capabilities with fine-grained control
 - **Backend Configuration**: Support for multiple backends, health checks, and load balancing
 - **Error Handling**: Comprehensive error handling with custom error pages
+- **Edge Side Includes (ESI)**: Dynamic content assembly at the edge with ESI tags
 - **Random Functions**: Generate random values with deterministic seeded options
 - **UUID Functions**: Generate and validate UUIDs (v3, v4, v5) with namespace support
 - **WAF Functions**: Web Application Firewall with attack detection and rate limiting

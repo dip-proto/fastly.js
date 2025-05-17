@@ -44,6 +44,12 @@ Real-world examples of VCL configurations:
 - [Load Balancing](./examples/load-balancing.md)
 - [Error Pages](./examples/error-pages.md)
 
+### Features
+
+Detailed documentation for specific features:
+
+- [Edge Side Includes (ESI)](./features/edge-side-includes.md)
+
 ### API Reference
 
 Documentation for the JavaScript/TypeScript API:

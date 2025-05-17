@@ -125,7 +125,7 @@ All high-priority tasks have been completed. The proxy now supports:
      - Implement table.contains function ✅
      - Implement table management functions (add, remove, add_entry, remove_entry) ✅
    - Implement directors (load balancing) ✅
-   - Support Edge Side Includes (ESI) ❌
+   - Support Edge Side Includes (ESI) ✅
    - Implement random functions ✅
 
 2. **Performance Optimizations**
@@ -322,10 +322,10 @@ All high-priority tasks have been completed. The proxy now supports:
    - Optimize cache lookups and storage
    - Add benchmarking tools to measure performance
 
-3. **Edge Side Includes (ESI)**
-   - Implement basic ESI tag processing
-   - Support ESI includes, variables, and conditionals
-   - Add ESI fragment caching
+3. **Edge Side Includes (ESI)** ✅
+   - Implement basic ESI tag processing ✅
+   - Support ESI includes, variables, and conditionals ✅
+   - Add ESI fragment caching ✅
 
 4. **Advanced Security Features**
    - Implement basic WAF capabilities ✅

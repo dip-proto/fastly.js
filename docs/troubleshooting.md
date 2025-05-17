@@ -47,17 +47,17 @@ set req.http.X-Test = "value";
 **Example Error**:
 
 ```
-Error: Unsupported feature: ESI processing
+Error: Unsupported feature: Custom VCL extensions
 ```
 
 **Example Workaround**:
 
 ```vcl
-# Before (using ESI)
-esi;
+# Before (using custom VCL extension)
+custom_function(req.url);
 
-# After (workaround without ESI)
-# Implement a different approach or disable ESI processing
+# After (workaround without custom extension)
+# Implement a different approach using standard VCL functions
 ```
 
 ## Runtime Issues
@@ -131,10 +131,10 @@ sub vcl_deliver {
   } else {
     set resp.http.X-Cache = "MISS";
   }
-  
+
   # Add TTL header
   set resp.http.X-Cache-TTL = beresp.ttl;
-  
+
   # Add cache key components
   set resp.http.X-Cache-Key-URL = req.url;
   set resp.http.X-Cache-Key-Host = req.http.host;
@@ -256,14 +256,14 @@ sub vcl_deliver {
   set resp.http.X-Request-Method = req.method;
   set resp.http.X-Request-URL = req.url;
   set resp.http.X-Request-Host = req.http.host;
-  
+
   # Add cache information
   set resp.http.X-Cache = obj.hits > 0 ? "HIT" : "MISS";
   set resp.http.X-Cache-Hits = obj.hits;
-  
+
   # Add backend information
   set resp.http.X-Backend = req.backend;
-  
+
   # Add timing information
   set resp.http.X-Backend-Response-Time = time.elapsed(bereq.time, beresp.time);
   set resp.http.X-Total-Response-Time = time.elapsed(req.time, now);
