@@ -461,7 +461,18 @@ The VCL proxy implementation has successfully completed all high-priority tasks 
    - Directors for load balancing
    - Table functions for key-value lookups
 
-4. **Remaining Tasks**:
+4. **Director Implementation**:
+   - Support for different director types:
+     - Random director: Selects backends randomly with optional weighting
+     - Hash director: Selects backends based on a hash of request attributes
+     - Client director: Selects backends based on client IP address
+     - Fallback director: Tries backends in order until a healthy one is found
+   - Backend weighting and selection logic
+   - Health check integration
+   - Dynamic backend selection using the director.backend function
+   - Comprehensive test coverage for all director types
+
+5. **Remaining Tasks**:
    - Edge Side Includes (ESI) support
    - Performance optimizations
    - Advanced security features
