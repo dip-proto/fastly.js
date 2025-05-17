@@ -54,7 +54,6 @@ export const SecurityModule = {
     allow: (context: any) => {
       context.waf = context.waf || {};
       context.waf.allowed = true;
-      console.log(`[WAF] Request explicitly allowed`);
     },
 
     /**
@@ -66,7 +65,6 @@ export const SecurityModule = {
       context.waf.blocked = true;
       context.waf.blockStatus = status;
       context.waf.blockMessage = message;
-      console.log(`[WAF] Request blocked: ${ status } ${ message }`);
 
       // Trigger an error response
       return context.std.error(status, message);
@@ -77,6 +75,7 @@ export const SecurityModule = {
      * This function logs a message with a WAF prefix for easier filtering.
      */
     log: (context: any, message: string) => {
+      // Log WAF message
       console.log(`[WAF] ${ message }`);
     },
 
@@ -113,9 +112,6 @@ export const SecurityModule = {
       // Check if limit is exceeded
       const allowed = counter.count <= limit;
 
-      // Log the rate limit check
-      console.log(`[WAF] Rate limit check: key=${ key }, count=${ counter.count }, limit=${ limit }, allowed=${ allowed }`);
-
       return allowed;
     },
 
@@ -138,15 +134,11 @@ export const SecurityModule = {
 
       if (attackType in patterns) {
         isAttack = patterns[attackType].test(requestData);
-        if (isAttack) {
-          console.log(`[WAF] ${ attackType.toUpperCase() } attack detected in: ${ requestData.substring(0, 100) }`);
-        }
       } else if (attackType === 'any') {
         // Check all patterns
         for (const [type, pattern] of Object.entries(patterns)) {
           if (pattern.test(requestData)) {
             isAttack = true;
-            console.log(`[WAF] ${ type.toUpperCase() } attack detected in: ${ requestData.substring(0, 100) }`);
             break;
           }
         }
@@ -195,8 +187,6 @@ export const SecurityModule = {
         window: windowMs
       });
 
-      console.log(`[RateLimit] Opened rate counter window: ${ windowId }, duration: ${ windowSeconds }s`);
-
       return windowId;
     },
 
@@ -216,8 +206,6 @@ export const SecurityModule = {
 
       // Store the updated counter
       rateCounters.set(counterName, counter);
-
-      console.log(`[RateLimit] Incremented counter ${ counterName } by ${ incrementBy }, new count: ${ counter.count }`);
     },
 
     /**
@@ -240,8 +228,6 @@ export const SecurityModule = {
 
       // Check if the rate is exceeded
       const isExceeded = currentRate > ratePerSecond;
-
-      console.log(`[RateLimit] Rate check: ${ counterName }, current rate: ${ currentRate.toFixed(2) }/s, limit: ${ ratePerSecond }/s, exceeded: ${ isExceeded }`);
 
       return isExceeded;
     },
@@ -276,7 +262,6 @@ export const SecurityModule = {
 
         // Check if count exceeds the limit
         if (counter.count >= spec.count) {
-          console.log(`[RateLimit] Multi-window rate exceeded: ${ windowKey }, count: ${ counter.count }, limit: ${ spec.count }`);
           return true; // Rate limit exceeded
         }
       }
@@ -302,7 +287,7 @@ export const SecurityModule = {
         expiresAt
       });
 
-      console.log(`[RateLimit] Added ${ identifier } to penalty box ${ penaltyboxName }, expires in ${ duration }s`);
+      // Identifier added to penalty box
     },
 
     /**
@@ -328,7 +313,6 @@ export const SecurityModule = {
         return false;
       }
 
-      console.log(`[RateLimit] ${ identifier } is in penalty box ${ penaltyboxName }, expires in ${ ((entry.expiresAt - now) / 1000).toFixed(1) }s`);
       return true; // Identifier is in penalty box and not expired
     }
   }

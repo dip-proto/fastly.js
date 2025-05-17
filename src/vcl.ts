@@ -2,6 +2,7 @@
  * VCL Module
  *
  * This module provides the main interface for loading and executing VCL files.
+ * It handles the process of loading, parsing, and compiling VCL code into executable functions.
  */
 
 import {readFileSync, existsSync} from 'node:fs';
@@ -11,7 +12,13 @@ import {VCLParser} from './vcl-parser-impl';
 import {VCLCompiler, VCLSubroutines, VCLContext} from './vcl-compiler';
 import {SecurityModule} from './vcl-security';
 
-// Load and parse a VCL file
+/**
+ * Loads and parses a VCL file, converting it into executable subroutines.
+ *
+ * @param filePath - Path to the VCL file to load
+ * @returns An object containing compiled VCL subroutines
+ * @throws Error if the file doesn't exist or cannot be parsed
+ */
 export function loadVCL(filePath: string): VCLSubroutines {
   try {
     // Check if the file exists
@@ -21,22 +28,18 @@ export function loadVCL(filePath: string): VCLSubroutines {
 
     // Read the file content
     const content = readFileSync(filePath, 'utf-8');
-    console.log(`Loaded VCL file: ${ filePath } (${ content.length } bytes)`);
 
     // Tokenize the VCL code
     const lexer = new VCLLexer(content);
     const tokens = lexer.tokenize();
-    console.log(`Tokenized VCL file: ${ tokens.length } tokens`);
 
     // Parse the tokens into an AST
     const parser = new VCLParser(tokens);
     const ast = parser.parse();
-    console.log(`Parsed VCL file: ${ ast.subroutines.length } subroutines`);
 
     // Compile the AST into executable functions
     const compiler = new VCLCompiler(ast);
     const subroutines = compiler.compile();
-    console.log(`Compiled VCL file: ${ Object.keys(subroutines).length } subroutines`);
 
     return subroutines;
   } catch (error) {
@@ -48,10 +51,17 @@ export function loadVCL(filePath: string): VCLSubroutines {
 
 
 
-// Export the executeVCL function
+/**
+ * Executes a VCL subroutine with the given context.
+ *
+ * @param subroutines - Object containing compiled VCL subroutines
+ * @param name - Name of the subroutine to execute
+ * @param context - VCL context containing request, response, and other state
+ * @returns The return value of the subroutine, or an empty string if not found or error
+ */
 export function executeVCL(subroutines: VCLSubroutines, name: string, context: VCLContext): string {
   if (!subroutines[name]) {
-    console.log(`Subroutine ${ name } not found, using default behavior`);
+    // Subroutine not found, use default behavior
     return '';
   }
 
@@ -63,7 +73,13 @@ export function executeVCL(subroutines: VCLSubroutines, name: string, context: V
   }
 }
 
-// Create a new VCL context
+/**
+ * Creates a new VCL context with default values.
+ * The context contains all the state needed for VCL execution, including
+ * request and response objects, cache, backends, and standard library functions.
+ *
+ * @returns A new VCL context object
+ */
 export function createVCLContext(): VCLContext {
   const context: VCLContext = {
     req: {
@@ -154,7 +170,12 @@ export function createVCLContext(): VCLContext {
 
   // Initialize standard library functions
   context.std = {
-    // Logging
+    /**
+     * Logs a message from VCL code.
+     * This function is used by the std.log() function in VCL.
+     *
+     * @param message - The message to log
+     */
     log: (message: string) => {
       console.log(`[VCL] ${ message }`);
     },
@@ -1642,7 +1663,15 @@ function isIpInCidr(ip: string, cidrIp: string, cidrSubnet: number): boolean {
   }
 }
 
-// Execute a VCL subroutine
+/**
+ * Execute a VCL subroutine with the given context.
+ * This is an alternative implementation of executeVCL that takes a typed subroutine name.
+ *
+ * @param subroutines - Object containing compiled VCL subroutines
+ * @param subroutineName - Name of the subroutine to execute (typed as a key of VCLSubroutines)
+ * @param context - VCL context containing request, response, and other state
+ * @returns The return value of the subroutine, or an empty string if not found, or 'error' on exception
+ */
 export function executeVCL(
   subroutines: VCLSubroutines,
   subroutineName: keyof VCLSubroutines,
@@ -1651,7 +1680,7 @@ export function executeVCL(
   const subroutine = subroutines[subroutineName];
 
   if (!subroutine) {
-    console.warn(`Subroutine ${ subroutineName } not found`);
+    // Subroutine not found
     return '';
   }
 

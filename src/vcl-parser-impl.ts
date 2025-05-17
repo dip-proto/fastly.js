@@ -2,6 +2,8 @@
  * VCL Parser Implementation
  *
  * This module implements the parser for VCL (Varnish Configuration Language) files.
+ * It converts tokens from the lexer into an Abstract Syntax Tree (AST) that can be
+ * processed by the compiler.
  */
 
 import {
@@ -165,12 +167,14 @@ export class VCLParser {
     };
   }
 
+  /**
+   * Parses a VCL statement
+   *
+   * @returns The parsed VCL statement
+   */
   private parseStatement(): VCLStatement {
-    console.log(`Parsing statement at position ${this.current}, token: ${this.peek().type} - ${this.peek().value}`);
-
     // Skip comments
     if (this.match(TokenType.COMMENT)) {
-      console.log(`Skipping comment: ${this.previous().value}`);
       return {
         type: 'Statement',
         location: {
@@ -182,7 +186,6 @@ export class VCLParser {
 
     if (this.match(TokenType.KEYWORD)) {
       const keyword = this.previous().value;
-      console.log(`Found keyword: ${keyword}`);
 
       switch (keyword) {
         case 'if':
@@ -202,7 +205,6 @@ export class VCLParser {
       }
     } else if (this.match(TokenType.IDENTIFIER)) {
       const identifier = this.previous().value;
-      console.log(`Found identifier: ${identifier}`);
 
       if (identifier === 'declare') {
         return this.parseDeclareStatement();
@@ -213,7 +215,6 @@ export class VCLParser {
         } else {
           // Handle std.log without parentheses
           const token = this.previous();
-          console.log(`Parsing log statement without parentheses: ${identifier}`);
 
           // Create a default message
           const message = {
@@ -246,7 +247,6 @@ export class VCLParser {
         // Handle std.log with arguments in the identifier
         // This happens when the tokenizer treats "std.log(" as a single token
         const token = this.previous();
-        console.log(`Parsing log statement with arguments in identifier: ${identifier}`);
 
         // Extract the message from the identifier
         const message = {
@@ -285,15 +285,12 @@ export class VCLParser {
 
           // Consume the equals sign
           this.consume(TokenType.OPERATOR, "Expected '=' after identifier");
-          console.log(`Found equals sign`);
 
           // Parse the value
           const value = this.parseExpression();
-          console.log(`Parsed expression: ${JSON.stringify(value)}`);
 
           // Parse the semicolon
           this.consume(TokenType.PUNCTUATION, "Expected ';' after set statement");
-          console.log(`Found semicolon`);
 
           return {
             type: 'SetStatement',
@@ -307,11 +304,6 @@ export class VCLParser {
         }
       }
     }
-
-    // We no longer try to parse parentheses as if statements without keywords
-    // This was causing issues with return(lookup) statements
-
-    console.log(`Unknown statement, skipping to semicolon`);
 
     // Skip unknown statements
     while (!this.check(TokenType.PUNCTUATION, ';') && !this.isAtEnd()) {
@@ -333,13 +325,17 @@ export class VCLParser {
     };
   }
 
+  /**
+   * Parses a declare statement
+   *
+   * @returns The parsed declare statement
+   */
   private parseDeclareStatement(): VCLStatement {
     const token = this.previous();
-    console.log(`Parsing declare statement at line ${token.line}, column ${token.column}`);
 
     // Check for 'local' keyword
     if (this.match(TokenType.IDENTIFIER) && this.previous().value === 'local') {
-      console.log(`Found 'local' keyword`);
+      // Found 'local' keyword
     }
 
     // Parse the variable name
@@ -348,7 +344,6 @@ export class VCLParser {
     }
 
     const variableName = this.previous().value;
-    console.log(`Parsed variable name: ${variableName}`);
 
     // Parse the variable type
     if (!this.match(TokenType.IDENTIFIER)) {
@@ -356,11 +351,9 @@ export class VCLParser {
     }
 
     const variableType = this.previous().value;
-    console.log(`Parsed variable type: ${variableType}`);
 
     // Parse the semicolon
     this.consume(TokenType.PUNCTUATION, "Expected ';' after declare statement");
-    console.log(`Found semicolon`);
 
     return {
       type: 'Statement', // Using generic Statement for now
@@ -371,9 +364,13 @@ export class VCLParser {
     };
   }
 
+  /**
+   * Parses an if statement
+   *
+   * @returns The parsed if statement
+   */
   private parseIfStatement(): VCLIfStatement {
     const token = this.previous();
-    console.log(`Parsing if statement at line ${token.line}, column ${token.column}`);
 
     // Check for opening parenthesis
     this.consume(TokenType.PUNCTUATION, "Expected '(' after if");
@@ -386,7 +383,6 @@ export class VCLParser {
     let left: VCLExpression;
     if (this.match(TokenType.IDENTIFIER)) {
       const identifier = this.previous().value;
-      console.log(`Parsed condition left side: ${identifier}`);
       left = {
         type: 'Identifier',
         name: identifier,
@@ -403,58 +399,43 @@ export class VCLParser {
     let operator: string;
     if (this.match(TokenType.OPERATOR, '~')) {
       operator = '~';
-      console.log(`Parsed condition operator: ~`);
     } else if (this.match(TokenType.OPERATOR, '!~')) {
       operator = '!~';
-      console.log(`Parsed condition operator: !~`);
     } else if (this.match(TokenType.OPERATOR, '==')) {
       operator = '==';
-      console.log(`Parsed condition operator: ==`);
     } else if (this.match(TokenType.OPERATOR, '!=')) {
       operator = '!=';
-      console.log(`Parsed condition operator: !=`);
     } else if (this.match(TokenType.OPERATOR, '>')) {
       operator = '>';
-      console.log(`Parsed condition operator: >`);
     } else if (this.match(TokenType.OPERATOR, '>=')) {
       operator = '>=';
-      console.log(`Parsed condition operator: >=`);
     } else if (this.match(TokenType.OPERATOR, '<')) {
       operator = '<';
-      console.log(`Parsed condition operator: <`);
     } else if (this.match(TokenType.OPERATOR, '<=')) {
       operator = '<=';
-      console.log(`Parsed condition operator: <=`);
     } else {
       // If no operator is found, use the left expression as the condition
       this.consume(TokenType.PUNCTUATION, "Expected ')' after condition");
-      console.log(`Parsed simple condition`);
 
       // Parse the opening brace
       this.consume(TokenType.PUNCTUATION, "Expected '{' after if condition");
-      console.log(`Found opening brace`);
 
       const consequent: VCLStatement[] = [];
 
       // Parse statements until we reach the closing brace
       while (!this.check(TokenType.PUNCTUATION, '}') && !this.isAtEnd()) {
         const statement = this.parseStatement();
-        console.log(`Parsed consequent statement: ${statement.type}`);
         consequent.push(statement);
       }
 
       this.consume(TokenType.PUNCTUATION, "Expected '}' after if body");
-      console.log(`Found closing brace`);
 
       // Check for else
       let alternate: VCLStatement[] | undefined;
 
       if (this.match(TokenType.KEYWORD) && this.previous().value === 'else') {
-        console.log(`Found else keyword`);
-
         // Check for else if
         if (this.check(TokenType.KEYWORD) && this.peek().value === 'if') {
-          console.log(`Found else if`);
           this.advance(); // Consume the 'if' token
 
           // Parse the else if as a nested if statement
@@ -465,19 +446,16 @@ export class VCLParser {
         } else {
           // Parse the opening brace
           this.consume(TokenType.PUNCTUATION, "Expected '{' after else");
-          console.log(`Found opening brace for else`);
 
           alternate = [];
 
           // Parse statements until we reach the closing brace
           while (!this.check(TokenType.PUNCTUATION, '}') && !this.isAtEnd()) {
             const statement = this.parseStatement();
-            console.log(`Parsed alternate statement: ${statement.type}`);
             alternate.push(statement);
           }
 
           this.consume(TokenType.PUNCTUATION, "Expected '}' after else body");
-          console.log(`Found closing brace for else`);
         }
       }
 
@@ -497,7 +475,6 @@ export class VCLParser {
     let right: VCLExpression;
     if (this.match(TokenType.STRING)) {
       const stringValue = this.previous().value;
-      console.log(`Parsed condition right side string: ${stringValue}`);
 
       // If the operator is ~ or !~, treat the string as a regex
       if (operator === '~' || operator === '!~') {
@@ -538,7 +515,6 @@ export class VCLParser {
       }
     } else if (this.match(TokenType.NUMBER)) {
       const numberValue = this.previous().value;
-      console.log(`Parsed condition right side number: ${numberValue}`);
       right = {
         type: 'NumberLiteral',
         value: parseFloat(numberValue),
@@ -549,7 +525,6 @@ export class VCLParser {
       };
     } else if (this.match(TokenType.IDENTIFIER)) {
       const identifier = this.previous().value;
-      console.log(`Parsed condition right side identifier: ${identifier}`);
       right = {
         type: 'Identifier',
         name: identifier,
@@ -574,36 +549,28 @@ export class VCLParser {
       }
     };
 
-    console.log(`Parsed condition: ${JSON.stringify(test)}`);
-
     // Consume the closing parenthesis
     this.consume(TokenType.PUNCTUATION, "Expected ')' after condition");
 
     // Parse the opening brace
     this.consume(TokenType.PUNCTUATION, "Expected '{' after if condition");
-    console.log(`Found opening brace`);
 
     const consequent: VCLStatement[] = [];
 
     // Parse statements until we reach the closing brace
     while (!this.check(TokenType.PUNCTUATION, '}') && !this.isAtEnd()) {
       const statement = this.parseStatement();
-      console.log(`Parsed consequent statement: ${statement.type}`);
       consequent.push(statement);
     }
 
     this.consume(TokenType.PUNCTUATION, "Expected '}' after if body");
-    console.log(`Found closing brace`);
 
     // Check for else
     let alternate: VCLStatement[] | undefined;
 
     if (this.match(TokenType.KEYWORD) && this.previous().value === 'else') {
-      console.log(`Found else keyword`);
-
       // Check for else if
       if (this.check(TokenType.KEYWORD) && this.peek().value === 'if') {
-        console.log(`Found else if`);
         this.advance(); // Consume the 'if' token
 
         // Parse the else if as a nested if statement
@@ -614,19 +581,16 @@ export class VCLParser {
       } else {
         // Parse the opening brace
         this.consume(TokenType.PUNCTUATION, "Expected '{' after else");
-        console.log(`Found opening brace for else`);
 
         alternate = [];
 
         // Parse statements until we reach the closing brace
         while (!this.check(TokenType.PUNCTUATION, '}') && !this.isAtEnd()) {
           const statement = this.parseStatement();
-          console.log(`Parsed alternate statement: ${statement.type}`);
           alternate.push(statement);
         }
 
         this.consume(TokenType.PUNCTUATION, "Expected '}' after else body");
-        console.log(`Found closing brace for else`);
       }
     }
 
@@ -642,6 +606,11 @@ export class VCLParser {
     };
   }
 
+  /**
+   * Parses a return statement
+   *
+   * @returns The parsed return statement
+   */
   private parseReturnStatement(): VCLReturnStatement {
     const token = this.previous();
 
@@ -655,7 +624,7 @@ export class VCLParser {
     } else if (this.match(TokenType.KEYWORD)) {
       argument = this.previous().value;
     } else {
-      throw new Error(`Expected return argument at line ${this.peek().line}, column ${this.peek().column}`);
+      throw new Error(`Expected return argument at line ${ this.peek().line }, column ${ this.peek().column }`);
     }
 
     this.consume(TokenType.PUNCTUATION, "Expected ')' after return argument");
@@ -671,6 +640,11 @@ export class VCLParser {
     };
   }
 
+  /**
+   * Parses an error statement
+   *
+   * @returns The parsed error statement
+   */
   private parseErrorStatement(): VCLErrorStatement {
     const token = this.previous();
 
@@ -693,9 +667,13 @@ export class VCLParser {
     };
   }
 
+  /**
+   * Parses a set statement
+   *
+   * @returns The parsed set statement
+   */
   private parseSetStatement(): VCLSetStatement {
     const token = this.previous();
-    console.log(`Parsing set statement at line ${token.line}, column ${token.column}`);
 
     // Parse the target (e.g., req.http.X-Header)
     // With our updated tokenizer, the entire identifier including dots and hyphens
@@ -705,16 +683,12 @@ export class VCLParser {
     }
 
     const target = this.previous().value;
-    console.log(`Target: ${target}`);
 
     // Parse the equals sign
     this.consume(TokenType.OPERATOR, "Expected '=' after identifier");
-    console.log(`Found equals sign`);
 
     // Check for ternary if function
     if (this.check(TokenType.KEYWORD) && this.peek().value === 'if') {
-      console.log(`Found if function call`);
-
       // Consume the 'if' keyword
       this.advance();
 
@@ -741,7 +715,6 @@ export class VCLParser {
 
       // Parse the semicolon
       this.consume(TokenType.PUNCTUATION, "Expected ';' after set statement");
-      console.log(`Found semicolon`);
 
       // Create a ternary expression
       const value: VCLTernaryExpression = {
@@ -768,11 +741,9 @@ export class VCLParser {
 
     // Parse the value
     const value = this.parseExpression();
-    console.log(`Parsed expression: ${JSON.stringify(value)}`);
 
     // Parse the semicolon
     this.consume(TokenType.PUNCTUATION, "Expected ';' after set statement");
-    console.log(`Found semicolon`);
 
     return {
       type: 'SetStatement',
@@ -785,6 +756,11 @@ export class VCLParser {
     };
   }
 
+  /**
+   * Parses an unset statement
+   *
+   * @returns The parsed unset statement
+   */
   private parseUnsetStatement(): VCLUnsetStatement {
     const token = this.previous();
 
@@ -803,15 +779,18 @@ export class VCLParser {
     };
   }
 
+  /**
+   * Parses a log statement
+   *
+   * @returns The parsed log statement
+   */
   private parseLogStatement(): VCLLogStatement {
     const token = this.previous();
-    console.log(`Parsing log statement at line ${token.line}, column ${token.column}`);
 
     this.consume(TokenType.PUNCTUATION, "Expected '(' after std.log");
 
     // Parse the message
     const message = this.parseExpression();
-    console.log(`Parsed log message: ${JSON.stringify(message)}`);
 
     this.consume(TokenType.PUNCTUATION, "Expected ')' after log message");
     this.consume(TokenType.PUNCTUATION, "Expected ';' after log statement");
@@ -826,6 +805,11 @@ export class VCLParser {
     };
   }
 
+  /**
+   * Parses a synthetic statement
+   *
+   * @returns The parsed synthetic statement
+   */
   private parseSyntheticStatement(): VCLSyntheticStatement {
     const token = this.previous();
 
@@ -866,7 +850,7 @@ export class VCLParser {
 
       content = syntheticContent.trim();
     } else {
-      throw new Error(`Expected string or '{' after synthetic at line ${this.peek().line}, column ${this.peek().column}`);
+      throw new Error(`Expected string or '{' after synthetic at line ${ this.peek().line }, column ${ this.peek().column }`);
     }
 
     // Consume the semicolon
@@ -882,6 +866,11 @@ export class VCLParser {
     };
   }
 
+  /**
+   * Parses a hash_data statement
+   *
+   * @returns The parsed hash_data statement
+   */
   private parseHashDataStatement(): VCLHashDataStatement {
     const token = this.previous();
 
@@ -1126,7 +1115,7 @@ export class VCLParser {
   }
 
   private parsePrimary(): VCLExpression {
-    console.log(`Parsing primary expression, current token: ${this.peek().type} - ${this.peek().value}`);
+    console.log(`Parsing primary expression, current token: ${ this.peek().type } - ${ this.peek().value }`);
 
     // Handle parenthesized expressions
     if (this.match(TokenType.PUNCTUATION, '(')) {
@@ -1138,7 +1127,7 @@ export class VCLParser {
     // Handle literals
     if (this.match(TokenType.STRING)) {
       const token = this.previous();
-      console.log(`Parsed string literal: ${token.value}`);
+      console.log(`Parsed string literal: ${ token.value }`);
 
       // Remove quotes
       let value = token.value;
@@ -1160,7 +1149,7 @@ export class VCLParser {
 
     if (this.match(TokenType.NUMBER)) {
       const token = this.previous();
-      console.log(`Parsed number literal: ${token.value}`);
+      console.log(`Parsed number literal: ${ token.value }`);
       return {
         type: 'NumberLiteral',
         value: parseFloat(token.value),
@@ -1173,7 +1162,7 @@ export class VCLParser {
 
     if (this.match(TokenType.REGEX)) {
       const token = this.previous();
-      console.log(`Parsed regex literal: ${token.value}`);
+      console.log(`Parsed regex literal: ${ token.value }`);
 
       // Extract pattern and flags
       let pattern = token.value;
@@ -1204,7 +1193,7 @@ export class VCLParser {
 
     if (this.match(TokenType.IDENTIFIER)) {
       const token = this.previous();
-      console.log(`Parsed identifier: ${token.value}`);
+      console.log(`Parsed identifier: ${ token.value }`);
 
       // Check if this is a function call
       if (this.check(TokenType.PUNCTUATION, '(')) {
@@ -1265,7 +1254,7 @@ export class VCLParser {
     }
 
     // If we can't parse a valid expression, return an empty identifier
-    console.error(`Unexpected token: ${this.peek().type} - ${this.peek().value}`);
+    console.error(`Unexpected token: ${ this.peek().type } - ${ this.peek().value }`);
 
     // Default to an empty identifier
     return {
@@ -1290,7 +1279,7 @@ export class VCLParser {
   private consume(type: TokenType, message: string): Token {
     if (this.check(type)) return this.advance();
 
-    throw new Error(`${message} at line ${this.peek().line}, column ${this.peek().column}`);
+    throw new Error(`${ message } at line ${ this.peek().line }, column ${ this.peek().column }`);
   }
 
   private check(type: TokenType, value?: string): boolean {
@@ -1320,7 +1309,7 @@ export class VCLParser {
 
   private parseFunctionCall(token: Token): VCLExpression {
     const name = token.value;
-    console.log(`Parsing function call: ${name}`);
+    console.log(`Parsing function call: ${ name }`);
 
     // Consume the opening parenthesis
     this.consume(TokenType.PUNCTUATION, "Expected '(' after function name");
@@ -1337,7 +1326,7 @@ export class VCLParser {
     // Consume the closing parenthesis
     this.consume(TokenType.PUNCTUATION, "Expected ')' after function arguments");
 
-    console.log(`Parsed function call with ${args.length} arguments`);
+    console.log(`Parsed function call with ${ args.length } arguments`);
 
     // Check if there's a member access after the function call (e.g., func().name)
     let result: VCLExpression = {
