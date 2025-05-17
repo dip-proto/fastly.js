@@ -19,7 +19,7 @@ git clone https://github.com/yourusername/fastly.js.git
 cd fastly.js
 ```
 
-2. Install dependencies:
+1. Install dependencies:
 
 ```bash
 bun install
@@ -72,12 +72,12 @@ backend default {
 sub vcl_recv {
   # Log the incoming request
   std.log("Received request: " + req.method + " " + req.url);
-  
+
   # Pass dynamic content directly to the backend
   if (req.url ~ "^/api/" || req.url ~ "\?") {
     return(pass);
   }
-  
+
   # Continue to cache lookup for static content
   return(lookup);
 }
@@ -91,10 +91,10 @@ sub vcl_fetch {
     # Cache other content for 5 minutes
     set beresp.ttl = 5m;
   }
-  
+
   # Add a custom header to indicate the cache TTL
   set beresp.http.X-Cache-TTL = beresp.ttl;
-  
+
   return(deliver);
 }
 
@@ -106,10 +106,10 @@ sub vcl_deliver {
   } else {
     set resp.http.X-Cache = "MISS";
   }
-  
+
   # Add a custom header to indicate the proxy server
   set resp.http.X-Powered-By = "Fastly.JS";
-  
+
   return(deliver);
 }
 ```
@@ -122,25 +122,45 @@ To run your VCL configuration, use the following command:
 bun run index.ts my-first-vcl.vcl
 ```
 
+You can also specify multiple VCL files, which will be concatenated in the order they are specified:
+
+```bash
+bun run index.ts common-settings.vcl backends.vcl caching-rules.vcl
+```
+
 This will start the Fastly.JS proxy server with your VCL configuration. You should see output similar to the following:
 
-```
-Loading VCL file: my-first-vcl.vcl
-Loaded VCL file: my-first-vcl.vcl (1234 bytes)
-Parsed VCL file: 3 subroutines
-Compiled VCL file: 3 subroutines
+```bash
+Loading VCL files: my-first-vcl.vcl
+Loaded VCL files: my-first-vcl.vcl (1234 bytes)
+Parsed VCL files: 3 subroutines
+Compiled VCL files: 3 subroutines
 Setting up backends...
 Backends configured: default
 HTTP Proxy server running at http://127.0.0.1:8000
 Default backend: example.com:80
-Using VCL file: my-first-vcl.vcl
+Using VCL files: my-first-vcl.vcl
+```
+
+When using multiple VCL files, the output will show all the files that were loaded:
+
+```bash
+Loading VCL files: common-settings.vcl, backends.vcl, caching-rules.vcl
+Loaded VCL files: common-settings.vcl, backends.vcl, caching-rules.vcl (3456 bytes)
+Parsed VCL files: 5 subroutines
+Compiled VCL files: 5 subroutines
+Setting up backends...
+Backends configured: default, api, static
+HTTP Proxy server running at http://127.0.0.1:8000
+Default backend: example.com:80
+Using VCL files: common-settings.vcl, backends.vcl, caching-rules.vcl
 ```
 
 ## Testing Your VCL Configuration
 
 Now that your proxy server is running, you can test it by sending requests to it. Open your browser and navigate to:
 
-```
+```text
 http://127.0.0.1:8000
 ```
 

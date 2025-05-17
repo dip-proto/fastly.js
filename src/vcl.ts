@@ -22,6 +22,35 @@ import {RateLimitModule} from './vcl-ratelimit';
 import {processESI} from './vcl-esi';
 
 /**
+ * Loads and parses VCL content, converting it into executable subroutines.
+ *
+ * @param content - VCL content as a string
+ * @returns An object containing compiled VCL subroutines
+ * @throws Error if the content cannot be parsed
+ */
+export function loadVCLContent(content: string): VCLSubroutines {
+  try {
+    // Tokenize the VCL code
+    const lexer = new VCLLexer(content);
+    const tokens = lexer.tokenize();
+
+    // Parse the tokens into an AST
+    const parser = new VCLParser(tokens);
+    const ast = parser.parse();
+
+    // Compile the AST into executable functions
+    const compiler = new VCLCompiler(ast);
+    const subroutines = compiler.compile();
+
+    return subroutines;
+  } catch (error) {
+    console.error(`Error loading VCL content: ${ error.message }`);
+    console.error(error.stack);
+    throw error; // Re-throw the error to be handled by the caller
+  }
+}
+
+/**
  * Loads and parses a VCL file, converting it into executable subroutines.
  *
  * @param filePath - Path to the VCL file to load
@@ -38,19 +67,8 @@ export function loadVCL(filePath: string): VCLSubroutines {
     // Read the file content
     const content = readFileSync(filePath, 'utf-8');
 
-    // Tokenize the VCL code
-    const lexer = new VCLLexer(content);
-    const tokens = lexer.tokenize();
-
-    // Parse the tokens into an AST
-    const parser = new VCLParser(tokens);
-    const ast = parser.parse();
-
-    // Compile the AST into executable functions
-    const compiler = new VCLCompiler(ast);
-    const subroutines = compiler.compile();
-
-    return subroutines;
+    // Use the content loading function
+    return loadVCLContent(content);
   } catch (error) {
     console.error(`Error loading VCL file: ${ error.message }`);
     console.error(error.stack);

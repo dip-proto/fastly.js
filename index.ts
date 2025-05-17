@@ -1,13 +1,15 @@
 /**
  * HTTP proxy server using Bun with Fastly VCL support
  * Listens on 127.0.0.1:8000 and proxies requests to http://neverssl.com
- * Processes requests through a VCL filter loaded from filter.vcl
+ * Processes requests through VCL filters loaded from command line arguments
  */
+
+import {readFileSync, existsSync} from 'node:fs';
 
 // Configuration
 const PROXY_HOST = "127.0.0.1";
 const PROXY_PORT = 8000;
-const VCL_FILE_PATH = process.argv[2] || "filter.vcl";
+const DEFAULT_VCL_FILE = "filter.vcl";
 
 // Default backend configuration
 const DEFAULT_BACKEND = {
@@ -18,13 +20,39 @@ const DEFAULT_BACKEND = {
 };
 
 // Import VCL module
-import {loadVCL, createVCLContext, executeVCL} from './src/vcl';
+import {loadVCL, loadVCLContent, createVCLContext, executeVCL} from './src/vcl';
 import {VCLContext, VCLSubroutines} from './src/vcl-compiler';
 import {SecurityModule} from './src/vcl-security';
 
+// Process command line arguments
+const vclFilePaths = process.argv.slice(2);
+if (vclFilePaths.length === 0) {
+    vclFilePaths.push(DEFAULT_VCL_FILE);
+}
+
+// Load and concatenate VCL files
+let vclContent = '';
+let loadedFiles: string[] = [];
+
+for (const filePath of vclFilePaths) {
+    try {
+        if (!existsSync(filePath)) {
+            console.error(`VCL file not found: ${ filePath }`);
+            process.exit(1);
+        }
+
+        const content = readFileSync(filePath, 'utf-8');
+        vclContent += `\n# Begin file: ${ filePath }\n${ content }\n# End file: ${ filePath }\n`;
+        loadedFiles.push(filePath);
+    } catch (error) {
+        console.error(`Error loading VCL file ${ filePath }: ${ error.message }`);
+        process.exit(1);
+    }
+}
+
 // Initialize VCL
-console.log(`Loading VCL file: ${ VCL_FILE_PATH }`);
-const vclSubroutines = loadVCL(VCL_FILE_PATH);
+console.log(`Loading VCL files: ${ loadedFiles.join(', ') }`);
+const vclSubroutines = loadVCLContent(vclContent);
 
 // Initialize security module
 console.log('Initializing security module...');
@@ -464,7 +492,7 @@ const server = Bun.serve({
 
 console.log(`HTTP Proxy server running at http://${ PROXY_HOST }:${ PROXY_PORT }`);
 console.log(`Default backend: ${ DEFAULT_BACKEND.host }:${ DEFAULT_BACKEND.port }`);
-console.log(`Using VCL file: ${ VCL_FILE_PATH }`);
+console.log(`Using VCL files: ${ loadedFiles.join(', ') }`);
 
 // Handle backend response
 async function handleBackendResponse(

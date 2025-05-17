@@ -20,7 +20,7 @@ This guide provides solutions to common issues you might encounter when using Fa
 
 **Example Error**:
 
-```
+```text
 Error parsing VCL: Unexpected token at line 10, column 15
 ```
 
@@ -46,7 +46,7 @@ set req.http.X-Test = "value";
 
 **Example Error**:
 
-```
+```text
 Error: Unsupported feature: Custom VCL extensions
 ```
 
@@ -78,7 +78,7 @@ custom_function(req.url);
 
 **Example Error**:
 
-```
+```text
 Error connecting to backend 'default': Connection refused
 ```
 
@@ -277,6 +277,16 @@ Run Fastly.JS in verbose mode to get more detailed output:
 ```bash
 bun run index.ts --verbose my-vcl-file.vcl
 ```
+
+### Using Multiple VCL Files
+
+If you're having issues with a complex VCL configuration, try splitting it into multiple files for better organization:
+
+```bash
+bun run index.ts common.vcl backends.vcl caching.vcl custom-logic.vcl
+```
+
+This can help isolate issues and make your configuration more maintainable.
 
 ### Inspecting the VCL AST
 

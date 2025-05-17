@@ -17,6 +17,7 @@ import addressFunctionsTests from './address-functions-tests';
 import binaryDataFunctionsTests from './binary-data-functions-tests';
 import digestFunctionsTests from './digest-functions-tests';
 import queryStringFunctionsTests from './query-string-functions-tests';
+import multiFileTests from './multi-file-tests';
 import uuidFunctionsTests from './uuid-functions-tests';
 import wafFunctionsTests from './waf-functions-tests';
 import rateLimitFunctionsTests from './ratelimit-functions-tests';
@@ -46,7 +47,8 @@ async function runTests() {
     httpFunctionsTests,
     timeFunctionsTests,
     esiFunctionsTests,
-    csrfProtectionTests
+    csrfProtectionTests,
+    multiFileTests
   ]);
 }
 

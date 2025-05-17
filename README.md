@@ -47,13 +47,15 @@ bun install
 
 ### Basic Usage
 
-Start the proxy server with a VCL configuration file:
+Start the proxy server with one or more VCL configuration files:
 
 ```bash
-bun run index.ts [path-to-vcl-file]
+bun run index.ts [path-to-vcl-file-1] [path-to-vcl-file-2] ...
 ```
 
-If no VCL file is specified, it will use the default `filter.vcl` in the project root.
+If no VCL files are specified, it will use the default `filter.vcl` in the project root.
+
+When multiple VCL files are provided, they are concatenated in the order they are specified, and the result is treated as a single VCL file. This allows you to split your VCL configuration into multiple files for better organization.
 
 Then, open your browser and navigate to:
 
