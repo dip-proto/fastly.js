@@ -232,6 +232,63 @@ Run the proxy with this configuration:
 bun run index.ts waf-protection.vcl
 ```
 
+#### Example 5: Rate Limiting
+
+Create a file named `rate-limiting.vcl` with the following content:
+
+```vcl
+sub vcl_recv {
+  # Open a rate counter window with a 60-second duration
+  set req.http.X-Window-ID = std.ratelimit.open_window(60);
+
+  # Increment a counter for this client IP
+  set req.http.X-Counter = std.ratelimit.ratecounter_increment(client.ip, 1);
+
+  # Check if the client has exceeded 10 requests per 5 seconds
+  if (std.ratelimit.check_rates(client.ip, "10:5,100:60,1000:3600")) {
+    # Add the client to a penalty box for 60 seconds
+    std.ratelimit.penaltybox_add("rate_violators", client.ip, 60);
+    error 429 "Too Many Requests";
+  }
+
+  # Check if the client is in the penalty box
+  if (std.ratelimit.penaltybox_has("rate_violators", client.ip)) {
+    error 429 "Too Many Requests";
+  }
+
+  return(lookup);
+}
+
+sub vcl_error {
+  # Custom error page for rate limiting
+  if (obj.status == 429) {
+    set obj.http.Content-Type = "text/html; charset=utf-8";
+    set obj.http.Retry-After = "60";
+    synthetic {"
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Rate Limit Exceeded</title>
+        </head>
+        <body>
+          <h1>Rate Limit Exceeded</h1>
+          <p>You have made too many requests. Please try again in 60 seconds.</p>
+        </body>
+      </html>
+    "};
+    return(deliver);
+  }
+
+  return(deliver);
+}
+```
+
+Run the proxy with this configuration:
+
+```bash
+bun run index.ts rate-limiting.vcl
+```
+
 ### Using with Custom Backends
 
 You can configure multiple backends in your VCL file:

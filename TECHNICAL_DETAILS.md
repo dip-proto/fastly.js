@@ -388,16 +388,34 @@ The WAF module provides the following capabilities:
 The rate limiting module provides the following capabilities:
 
 1. **Rate Counters**:
-   - `ratelimit.open_window(windowSeconds)`: Opens a rate counter window with the specified duration
-   - `ratelimit.ratecounter_increment(counterName, incrementBy)`: Increments a named rate counter
+   - `std.ratelimit.open_window(windowSeconds)`: Opens a rate counter window with the specified duration
+     - Returns a unique identifier for the window
+     - The window duration is specified in seconds
+     - Used to create time-based rate limiting windows
+   - `std.ratelimit.ratecounter_increment(counterName, incrementBy)`: Increments a named rate counter
+     - The counterName parameter is a string identifier for the counter
+     - The incrementBy parameter is optional and defaults to 1
+     - Returns the new count value after incrementing
 
 2. **Rate Checking**:
-   - `ratelimit.check_rate(counterName, ratePerSecond)`: Checks if a rate limit has been exceeded
-   - `ratelimit.check_rates(counterName, rates)`: Checks if any of multiple rate limits have been exceeded
+   - `std.ratelimit.check_rate(counterName, ratePerSecond)`: Checks if a rate limit has been exceeded
+     - The counterName parameter is a string identifier for the counter
+     - The ratePerSecond parameter is the maximum allowed rate
+     - Returns TRUE if the rate limit has been exceeded, FALSE otherwise
+   - `std.ratelimit.check_rates(counterName, rates)`: Checks if any of multiple rate limits have been exceeded
+     - The counterName parameter is a string identifier for the counter
+     - The rates parameter is a comma-separated list of rates in the format "count:seconds"
+     - Returns TRUE if any rate limit has been exceeded, FALSE otherwise
 
 3. **Penalty Box**:
-   - `ratelimit.penaltybox_add(penaltyboxName, identifier, duration)`: Adds an identifier to a penalty box
-   - `ratelimit.penaltybox_has(penaltyboxName, identifier)`: Checks if an identifier is in a penalty box
+   - `std.ratelimit.penaltybox_add(penaltyboxName, identifier, duration)`: Adds an identifier to a penalty box
+     - The penaltyboxName parameter is a string identifier for the penalty box
+     - The identifier parameter is a string identifier for the entity to add to the penalty box
+     - The duration parameter is the time in seconds to keep the identifier in the penalty box
+   - `std.ratelimit.penaltybox_has(penaltyboxName, identifier)`: Checks if an identifier is in a penalty box
+     - The penaltyboxName parameter is a string identifier for the penalty box
+     - The identifier parameter is a string identifier for the entity to check
+     - Returns TRUE if the identifier is in the penalty box, FALSE otherwise
 
 ### Bot Detection
 
