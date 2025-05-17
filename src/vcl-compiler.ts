@@ -163,6 +163,13 @@ export interface VCLContext {
     media_lookup: (availableMediaTypes: string, defaultMediaType: string, mediaTypePatterns: string, acceptHeader: string) => string;
   };
 
+  // Binary data functions
+  bin?: {
+    base64_to_hex: (base64: string) => string;
+    hex_to_base64: (hex: string) => string;
+    data_convert: (input: string, inputEncoding: string, outputEncoding: string) => string;
+  };
+
   // Error handler function
   error?: (status: number, message: string) => string;
 
@@ -245,10 +252,24 @@ export interface VCLContext {
       hash_md5: (str: string) => string;
       hash_sha1: (str: string) => string;
       hash_sha256: (str: string) => string;
+      hash_sha512: (str: string) => string;
+      hash_xxh32: (str: string) => string;
+      hash_xxh64: (str: string) => string;
       hmac_md5: (key: string, message: string) => string;
       hmac_sha1: (key: string, message: string) => string;
       hmac_sha256: (key: string, message: string) => string;
+      hmac_sha512: (key: string, message: string) => string;
+      hmac_md5_base64: (key: string, message: string) => string;
+      hmac_sha1_base64: (key: string, message: string) => string;
+      hmac_sha256_base64: (key: string, message: string) => string;
+      hmac_sha512_base64: (key: string, message: string) => string;
       secure_is_equal: (a: string, b: string) => boolean;
+      base64: (str: string) => string;
+      base64_decode: (str: string) => string;
+      base64url: (str: string) => string;
+      base64url_decode: (str: string) => string;
+      base64url_nopad: (str: string) => string;
+      base64url_nopad_decode: (str: string) => string;
     };
 
     // HTTP functions
@@ -1018,6 +1039,20 @@ export class VCLCompiler {
 
       if (context.accept && typeof context.accept[acceptFunction] === 'function') {
         return context.accept[acceptFunction](...args);
+      }
+    } else if (functionName.startsWith('bin.')) {
+      // Binary data functions
+      const binFunction = functionName.substring(4); // Remove 'bin.' prefix
+
+      if (context.bin && typeof context.bin[binFunction] === 'function') {
+        return context.bin[binFunction](...args);
+      }
+    } else if (functionName.startsWith('digest.')) {
+      // Digest functions
+      const digestFunction = functionName.substring(7); // Remove 'digest.' prefix
+
+      if (context.std && context.std.digest && typeof context.std.digest[digestFunction] === 'function') {
+        return context.std.digest[digestFunction](...args);
       }
     } else if (functionName.startsWith('std.')) {
       // Standard library functions

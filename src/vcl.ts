@@ -13,6 +13,8 @@ import {VCLCompiler, VCLSubroutines, VCLContext} from './vcl-compiler';
 import {SecurityModule} from './vcl-security';
 import {AddressModule} from './vcl-address';
 import {AcceptModule} from './vcl-accept';
+import {BinaryModule} from './vcl-binary';
+import {DigestModule} from './vcl-digest';
 
 /**
  * Loads and parses a VCL file, converting it into executable subroutines.
@@ -409,46 +411,67 @@ export function createVCLContext(): VCLContext {
     // Digest functions
     digest: {
       hash_md5: (str: string) => {
-        const crypto = require('crypto');
-        return crypto.createHash('md5').update(String(str)).digest('hex');
+        return DigestModule.hash_md5(str);
       },
       hash_sha1: (str: string) => {
-        const crypto = require('crypto');
-        return crypto.createHash('sha1').update(String(str)).digest('hex');
+        return DigestModule.hash_sha1(str);
       },
       hash_sha256: (str: string) => {
-        const crypto = require('crypto');
-        return crypto.createHash('sha256').update(String(str)).digest('hex');
+        return DigestModule.hash_sha256(str);
+      },
+      hash_sha512: (str: string) => {
+        return DigestModule.hash_sha512(str);
+      },
+      hash_xxh32: (str: string) => {
+        return DigestModule.hash_xxh32(str);
+      },
+      hash_xxh64: (str: string) => {
+        return DigestModule.hash_xxh64(str);
       },
       hmac_md5: (key: string, message: string) => {
-        const crypto = require('crypto');
-        return crypto.createHmac('md5', String(key))
-          .update(String(message))
-          .digest('hex');
+        return DigestModule.hmac_md5(key, message);
       },
       hmac_sha1: (key: string, message: string) => {
-        const crypto = require('crypto');
-        return crypto.createHmac('sha1', String(key))
-          .update(String(message))
-          .digest('hex');
+        return DigestModule.hmac_sha1(key, message);
       },
       hmac_sha256: (key: string, message: string) => {
-        const crypto = require('crypto');
-        return crypto.createHmac('sha256', String(key))
-          .update(String(message))
-          .digest('hex');
+        return DigestModule.hmac_sha256(key, message);
+      },
+      hmac_sha512: (key: string, message: string) => {
+        return DigestModule.hmac_sha512(key, message);
+      },
+      hmac_md5_base64: (key: string, message: string) => {
+        return DigestModule.hmac_md5_base64(key, message);
+      },
+      hmac_sha1_base64: (key: string, message: string) => {
+        return DigestModule.hmac_sha1_base64(key, message);
+      },
+      hmac_sha256_base64: (key: string, message: string) => {
+        return DigestModule.hmac_sha256_base64(key, message);
+      },
+      hmac_sha512_base64: (key: string, message: string) => {
+        return DigestModule.hmac_sha512_base64(key, message);
       },
       secure_is_equal: (a: string, b: string) => {
-        const crypto = require('crypto');
-        try {
-          return crypto.timingSafeEqual(
-            Buffer.from(String(a)),
-            Buffer.from(String(b))
-          );
-        } catch (e) {
-          // If buffers are not the same length, return false
-          return false;
-        }
+        return DigestModule.secure_is_equal(a, b);
+      },
+      base64: (str: string) => {
+        return DigestModule.base64(str);
+      },
+      base64_decode: (str: string) => {
+        return DigestModule.base64_decode(str);
+      },
+      base64url: (str: string) => {
+        return DigestModule.base64url(str);
+      },
+      base64url_decode: (str: string) => {
+        return DigestModule.base64url_decode(str);
+      },
+      base64url_nopad: (str: string) => {
+        return DigestModule.base64url_nopad(str);
+      },
+      base64url_nopad_decode: (str: string) => {
+        return DigestModule.base64url_nopad_decode(str);
       }
     },
 
@@ -1231,6 +1254,24 @@ export function createVCLContext(): VCLContext {
     // Selects the best match from an Accept header value against available media types
     media_lookup: (availableMediaTypes: string, defaultMediaType: string, mediaTypePatterns: string, acceptHeader: string): string => {
       return AcceptModule.media_lookup(availableMediaTypes, defaultMediaType, mediaTypePatterns, acceptHeader);
+    }
+  };
+
+  // Add binary data functions
+  context.bin = {
+    // Converts a base64-encoded string to a hexadecimal string
+    base64_to_hex: (base64: string): string => {
+      return BinaryModule.base64_to_hex(base64);
+    },
+
+    // Converts a hexadecimal string to a base64-encoded string
+    hex_to_base64: (hex: string): string => {
+      return BinaryModule.hex_to_base64(hex);
+    },
+
+    // Converts binary data between different encodings
+    data_convert: (input: string, inputEncoding: string, outputEncoding: string): string => {
+      return BinaryModule.data_convert(input, inputEncoding, outputEncoding);
     }
   };
 

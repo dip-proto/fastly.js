@@ -14,6 +14,8 @@ import vclFileTests from './vcl-file-tests';
 import securityFeaturesTests from './security-features-tests';
 import acceptHeaderFunctionsTests from './accept-header-functions-tests';
 import addressFunctionsTests from './address-functions-tests';
+import binaryDataFunctionsTests from './binary-data-functions-tests';
+import digestFunctionsTests from './digest-functions-tests';
 
 // Run all test suites
 async function runTests() {
@@ -26,7 +28,9 @@ async function runTests() {
     vclFileTests,
     securityFeaturesTests,
     acceptHeaderFunctionsTests,
-    addressFunctionsTests
+    addressFunctionsTests,
+    binaryDataFunctionsTests,
+    digestFunctionsTests
   ]);
 }
 
