@@ -11,7 +11,9 @@
     "test:caching": "bun run test/caching-tests.ts",
     "test:backend": "bun run test/backend-error-tests.ts",
     "test:root": "bun run test/run-root-tests.ts",
-    "test:all": "bun run test && bun run test:root"
+    "test:all": "bun run test && bun run test:root",
+    "validate-vcl": "bun run scripts/validate-vcl-snippets.ts",
+    "fix-vcl": "bun run scripts/fix-vcl-snippets.ts"
   },
   "devDependencies": {
     "@types/bun": "latest",

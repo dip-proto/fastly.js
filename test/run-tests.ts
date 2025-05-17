@@ -23,6 +23,7 @@ import rateLimitFunctionsTests from './ratelimit-functions-tests';
 import httpFunctionsTests from './http-functions-tests';
 import timeFunctionsTests from './time-functions-tests';
 import esiFunctionsTests from './esi-functions-tests';
+import csrfProtectionTests from './csrf-protection-tests';
 
 // Run all test suites
 async function runTests() {
@@ -44,7 +45,8 @@ async function runTests() {
     rateLimitFunctionsTests,
     httpFunctionsTests,
     timeFunctionsTests,
-    esiFunctionsTests
+    esiFunctionsTests,
+    csrfProtectionTests
   ]);
 }
 

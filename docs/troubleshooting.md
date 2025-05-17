@@ -28,7 +28,7 @@ Error parsing VCL: Unexpected token at line 10, column 15
 
 ```vcl
 # Before (missing semicolon)
-set req.http.X-Test = "value"
+set req.http.X-Test = "value";
 
 # After (fixed)
 set req.http.X-Test = "value";
