@@ -142,6 +142,9 @@ All high-priority tasks have been completed. The proxy now supports:
     - Implement basic WAF (Web Application Firewall) capabilities ✅
     - Support rate limiting ✅
     - Implement bot detection ✅
+    - Implement SQL injection detection ✅
+    - Implement XSS detection ✅
+    - Implement path traversal detection ✅
     - Add CSRF protection
 
 ## Future Enhancements
@@ -241,6 +244,9 @@ All high-priority tasks have been completed. The proxy now supports:
    - Implement basic WAF capabilities ✅
    - Add rate limiting functionality ✅
    - Implement bot detection mechanisms ✅
+   - Implement SQL injection detection ✅
+   - Implement XSS detection ✅
+   - Implement path traversal detection ✅
    - Add CSRF protection
 
 4. **Monitoring and Analytics**

@@ -406,6 +406,30 @@ The implementation includes bot detection capabilities through:
    - Support for CAPTCHA challenges for suspicious clients
    - JavaScript-based challenges to verify browser capabilities
 
+### Attack Detection and Prevention
+
+The implementation includes pattern-based detection for common web attacks:
+
+1. **SQL Injection Detection**:
+   - Pattern matching for SQL keywords and syntax in request parameters
+   - Detection of SQL injection attempts in query strings, headers, and body
+   - Blocking of requests with suspicious SQL patterns
+
+2. **Cross-Site Scripting (XSS) Detection**:
+   - Pattern matching for script tags, JavaScript events, and other XSS vectors
+   - Detection of HTML/JavaScript injection attempts
+   - Blocking of requests with potential XSS payloads
+
+3. **Path Traversal Detection**:
+   - Pattern matching for directory traversal sequences (../, ..\, %2e%2e%2f)
+   - Detection of attempts to access files outside the web root
+   - Blocking of requests with path traversal patterns
+
+4. **Trusted Client Handling**:
+   - Support for trusted IP lists (ACLs)
+   - Different security policies for trusted vs. untrusted clients
+   - Reduced security restrictions for trusted sources
+
 These security features allow for comprehensive protection against various threats, including:
 
 - SQL injection attacks
