@@ -4,42 +4,42 @@
  * This module provides the main interface for loading and executing VCL files.
  */
 
-import { readFileSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
-import { VCLLexer } from './vcl-parser';
-import { VCLParser } from './vcl-parser-impl';
-import { VCLCompiler, VCLSubroutines, VCLContext } from './vcl-compiler';
+import {readFileSync, existsSync} from 'node:fs';
+import {join} from 'node:path';
+import {VCLLexer} from './vcl-parser';
+import {VCLParser} from './vcl-parser-impl';
+import {VCLCompiler, VCLSubroutines, VCLContext} from './vcl-compiler';
 
 // Load and parse a VCL file
 export function loadVCL(filePath: string): VCLSubroutines {
   try {
     // Check if the file exists
     if (!existsSync(filePath)) {
-      throw new Error(`VCL file not found: ${filePath}`);
+      throw new Error(`VCL file not found: ${ filePath }`);
     }
 
     // Read the file content
     const content = readFileSync(filePath, 'utf-8');
-    console.log(`Loaded VCL file: ${filePath} (${content.length} bytes)`);
+    console.log(`Loaded VCL file: ${ filePath } (${ content.length } bytes)`);
 
     // Tokenize the VCL code
     const lexer = new VCLLexer(content);
     const tokens = lexer.tokenize();
-    console.log(`Tokenized VCL file: ${tokens.length} tokens`);
+    console.log(`Tokenized VCL file: ${ tokens.length } tokens`);
 
     // Parse the tokens into an AST
     const parser = new VCLParser(tokens);
     const ast = parser.parse();
-    console.log(`Parsed VCL file: ${ast.subroutines.length} subroutines`);
+    console.log(`Parsed VCL file: ${ ast.subroutines.length } subroutines`);
 
     // Compile the AST into executable functions
     const compiler = new VCLCompiler(ast);
     const subroutines = compiler.compile();
-    console.log(`Compiled VCL file: ${Object.keys(subroutines).length} subroutines`);
+    console.log(`Compiled VCL file: ${ Object.keys(subroutines).length } subroutines`);
 
     return subroutines;
   } catch (error) {
-    console.error(`Error loading VCL file: ${error.message}`);
+    console.error(`Error loading VCL file: ${ error.message }`);
     console.error(error.stack);
     throw error; // Re-throw the error to be handled by the caller
   }
@@ -50,14 +50,14 @@ export function loadVCL(filePath: string): VCLSubroutines {
 // Export the executeVCL function
 export function executeVCL(subroutines: VCLSubroutines, name: string, context: VCLContext): string {
   if (!subroutines[name]) {
-    console.log(`Subroutine ${name} not found, using default behavior`);
+    console.log(`Subroutine ${ name } not found, using default behavior`);
     return '';
   }
 
   try {
     return subroutines[name](context) || '';
   } catch (error) {
-    console.error(`Error executing subroutine ${name}: ${error.message}`);
+    console.error(`Error executing subroutine ${ name }: ${ error.message }`);
     return '';
   }
 }
@@ -120,6 +120,9 @@ export function createVCLContext(): VCLContext {
     // Initialize ACLs
     acls: {},
 
+    // Initialize tables
+    tables: {},
+
     // Initialize client info
     client: {
       ip: '127.0.0.1'  // Default to localhost
@@ -138,7 +141,7 @@ export function createVCLContext(): VCLContext {
   context.std = {
     // Logging
     log: (message: string) => {
-      console.log(`[VCL] ${message}`);
+      console.log(`[VCL] ${ message }`);
     },
 
     // Time functions
@@ -186,14 +189,14 @@ export function createVCLContext(): VCLContext {
                 offsetMs = value * 24 * 60 * 60 * 1000;
                 break;
               default:
-                console.error(`Unknown time unit: ${unit}`);
+                console.error(`Unknown time unit: ${ unit }`);
                 return time;
             }
           } else {
             // Try to parse as milliseconds
             offsetMs = parseInt(offset, 10);
             if (isNaN(offsetMs)) {
-              console.error(`Invalid time offset: ${offset}`);
+              console.error(`Invalid time offset: ${ offset }`);
               return time;
             }
           }
@@ -222,21 +225,21 @@ export function createVCLContext(): VCLContext {
         try {
           // Validate hex string format
           if (!hex.match(/^[0-9A-Fa-f]+$/)) {
-            console.error(`Invalid hex timestamp: ${hex}`);
+            console.error(`Invalid hex timestamp: ${ hex }`);
             return Date.now();
           }
 
           // Convert hex string to decimal
           const timestamp = parseInt(hex, 16);
           if (isNaN(timestamp)) {
-            console.error(`Invalid hex timestamp: ${hex}`);
+            console.error(`Invalid hex timestamp: ${ hex }`);
             return Date.now();
           }
 
           // Convert to milliseconds if it's in seconds (Unix timestamp)
           return timestamp * 1000;
         } catch (e) {
-          console.error(`Error converting hex to time: ${e}`);
+          console.error(`Error converting hex to time: ${ e }`);
           return Date.now();
         }
       }
@@ -281,7 +284,7 @@ export function createVCLContext(): VCLContext {
         const re = new RegExp(regex);
         return String(str).replace(re, replacement);
       } catch (e) {
-        console.error(`Invalid regex: ${regex}`, e);
+        console.error(`Invalid regex: ${ regex }`, e);
         return str;
       }
     },
@@ -290,7 +293,7 @@ export function createVCLContext(): VCLContext {
         const re = new RegExp(regex, 'g');
         return String(str).replace(re, replacement);
       } catch (e) {
-        console.error(`Invalid regex: ${regex}`, e);
+        console.error(`Invalid regex: ${ regex }`, e);
         return str;
       }
     },
@@ -339,7 +342,7 @@ export function createVCLContext(): VCLContext {
       try {
         return Buffer.from(String(str), 'base64').toString('utf-8');
       } catch (e) {
-        console.error(`Invalid base64 string: ${str}`, e);
+        console.error(`Invalid base64 string: ${ str }`, e);
         return '';
       }
     },
@@ -360,7 +363,7 @@ export function createVCLContext(): VCLContext {
 
         return Buffer.from(padded, 'base64').toString('utf-8');
       } catch (e) {
-        console.error(`Invalid base64url string: ${str}`, e);
+        console.error(`Invalid base64url string: ${ str }`, e);
         return '';
       }
     },
@@ -442,7 +445,7 @@ export function createVCLContext(): VCLContext {
             }
           }
         } catch (e) {
-          console.error(`Invalid regex pattern for header.filter: ${pattern}`, e);
+          console.error(`Invalid regex pattern for header.filter: ${ pattern }`, e);
         }
       },
       filter_except: (headers: Record<string, string>, pattern: string) => {
@@ -464,7 +467,7 @@ export function createVCLContext(): VCLContext {
             }
           }
         } catch (e) {
-          console.error(`Invalid regex pattern for header.filter_except: ${pattern}`, e);
+          console.error(`Invalid regex pattern for header.filter_except: ${ pattern }`, e);
         }
       }
     },
@@ -570,7 +573,7 @@ export function createVCLContext(): VCLContext {
             const params = new URLSearchParams(queryString);
             return params.get(String(name));
           } catch (e) {
-            console.error(`Invalid URL or query string: ${url}`, e);
+            console.error(`Invalid URL or query string: ${ url }`, e);
             return null;
           }
         }
@@ -586,9 +589,9 @@ export function createVCLContext(): VCLContext {
             const [base, queryString] = String(url).split('?');
             const params = new URLSearchParams(queryString || '');
             params.set(String(name), String(value));
-            return `${base}?${params.toString()}`;
+            return `${ base }?${ params.toString() }`;
           } catch (e) {
-            console.error(`Invalid URL or query string: ${url}`, e);
+            console.error(`Invalid URL or query string: ${ url }`, e);
             return url;
           }
         }
@@ -605,9 +608,9 @@ export function createVCLContext(): VCLContext {
             const params = new URLSearchParams(queryString || '');
             params.delete(String(name));
             const newQueryString = params.toString();
-            return newQueryString ? `${base}?${newQueryString}` : base;
+            return newQueryString ? `${ base }?${ newQueryString }` : base;
           } catch (e) {
-            console.error(`Invalid URL or query string: ${url}`, e);
+            console.error(`Invalid URL or query string: ${ url }`, e);
             return url;
           }
         }
@@ -644,9 +647,9 @@ export function createVCLContext(): VCLContext {
             }
 
             const newQueryString = filteredParams.toString();
-            return newQueryString ? `${base}?${newQueryString}` : base;
+            return newQueryString ? `${ base }?${ newQueryString }` : base;
           } catch (e) {
-            console.error(`Invalid URL or query string: ${url}`, e);
+            console.error(`Invalid URL or query string: ${ url }`, e);
             return url;
           }
         }
@@ -681,9 +684,9 @@ export function createVCLContext(): VCLContext {
             }
 
             const newQueryString = filteredParams.toString();
-            return newQueryString ? `${base}?${newQueryString}` : base;
+            return newQueryString ? `${ base }?${ newQueryString }` : base;
           } catch (e) {
-            console.error(`Invalid URL or query string: ${url}`, e);
+            console.error(`Invalid URL or query string: ${ url }`, e);
             return url;
           }
         }
@@ -751,7 +754,7 @@ export function createVCLContext(): VCLContext {
       const backend = context.backends[backendName];
       if (backend) {
         backend.probe = {
-          request: options.request || `HEAD / HTTP/1.1\r\nHost: ${backend.host}\r\nConnection: close\r\n\r\n`,
+          request: options.request || `HEAD / HTTP/1.1\r\nHost: ${ backend.host }\r\nConnection: close\r\n\r\n`,
           expected_response: options.expected_response || 200,
           interval: options.interval || 5000, // 5 seconds
           timeout: options.timeout || 2000, // 2 seconds
@@ -770,7 +773,7 @@ export function createVCLContext(): VCLContext {
     // Generate a random boolean with a specified probability
     randombool: (probability: number): boolean => {
       if (probability < 0 || probability > 1) {
-        console.error(`Invalid probability: ${probability}. Must be between 0 and 1.`);
+        console.error(`Invalid probability: ${ probability }. Must be between 0 and 1.`);
         return false;
       }
       return Math.random() < probability;
@@ -779,7 +782,7 @@ export function createVCLContext(): VCLContext {
     // Generate a random boolean with a specified probability, using a seed
     randombool_seeded: (probability: number, seed: string): boolean => {
       if (probability < 0 || probability > 1) {
-        console.error(`Invalid probability: ${probability}. Must be between 0 and 1.`);
+        console.error(`Invalid probability: ${ probability }. Must be between 0 and 1.`);
         return false;
       }
 
@@ -793,7 +796,7 @@ export function createVCLContext(): VCLContext {
     // Generate a random integer within a specified range
     randomint: (from: number, to: number): number => {
       if (from > to) {
-        console.error(`Invalid range: ${from} to ${to}. 'from' must be less than or equal to 'to'.`);
+        console.error(`Invalid range: ${ from } to ${ to }. 'from' must be less than or equal to 'to'.`);
         return from;
       }
       return Math.floor(Math.random() * (to - from + 1)) + from;
@@ -802,7 +805,7 @@ export function createVCLContext(): VCLContext {
     // Generate a random integer within a specified range, using a seed
     randomint_seeded: (from: number, to: number, seed: string): number => {
       if (from > to) {
-        console.error(`Invalid range: ${from} to ${to}. 'from' must be less than or equal to 'to'.`);
+        console.error(`Invalid range: ${ from } to ${ to }. 'from' must be less than or equal to 'to'.`);
         return from;
       }
 
@@ -816,7 +819,7 @@ export function createVCLContext(): VCLContext {
     // Generate a random string of a specified length
     randomstr: (length: number, charset?: string): string => {
       if (length <= 0) {
-        console.error(`Invalid length: ${length}. Must be greater than 0.`);
+        console.error(`Invalid length: ${ length }. Must be greater than 0.`);
         return '';
       }
 
@@ -907,6 +910,180 @@ export function createVCLContext(): VCLContext {
     }
   };
 
+  // Add table functions
+  context.std.table = {
+    // Add a new table
+    add: (name: string) => {
+      context.tables[name] = {
+        name,
+        entries: {}
+      };
+      return true;
+    },
+
+    // Remove a table
+    remove: (name: string) => {
+      if (context.tables[name]) {
+        delete context.tables[name];
+        return true;
+      }
+      return false;
+    },
+
+    // Add an entry to a table
+    add_entry: (tableName: string, key: string, value: string | number | boolean | RegExp) => {
+      const table = context.tables[tableName];
+      if (table) {
+        table.entries[key] = value;
+        return true;
+      }
+      return false;
+    },
+
+    // Remove an entry from a table
+    remove_entry: (tableName: string, key: string) => {
+      const table = context.tables[tableName];
+      if (table && key in table.entries) {
+        delete table.entries[key];
+        return true;
+      }
+      return false;
+    },
+
+    // Look up a key in a table and return its value as a string
+    lookup: (tableName: string, key: string, defaultValue: string = '') => {
+      const table = context.tables[tableName];
+      if (!table) {
+        console.log(`Table ${ tableName } not found`);
+        return defaultValue;
+      }
+
+      if (key in table.entries) {
+        return String(table.entries[key]);
+      }
+
+      return defaultValue;
+    },
+
+    // Look up a key in a table and return its value as a boolean
+    lookup_bool: (tableName: string, key: string, defaultValue: boolean = false) => {
+      const table = context.tables[tableName];
+      if (!table) {
+        console.log(`Table ${ tableName } not found`);
+        return defaultValue;
+      }
+
+      if (key in table.entries) {
+        const value = table.entries[key];
+        if (typeof value === 'boolean') {
+          return value;
+        }
+        // Convert string to boolean
+        if (typeof value === 'string') {
+          return value.toLowerCase() === 'true';
+        }
+        // Convert number to boolean
+        if (typeof value === 'number') {
+          return value !== 0;
+        }
+      }
+
+      return defaultValue;
+    },
+
+    // Look up a key in a table and return its value as an integer
+    lookup_integer: (tableName: string, key: string, defaultValue: number = 0) => {
+      const table = context.tables[tableName];
+      if (!table) {
+        console.log(`Table ${ tableName } not found`);
+        return defaultValue;
+      }
+
+      if (key in table.entries) {
+        const value = table.entries[key];
+        if (typeof value === 'number') {
+          return Math.floor(value);
+        }
+        // Convert string to integer
+        if (typeof value === 'string') {
+          const parsed = parseInt(value, 10);
+          return isNaN(parsed) ? defaultValue : parsed;
+        }
+        // Convert boolean to integer
+        if (typeof value === 'boolean') {
+          return value ? 1 : 0;
+        }
+      }
+
+      return defaultValue;
+    },
+
+    // Look up a key in a table and return its value as a float
+    lookup_float: (tableName: string, key: string, defaultValue: number = 0.0) => {
+      const table = context.tables[tableName];
+      if (!table) {
+        console.log(`Table ${ tableName } not found`);
+        return defaultValue;
+      }
+
+      if (key in table.entries) {
+        const value = table.entries[key];
+        if (typeof value === 'number') {
+          return value;
+        }
+        // Convert string to float
+        if (typeof value === 'string') {
+          const parsed = parseFloat(value);
+          return isNaN(parsed) ? defaultValue : parsed;
+        }
+        // Convert boolean to float
+        if (typeof value === 'boolean') {
+          return value ? 1.0 : 0.0;
+        }
+      }
+
+      return defaultValue;
+    },
+
+    // Look up a key in a table and return its value as a regex
+    lookup_regex: (tableName: string, key: string, defaultValue: string = '') => {
+      const table = context.tables[tableName];
+      if (!table) {
+        console.log(`Table ${ tableName } not found`);
+        return defaultValue ? new RegExp(defaultValue) : new RegExp('');
+      }
+
+      if (key in table.entries) {
+        const value = table.entries[key];
+        if (value instanceof RegExp) {
+          return value;
+        }
+        // Convert string to regex
+        if (typeof value === 'string') {
+          try {
+            return new RegExp(value);
+          } catch (e) {
+            console.error(`Invalid regex pattern: ${ value }`, e);
+            return defaultValue ? new RegExp(defaultValue) : new RegExp('');
+          }
+        }
+      }
+
+      return defaultValue ? new RegExp(defaultValue) : new RegExp('');
+    },
+
+    // Check if a key exists in a table
+    contains: (tableName: string, key: string) => {
+      const table = context.tables[tableName];
+      if (!table) {
+        console.log(`Table ${ tableName } not found`);
+        return false;
+      }
+
+      return key in table.entries;
+    }
+  };
+
   // Add director management functions
   context.std.director = {
     // Add a new director
@@ -914,7 +1091,7 @@ export function createVCLContext(): VCLContext {
       // Validate director type
       const validTypes = ['random', 'hash', 'client', 'fallback', 'chash'];
       if (!validTypes.includes(type)) {
-        console.error(`Invalid director type: ${type}`);
+        console.error(`Invalid director type: ${ type }`);
         return false;
       }
 
@@ -982,7 +1159,7 @@ export function createVCLContext(): VCLContext {
       const requiredHealthyBackends = Math.ceil(director.backends.length * quorumPercentage);
 
       if (healthyBackends.length < requiredHealthyBackends) {
-        console.log(`Director ${directorName} does not have enough healthy backends to meet quorum`);
+        console.log(`Director ${ directorName } does not have enough healthy backends to meet quorum`);
         return null;
       }
 
@@ -1070,19 +1247,19 @@ function ipv4ToBinary(ip: string): string {
 
     // Ensure we have 4 octets
     if (octets.length !== 4) {
-      throw new Error(`Invalid IPv4 address: ${ip}`);
+      throw new Error(`Invalid IPv4 address: ${ ip }`);
     }
 
     // Convert each octet to binary and pad to 8 bits
     return octets.map(octet => {
       const num = parseInt(octet, 10);
       if (isNaN(num) || num < 0 || num > 255) {
-        throw new Error(`Invalid IPv4 octet: ${octet}`);
+        throw new Error(`Invalid IPv4 octet: ${ octet }`);
       }
       return num.toString(2).padStart(8, '0');
     }).join('');
   } catch (e) {
-    console.error(`Error converting IPv4 to binary: ${e}`);
+    console.error(`Error converting IPv4 to binary: ${ e }`);
     return '';
   }
 }
@@ -1139,7 +1316,7 @@ function normalizeIPv6(ip: string): string {
     if (ip.includes('::')) {
       const parts = ip.split('::');
       if (parts.length !== 2) {
-        throw new Error(`Invalid IPv6 address with multiple :: notations: ${ip}`);
+        throw new Error(`Invalid IPv6 address with multiple :: notations: ${ ip }`);
       }
 
       const leftParts = parts[0] ? parts[0].split(':') : [];
@@ -1148,7 +1325,7 @@ function normalizeIPv6(ip: string): string {
       // Calculate how many 0 blocks we need to insert
       const missingBlocks = 8 - (leftParts.length + rightParts.length);
       if (missingBlocks < 0) {
-        throw new Error(`Invalid IPv6 address with too many segments: ${ip}`);
+        throw new Error(`Invalid IPv6 address with too many segments: ${ ip }`);
       }
 
       // Create the expanded address
@@ -1164,13 +1341,13 @@ function normalizeIPv6(ip: string): string {
     // Ensure we have 8 segments
     const parts = ip.split(':');
     if (parts.length !== 8) {
-      throw new Error(`Invalid IPv6 address with wrong number of segments: ${ip}`);
+      throw new Error(`Invalid IPv6 address with wrong number of segments: ${ ip }`);
     }
 
     // Pad each segment to 4 hex digits
     return parts.map(part => part.padStart(4, '0')).join(':');
   } catch (e) {
-    console.error(`Error normalizing IPv6 address: ${e}`);
+    console.error(`Error normalizing IPv6 address: ${ e }`);
     return '';
   }
 }
@@ -1211,12 +1388,12 @@ function ipv6ToBinary(ip: string): string {
     return segments.map(segment => {
       const num = parseInt(segment, 16);
       if (isNaN(num) || num < 0 || num > 65535) {
-        throw new Error(`Invalid IPv6 segment: ${segment}`);
+        throw new Error(`Invalid IPv6 segment: ${ segment }`);
       }
       return num.toString(2).padStart(16, '0');
     }).join('');
   } catch (e) {
-    console.error(`Error converting IPv6 to binary: ${e}`);
+    console.error(`Error converting IPv6 to binary: ${ e }`);
     return '';
   }
 }
@@ -1315,7 +1492,7 @@ function isIpInCidr(ip: string, cidrIp: string, cidrSubnet: number): boolean {
 
     // Ensure both IPs are of the same type
     if (!ipType || !cidrType || ipType !== cidrType) {
-      console.error(`IP type mismatch or invalid IP: ${ip} (${ipType}) vs ${cidrIp} (${cidrType})`);
+      console.error(`IP type mismatch or invalid IP: ${ ip } (${ ipType }) vs ${ cidrIp } (${ cidrType })`);
       return false;
     }
 
@@ -1323,7 +1500,7 @@ function isIpInCidr(ip: string, cidrIp: string, cidrSubnet: number): boolean {
     if (ipType === 'ipv4') {
       // Validate subnet mask for IPv4
       if (cidrSubnet < 0 || cidrSubnet > 32) {
-        console.error(`Invalid IPv4 subnet mask: ${cidrSubnet}`);
+        console.error(`Invalid IPv4 subnet mask: ${ cidrSubnet }`);
         return false;
       }
 
@@ -1343,13 +1520,13 @@ function isIpInCidr(ip: string, cidrIp: string, cidrSubnet: number): boolean {
     if (ipType === 'ipv6') {
       // Validate subnet mask for IPv6
       if (cidrSubnet < 0 || cidrSubnet > 128) {
-        console.error(`Invalid IPv6 subnet mask: ${cidrSubnet}`);
+        console.error(`Invalid IPv6 subnet mask: ${ cidrSubnet }`);
         return false;
       }
 
       // Special case for IPv4-mapped IPv6 addresses
       if (ip.includes('.') && ip.toLowerCase().includes('::ffff:') &&
-          cidrIp.includes('.') && cidrIp.toLowerCase().includes('::ffff:')) {
+        cidrIp.includes('.') && cidrIp.toLowerCase().includes('::ffff:')) {
         // Extract the IPv4 parts
         const ipv4Part = ip.substring(ip.lastIndexOf(':') + 1);
         const cidrIpv4Part = cidrIp.substring(cidrIp.lastIndexOf(':') + 1);
@@ -1379,7 +1556,7 @@ function isIpInCidr(ip: string, cidrIp: string, cidrSubnet: number): boolean {
 
     return false;
   } catch (e) {
-    console.error(`Error checking CIDR match: ${e}`);
+    console.error(`Error checking CIDR match: ${ e }`);
     return false;
   }
 }
@@ -1393,14 +1570,14 @@ export function executeVCL(
   const subroutine = subroutines[subroutineName];
 
   if (!subroutine) {
-    console.warn(`Subroutine ${subroutineName} not found`);
+    console.warn(`Subroutine ${ subroutineName } not found`);
     return '';
   }
 
   try {
     return subroutine(context);
   } catch (error) {
-    console.error(`Error executing subroutine ${subroutineName}:`, error);
+    console.error(`Error executing subroutine ${ subroutineName }:`, error);
     return 'error';
   }
 }

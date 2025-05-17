@@ -336,7 +336,7 @@ The implementation will be divided into phases to allow for incremental developm
    - Detailed error logging and monitoring
    - Automatic retries with fallback backends
 
-7. **Phase 7: Advanced Features** (Partially Completed)
+7. **Phase 7: Advanced Features** (Mostly Completed)
    - Implemented ACLs (Access Control Lists) ✅
      - Support for IPv4 and IPv6 addresses with CIDR notation
      - ACL membership checking
@@ -347,7 +347,10 @@ The implementation will be divided into phases to allow for incremental developm
      - Random string generation
      - Seeded variants for deterministic results
    - Implemented directors (load balancing) ✅
-   - Table functions (not yet implemented) ❌
+   - Implemented table functions ✅
+     - String, boolean, integer, float, and regex lookups
+     - Key existence checking
+     - Table management functions
    - Edge Side Includes (ESI) (not yet implemented) ❌
 
 Each phase includes comprehensive testing to ensure correctness and performance. The implementation has successfully completed phases 1-6 and partially completed phase 7.
@@ -391,16 +394,24 @@ Each phase includes comprehensive testing to ensure correctness and performance.
 - Implemented proper error handling for invalid inputs (e.g., probabilities outside the 0-1 range)
 - Optimized random number generation for performance
 
-### Table Functions Status
+### Table Functions Implementation
 
-- Table functions have not been implemented yet. The following functions are planned:
+- Implemented the following table functions according to Fastly VCL specifications:
   - `table.lookup`: Looks up a key in a table and returns its value as a string
   - `table.lookup_bool`: Looks up a key in a table and returns its value as a boolean
   - `table.lookup_integer`: Looks up a key in a table and returns its value as an integer
   - `table.lookup_float`: Looks up a key in a table and returns its value as a float
+  - `table.lookup_regex`: Looks up a key in a table and returns its value as a regex pattern
   - `table.contains`: Checks if a key exists in a table
-- The implementation will include support for edge dictionaries and key-value lookups
-- This is a lower priority task that will be addressed in future development
+- Implemented table management functions:
+  - `table.add`: Creates a new table
+  - `table.remove`: Removes an existing table
+  - `table.add_entry`: Adds a key-value pair to a table
+  - `table.remove_entry`: Removes a key-value pair from a table
+- Added comprehensive tests for all table functions
+- Implemented proper type conversion between string, boolean, integer, float, and regex values
+- Added error handling for missing tables, invalid keys, and invalid regex patterns
+- Ensured that default values are returned when keys are not found
 
 ### ACL Implementation
 
@@ -448,9 +459,9 @@ The VCL proxy implementation has successfully completed all high-priority tasks 
    - Error handling and synthetic responses
    - ACLs for access control
    - Directors for load balancing
+   - Table functions for key-value lookups
 
 4. **Remaining Tasks**:
-   - Table functions implementation
    - Edge Side Includes (ESI) support
    - Performance optimizations
    - Advanced security features

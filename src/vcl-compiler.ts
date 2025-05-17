@@ -25,7 +25,7 @@ import {
   VCLNumberLiteral,
   VCLRegexLiteral
 } from './vcl-parser';
-import { createVCLContext } from './vcl';
+import {createVCLContext} from './vcl';
 
 // Backend interface
 export interface VCLBackend {
@@ -59,7 +59,7 @@ export interface VCLProbe {
 export interface VCLDirector {
   name: string;
   type: 'random' | 'hash' | 'client' | 'fallback' | 'chash';
-  backends: Array<{ backend: VCLBackend, weight: number }>;
+  backends: Array<{backend: VCLBackend, weight: number;}>;
   quorum: number; // percentage (0-100)
   retries: number;
 }
@@ -74,6 +74,12 @@ export interface VCLACLEntry {
 export interface VCLACL {
   name: string;
   entries: VCLACLEntry[];
+}
+
+// Table interface
+export interface VCLTable {
+  name: string;
+  entries: Record<string, string | number | boolean | RegExp>;
 }
 
 // VCL Context interface
@@ -119,6 +125,9 @@ export interface VCLContext {
 
   // ACL-related properties
   acls: Record<string, VCLACL>;
+
+  // Table-related properties
+  tables: Record<string, VCLTable>;
 
   // Client-related properties
   client?: {
@@ -269,7 +278,7 @@ export interface VCLSubroutines {
 // VCL Standard Library
 export const VCLStdLib = {
   log: (message: string) => {
-    console.log(`[VCL] ${message}`);
+    console.log(`[VCL] ${ message }`);
   },
 
   // Time conversion functions
@@ -298,7 +307,7 @@ export const VCLStdLib = {
         const regex = new RegExp(pattern);
         return regex.test(str);
       } catch (e) {
-        console.error(`Invalid regex pattern: ${pattern}`);
+        console.error(`Invalid regex pattern: ${ pattern }`);
         return false;
       }
     }
@@ -322,7 +331,7 @@ export class VCLCompiler {
     // Process ACL declarations
     if (this.program.acls) {
       for (const acl of this.program.acls) {
-        console.log(`Processing ACL: ${acl.name}`);
+        console.log(`Processing ACL: ${ acl.name }`);
 
         // Add the ACL to the context
         context.std.acl.add(acl.name);
@@ -332,7 +341,7 @@ export class VCLCompiler {
           context.std.acl.add_entry(acl.name, entry.ip, entry.subnet);
         }
 
-        console.log(`Added ACL ${acl.name} with ${acl.entries.length} entries`);
+        console.log(`Added ACL ${ acl.name } with ${ acl.entries.length } entries`);
       }
     }
 
@@ -353,9 +362,9 @@ export class VCLCompiler {
     return (context: VCLContext) => {
       // Merge the initial context (with ACLs) into the current context
       if (initialContext && initialContext.acls) {
-        context.acls = { ...initialContext.acls, ...context.acls };
+        context.acls = {...initialContext.acls, ...context.acls};
       }
-      console.log(`Executing subroutine: ${subroutine.name}`);
+      console.log(`Executing subroutine: ${ subroutine.name }`);
 
       try {
         // Execute each statement in the subroutine
@@ -381,7 +390,7 @@ export class VCLCompiler {
 
           // If the statement returns a value, return it from the subroutine
           if (result && typeof result === 'string') {
-            console.log(`Subroutine ${subroutine.name} returning: ${result}`);
+            console.log(`Subroutine ${ subroutine.name } returning: ${ result }`);
             return result;
           }
         }
@@ -409,10 +418,10 @@ export class VCLCompiler {
             defaultReturn = '';
         }
 
-        console.log(`Subroutine ${subroutine.name} using default return: ${defaultReturn}`);
+        console.log(`Subroutine ${ subroutine.name } using default return: ${ defaultReturn }`);
         return defaultReturn;
       } catch (error) {
-        console.error(`Error executing subroutine ${subroutine.name}:`, error);
+        console.error(`Error executing subroutine ${ subroutine.name }:`, error);
 
         // Handle errors based on the subroutine
         let errorReturn = '';
@@ -437,14 +446,14 @@ export class VCLCompiler {
             errorReturn = '';
         }
 
-        console.log(`Subroutine ${subroutine.name} returning error: ${errorReturn}`);
+        console.log(`Subroutine ${ subroutine.name } returning error: ${ errorReturn }`);
         return errorReturn;
       }
     };
   }
 
   private executeStatement(statement: VCLStatement, context: VCLContext): string | void {
-    console.log(`Executing statement of type: ${statement.type}`);
+    console.log(`Executing statement of type: ${ statement.type }`);
 
     switch (statement.type) {
       case 'IfStatement':
@@ -465,11 +474,11 @@ export class VCLCompiler {
         return this.executeHashDataStatement(statement as VCLHashDataStatement, context);
       case 'Statement':
         // Generic statement, just skip it
-        console.log(`Skipping generic statement at line ${statement.location.line}, column ${statement.location.column}`);
+        console.log(`Skipping generic statement at line ${ statement.location.line }, column ${ statement.location.column }`);
         return;
       default:
         // Unknown statement type
-        console.log(`Unknown statement type: ${statement.type}`);
+        console.log(`Unknown statement type: ${ statement.type }`);
         return;
     }
   }
@@ -487,59 +496,59 @@ export class VCLCompiler {
 
     // Check if the test is a binary expression with the ~ operator
     if (statement.test && statement.test.type === 'BinaryExpression' &&
-        (statement.test as VCLBinaryExpression).operator === '~') {
+      (statement.test as VCLBinaryExpression).operator === '~') {
 
       const binaryExpr = statement.test as VCLBinaryExpression;
       console.log(`Binary expression:`, JSON.stringify(binaryExpr));
 
       // Check if this is an ACL check (client.ip ~ acl_name)
       if (binaryExpr.left && binaryExpr.left.type === 'Identifier' &&
-          (binaryExpr.left as VCLIdentifier).name === 'client.ip' &&
-          binaryExpr.right && binaryExpr.right.type === 'Identifier') {
+        (binaryExpr.left as VCLIdentifier).name === 'client.ip' &&
+        binaryExpr.right && binaryExpr.right.type === 'Identifier') {
 
         const aclName = (binaryExpr.right as VCLIdentifier).name;
         const clientIp = context.client?.ip || '';
 
-        console.log(`Special case: ACL check for ${clientIp} in ${aclName}`);
+        console.log(`Special case: ACL check for ${ clientIp } in ${ aclName }`);
         console.log(`Available ACLs:`, Object.keys(context.acls || {}));
 
         // Check if the ACL exists in the context
         if (context.acls && context.acls[aclName]) {
-          console.log(`ACL ${aclName} found in context`);
+          console.log(`ACL ${ aclName } found in context`);
           console.log(`ACL entries:`, JSON.stringify(context.acls[aclName].entries));
 
           // Use our ACL checking function
           const isInAcl = this.isIpInAcl(clientIp, context.acls[aclName], context);
 
-          console.log(`ACL check result: ${isInAcl}`);
+          console.log(`ACL check result: ${ isInAcl }`);
 
           if (isInAcl) {
-            console.log(`IP ${clientIp} is in ACL ${aclName}, executing consequent statements`);
+            console.log(`IP ${ clientIp } is in ACL ${ aclName }, executing consequent statements`);
 
             // Execute the consequent statements
             for (const stmt of statement.consequent) {
-              console.log(`Executing consequent statement: ${stmt.type}`);
+              console.log(`Executing consequent statement: ${ stmt.type }`);
               const result = this.executeStatement(stmt, context);
 
               // If the statement returns a value, return it from the if statement
               if (result && typeof result === 'string') {
-                console.log(`Returning from if statement with result: ${result}`);
+                console.log(`Returning from if statement with result: ${ result }`);
                 return result;
               }
             }
 
             return;
           } else if (statement.alternate) {
-            console.log(`IP ${clientIp} is NOT in ACL ${aclName}, executing alternate statements`);
+            console.log(`IP ${ clientIp } is NOT in ACL ${ aclName }, executing alternate statements`);
 
             // Execute the alternate statements
             for (const stmt of statement.alternate) {
-              console.log(`Executing alternate statement: ${stmt.type}`);
+              console.log(`Executing alternate statement: ${ stmt.type }`);
               const result = this.executeStatement(stmt, context);
 
               // If the statement returns a value, return it from the if statement
               if (result && typeof result === 'string') {
-                console.log(`Returning from if statement with result: ${result}`);
+                console.log(`Returning from if statement with result: ${ result }`);
                 return result;
               }
             }
@@ -549,26 +558,26 @@ export class VCLCompiler {
 
           return;
         } else {
-          console.log(`ACL ${aclName} not found in context`);
+          console.log(`ACL ${ aclName } not found in context`);
         }
       }
     }
 
     // Regular condition evaluation
     const condition = this.evaluateExpression(statement.test, context);
-    console.log(`Condition evaluated to: ${condition}`);
+    console.log(`Condition evaluated to: ${ condition }`);
 
     if (condition) {
       console.log(`Condition is true, executing consequent statements`);
 
       // Execute the consequent statements
       for (const stmt of statement.consequent) {
-        console.log(`Executing consequent statement: ${stmt.type}`);
+        console.log(`Executing consequent statement: ${ stmt.type }`);
         const result = this.executeStatement(stmt, context);
 
         // If the statement returns a value, return it from the if statement
         if (result && typeof result === 'string') {
-          console.log(`Returning from if statement with result: ${result}`);
+          console.log(`Returning from if statement with result: ${ result }`);
           return result;
         }
       }
@@ -577,12 +586,12 @@ export class VCLCompiler {
 
       // Execute the alternate statements
       for (const stmt of statement.alternate) {
-        console.log(`Executing alternate statement: ${stmt.type}`);
+        console.log(`Executing alternate statement: ${ stmt.type }`);
         const result = this.executeStatement(stmt, context);
 
         // If the statement returns a value, return it from the if statement
         if (result && typeof result === 'string') {
-          console.log(`Returning from if statement with result: ${result}`);
+          console.log(`Returning from if statement with result: ${ result }`);
           return result;
         }
       }
@@ -596,7 +605,7 @@ export class VCLCompiler {
   }
 
   private executeErrorStatement(statement: VCLErrorStatement, context: VCLContext): string {
-    console.log(`Executing error statement: ${statement.status} ${statement.message}`);
+    console.log(`Executing error statement: ${ statement.status } ${ statement.message }`);
 
     // Set error status and message
     context.obj = context.obj || {};
@@ -606,7 +615,7 @@ export class VCLCompiler {
 
     // If the context has an error handler, call it
     if (typeof context.error === 'function') {
-      console.log(`Calling context error handler with status ${statement.status} and message "${statement.message}"`);
+      console.log(`Calling context error handler with status ${ statement.status } and message "${ statement.message }"`);
       context.error(statement.status, statement.message);
     }
 
@@ -628,11 +637,11 @@ export class VCLCompiler {
     // If std.error is defined, call it
     if (context.std && typeof context.std.error === 'function') {
       try {
-        console.log(`Calling std.error with status ${statement.status} and message "${statement.message}"`);
+        console.log(`Calling std.error with status ${ statement.status } and message "${ statement.message }"`);
         context.std.error(statement.status, statement.message);
       } catch (e) {
         // If std.error throws, we still want to continue with the error flow
-        console.log(`Error in std.error: ${e}`);
+        console.log(`Error in std.error: ${ e }`);
       }
     }
 
@@ -640,54 +649,54 @@ export class VCLCompiler {
   }
 
   private executeSetStatement(statement: VCLSetStatement, context: VCLContext): void {
-    console.log(`Executing set statement: ${statement.target} = ${JSON.stringify(statement.value)}`);
+    console.log(`Executing set statement: ${ statement.target } = ${ JSON.stringify(statement.value) }`);
 
     const value = this.evaluateExpression(statement.value, context);
-    console.log(`Evaluated value: ${JSON.stringify(value)}, type: ${typeof value}`);
+    console.log(`Evaluated value: ${ JSON.stringify(value) }, type: ${ typeof value }`);
 
     // Parse the target path (e.g., req.http.X-Header)
     const parts = statement.target.split('.');
-    console.log(`Target parts: ${JSON.stringify(parts)}`);
+    console.log(`Target parts: ${ JSON.stringify(parts) }`);
 
     // Handle req.http.* headers
     if (parts.length >= 3 && parts[0] === 'req' && parts[1] === 'http') {
       const headerName = parts.slice(2).join('.');
       context.req.http[headerName] = String(value);
-      console.log(`Set req.http.${headerName} = ${context.req.http[headerName]}`);
+      console.log(`Set req.http.${ headerName } = ${ context.req.http[headerName] }`);
     }
     // Handle bereq.http.* headers
     else if (parts.length >= 3 && parts[0] === 'bereq' && parts[1] === 'http') {
       const headerName = parts.slice(2).join('.');
       context.bereq.http[headerName] = String(value);
-      console.log(`Set bereq.http.${headerName} = ${context.bereq.http[headerName]}`);
+      console.log(`Set bereq.http.${ headerName } = ${ context.bereq.http[headerName] }`);
     }
     // Handle beresp.http.* headers
     else if (parts.length >= 3 && parts[0] === 'beresp' && parts[1] === 'http') {
       const headerName = parts.slice(2).join('.');
       context.beresp.http[headerName] = String(value);
-      console.log(`Set beresp.http.${headerName} = ${context.beresp.http[headerName]}`);
+      console.log(`Set beresp.http.${ headerName } = ${ context.beresp.http[headerName] }`);
     }
     // Handle resp.http.* headers
     else if (parts.length >= 3 && parts[0] === 'resp' && parts[1] === 'http') {
       const headerName = parts.slice(2).join('.');
       context.resp.http[headerName] = String(value);
-      console.log(`Set resp.http.${headerName} = ${context.resp.http[headerName]}`);
+      console.log(`Set resp.http.${ headerName } = ${ context.resp.http[headerName] }`);
     }
     // Handle obj.http.* headers
     else if (parts.length >= 3 && parts[0] === 'obj' && parts[1] === 'http') {
       const headerName = parts.slice(2).join('.');
       context.obj.http[headerName] = String(value);
-      console.log(`Set obj.http.${headerName} = ${context.obj.http[headerName]}`);
+      console.log(`Set obj.http.${ headerName } = ${ context.obj.http[headerName] }`);
     }
     // Handle req.backend
     else if (parts.length === 2 && parts[0] === 'req' && parts[1] === 'backend') {
       context.req.backend = String(value);
-      console.log(`Set req.backend = ${context.req.backend}`);
+      console.log(`Set req.backend = ${ context.req.backend }`);
 
       // Also update current_backend if the backend exists
       if (context.backends && context.backends[context.req.backend]) {
         context.current_backend = context.backends[context.req.backend];
-        console.log(`Updated current_backend to ${context.req.backend}`);
+        console.log(`Updated current_backend to ${ context.req.backend }`);
       }
 
       // Also set the X-Backend header for testing
@@ -710,7 +719,7 @@ export class VCLCompiler {
         context.results.defaultBackend = context.req.backend;
       }
 
-      console.log(`Set req.http.X-Backend = ${context.req.backend}`);
+      console.log(`Set req.http.X-Backend = ${ context.req.backend }`);
     }
     // Handle beresp.ttl
     else if (parts.length === 2 && parts[0] === 'beresp' && parts[1] === 'ttl') {
@@ -718,7 +727,7 @@ export class VCLCompiler {
       const ttlStr = String(value).replace(/"/g, ''); // Remove quotes if present
       let ttl = 0;
 
-      console.log(`Setting TTL to ${ttlStr}`);
+      console.log(`Setting TTL to ${ ttlStr }`);
 
       if (ttlStr.endsWith('s')) {
         ttl = parseInt(ttlStr) || 0;
@@ -732,23 +741,23 @@ export class VCLCompiler {
         ttl = parseInt(ttlStr) || 0;
       }
 
-      console.log(`Parsed TTL: ${ttl} seconds`);
+      console.log(`Parsed TTL: ${ ttl } seconds`);
       context.beresp.ttl = ttl;
-      console.log(`Context beresp.ttl is now: ${context.beresp.ttl}`);
+      console.log(`Context beresp.ttl is now: ${ context.beresp.ttl }`);
 
       // Also set the X-TTL header for testing
       if (!context.resp.http) {
         context.resp.http = {};
       }
       context.resp.http['X-TTL'] = String(ttl);
-      console.log(`Set resp.http.X-TTL = ${context.resp.http['X-TTL']}`);
+      console.log(`Set resp.http.X-TTL = ${ context.resp.http['X-TTL'] }`);
 
     } else if (parts.length === 2 && parts[0] === 'beresp' && parts[1] === 'grace') {
       // Handle grace period
       const graceStr = String(value).replace(/"/g, ''); // Remove quotes if present
       let grace = 0;
 
-      console.log(`Setting grace to ${graceStr}`);
+      console.log(`Setting grace to ${ graceStr }`);
 
       if (graceStr.endsWith('s')) {
         grace = parseInt(graceStr) || 0;
@@ -762,22 +771,22 @@ export class VCLCompiler {
         grace = parseInt(graceStr) || 0;
       }
 
-      console.log(`Parsed grace: ${grace} seconds`);
+      console.log(`Parsed grace: ${ grace } seconds`);
       context.beresp.grace = grace;
-      console.log(`Context beresp.grace is now: ${context.beresp.grace}`);
+      console.log(`Context beresp.grace is now: ${ context.beresp.grace }`);
 
       // Also set the X-Grace header for testing
       if (!context.resp.http) {
         context.resp.http = {};
       }
       context.resp.http['X-Grace'] = String(grace);
-      console.log(`Set resp.http.X-Grace = ${context.resp.http['X-Grace']}`);
+      console.log(`Set resp.http.X-Grace = ${ context.resp.http['X-Grace'] }`);
     } else if (parts.length === 2 && parts[0] === 'beresp' && parts[1] === 'stale_while_revalidate') {
       // Handle stale-while-revalidate
       const swrStr = String(value).replace(/"/g, ''); // Remove quotes if present
       let swr = 0;
 
-      console.log(`Setting stale_while_revalidate to ${swrStr}`);
+      console.log(`Setting stale_while_revalidate to ${ swrStr }`);
 
       if (swrStr.endsWith('s')) {
         swr = parseInt(swrStr) || 0;
@@ -791,18 +800,18 @@ export class VCLCompiler {
         swr = parseInt(swrStr) || 0;
       }
 
-      console.log(`Parsed stale_while_revalidate: ${swr} seconds`);
+      console.log(`Parsed stale_while_revalidate: ${ swr } seconds`);
       context.beresp.stale_while_revalidate = swr;
-      console.log(`Context beresp.stale_while_revalidate is now: ${context.beresp.stale_while_revalidate}`);
+      console.log(`Context beresp.stale_while_revalidate is now: ${ context.beresp.stale_while_revalidate }`);
 
       // Also set the X-SWR header for testing
       if (!context.resp.http) {
         context.resp.http = {};
       }
       context.resp.http['X-SWR'] = String(swr);
-      console.log(`Set resp.http.X-SWR = ${context.resp.http['X-SWR']}`);
+      console.log(`Set resp.http.X-SWR = ${ context.resp.http['X-SWR'] }`);
     } else {
-      console.log(`Unhandled set target: ${statement.target}`);
+      console.log(`Unhandled set target: ${ statement.target }`);
     }
   }
 
@@ -825,7 +834,7 @@ export class VCLCompiler {
 
   private executeLogStatement(statement: VCLLogStatement, context: VCLContext): void {
     const message = this.evaluateExpression(statement.message, context);
-    console.log(`[VCL] ${message}`);
+    console.log(`[VCL] ${ message }`);
   }
 
   private executeSyntheticStatement(statement: VCLSyntheticStatement, context: VCLContext): void {
@@ -863,19 +872,19 @@ export class VCLCompiler {
       return null;
     }
 
-    console.log(`Evaluating expression of type: ${expression.type}`);
+    console.log(`Evaluating expression of type: ${ expression.type }`);
 
     switch (expression.type) {
       case 'StringLiteral':
-        console.log(`String literal value: ${(expression as VCLStringLiteral).value}`);
+        console.log(`String literal value: ${ (expression as VCLStringLiteral).value }`);
         return (expression as VCLStringLiteral).value;
       case 'NumberLiteral':
-        console.log(`Number literal value: ${(expression as VCLNumberLiteral).value}`);
+        console.log(`Number literal value: ${ (expression as VCLNumberLiteral).value }`);
         return (expression as VCLNumberLiteral).value;
       case 'RegexLiteral':
         const pattern = (expression as VCLRegexLiteral).pattern;
         const flags = (expression as VCLRegexLiteral).flags || '';
-        console.log(`Regex literal pattern: ${pattern}, flags: ${flags}`);
+        console.log(`Regex literal pattern: ${ pattern }, flags: ${ flags }`);
         return new RegExp(pattern, flags);
       case 'Identifier':
         return this.evaluateIdentifier(expression as VCLIdentifier, context);
@@ -896,7 +905,7 @@ export class VCLCompiler {
 
         return null;
       default:
-        console.error(`Unknown expression type: ${expression.type}`);
+        console.error(`Unknown expression type: ${ expression.type }`);
         return null;
     }
   }
@@ -906,7 +915,7 @@ export class VCLCompiler {
 
     // Evaluate the condition
     const condition = this.evaluateExpression(expression.condition, context);
-    console.log(`Ternary condition evaluated to: ${condition}`);
+    console.log(`Ternary condition evaluated to: ${ condition }`);
 
     // Based on the condition, evaluate either the true or false expression
     if (condition) {
@@ -920,16 +929,16 @@ export class VCLCompiler {
 
   private evaluateFunctionCall(expression: VCLFunctionCall, context: VCLContext): any {
     const functionName = expression.name;
-    console.log(`Evaluating function call: ${functionName}`);
+    console.log(`Evaluating function call: ${ functionName }`);
 
     // Evaluate all arguments
     const args = expression.arguments.map(arg => this.evaluateExpression(arg, context));
-    console.log(`Function arguments: ${JSON.stringify(args)}`);
+    console.log(`Function arguments: ${ JSON.stringify(args) }`);
 
     // Handle different function calls
     if (functionName === 'std.log') {
       // Log function
-      console.log(`[VCL] ${args[0]}`);
+      console.log(`[VCL] ${ args[0] }`);
       return null;
     } else if (functionName.startsWith('std.')) {
       // Standard library functions
@@ -992,7 +1001,7 @@ export class VCLCompiler {
           }
         }
 
-        return { name: 'default' };
+        return {name: 'default'};
       }
     } else if (functionName === 'if') {
       // Handle if() function as a ternary operator
@@ -1018,7 +1027,7 @@ export class VCLCompiler {
           const regex = new RegExp(args[1]);
           return String(args[0]).replace(regex, args[2]);
         } catch (e) {
-          console.error(`Invalid regex pattern: ${args[1]}`, e);
+          console.error(`Invalid regex pattern: ${ args[1] }`, e);
           return args[0];
         }
       }
@@ -1029,13 +1038,13 @@ export class VCLCompiler {
           const regex = new RegExp(args[1], 'g');
           return String(args[0]).replace(regex, args[2]);
         } catch (e) {
-          console.error(`Invalid regex pattern: ${args[1]}`, e);
+          console.error(`Invalid regex pattern: ${ args[1] }`, e);
           return args[0];
         }
       }
     }
 
-    console.error(`Unknown function call: ${functionName}`);
+    console.error(`Unknown function call: ${ functionName }`);
     return null;
   }
 
@@ -1084,11 +1093,11 @@ export class VCLCompiler {
     } else if (parts.length === 3 && parts[0] === 're' && parts[1] === 'group') {
       // Handle regex capture groups (re.group.N)
       const groupNumber = parseInt(parts[2], 10);
-      console.log(`Looking for regex capture group ${groupNumber}`);
-      console.log(`Context re: ${JSON.stringify(context.re)}`);
+      console.log(`Looking for regex capture group ${ groupNumber }`);
+      console.log(`Context re: ${ JSON.stringify(context.re) }`);
 
       if (!isNaN(groupNumber) && context.re && context.re.group && context.re.group[groupNumber]) {
-        console.log(`Found capture group ${groupNumber}: ${context.re.group[groupNumber]}`);
+        console.log(`Found capture group ${ groupNumber }: ${ context.re.group[groupNumber] }`);
         return context.re.group[groupNumber];
       }
       return '';
@@ -1118,7 +1127,7 @@ export class VCLCompiler {
     const left = this.evaluateExpression(expression.left, context);
     const right = this.evaluateExpression(expression.right, context);
 
-    console.log(`Binary expression: ${left} ${expression.operator} ${right}`);
+    console.log(`Binary expression: ${ left } ${ expression.operator } ${ right }`);
 
     switch (expression.operator) {
       case '+':
@@ -1150,11 +1159,11 @@ export class VCLCompiler {
           const acl = context.acls[right];
           const ip = String(left);
 
-          console.log(`Checking if IP ${ip} is in ACL ${right}`);
+          console.log(`Checking if IP ${ ip } is in ACL ${ right }`);
 
           // Check if the IP is in the ACL
           const result = this.isIpInAcl(ip, acl, context);
-          console.log(`ACL check result: ${result}`);
+          console.log(`ACL check result: ${ result }`);
           return result;
         }
 
@@ -1177,22 +1186,22 @@ export class VCLCompiler {
             }
 
             // Reset the regex context
-            context.re = { groups: {} };
+            context.re = {groups: {}};
 
             // Store all capture groups
             for (let i = 0; i < match.length; i++) {
               context.re.groups[i] = match[i];
             }
 
-            console.log(`Regex match found: ${JSON.stringify(match)}`);
-            console.log(`Capture groups: ${JSON.stringify(context.re.groups)}`);
+            console.log(`Regex match found: ${ JSON.stringify(match) }`);
+            console.log(`Capture groups: ${ JSON.stringify(context.re.groups) }`);
 
             return true;
           }
 
           return false;
         } catch (e) {
-          console.error(`Invalid regex pattern: ${right}`);
+          console.error(`Invalid regex pattern: ${ right }`);
           return false;
         }
       case '!~':
@@ -1202,11 +1211,11 @@ export class VCLCompiler {
           const acl = context.acls[right];
           const ip = String(left);
 
-          console.log(`Checking if IP ${ip} is NOT in ACL ${right}`);
+          console.log(`Checking if IP ${ ip } is NOT in ACL ${ right }`);
 
           // Check if the IP is not in the ACL
           const result = !this.isIpInAcl(ip, acl, context);
-          console.log(`ACL non-match check result: ${result}`);
+          console.log(`ACL non-match check result: ${ result }`);
           return result;
         }
 
@@ -1238,18 +1247,18 @@ export class VCLCompiler {
 
           return true;
         } catch (e) {
-          console.error(`Invalid regex pattern: ${right}`);
+          console.error(`Invalid regex pattern: ${ right }`);
           return true;
         }
       default:
-        console.error(`Unknown operator: ${expression.operator}`);
+        console.error(`Unknown operator: ${ expression.operator }`);
         return false;
     }
   }
 
   // Helper function to check if an IP is in an ACL
   private isIpInAcl(ip: string, acl: VCLACL, context: VCLContext): boolean {
-    console.log(`Checking if IP ${ip} is in ACL ${acl.name}`);
+    console.log(`Checking if IP ${ ip } is in ACL ${ acl.name }`);
 
     // Check if the context has the std.acl.check function
     if (context.std && context.std.acl && typeof context.std.acl.check === 'function') {
@@ -1261,7 +1270,7 @@ export class VCLCompiler {
     for (const entry of acl.entries) {
       if (entry.subnet) {
         // Check CIDR match
-        console.log(`Checking CIDR match: ${ip} in ${entry.ip}/${entry.subnet}`);
+        console.log(`Checking CIDR match: ${ ip } in ${ entry.ip }/${ entry.subnet }`);
         if (context.std && context.std.acl && typeof context.std.acl.isIpInCidr === 'function') {
           // Use the std.acl.isIpInCidr function if available
           if (context.std.acl.isIpInCidr(ip, entry.ip, entry.subnet)) {
@@ -1275,7 +1284,7 @@ export class VCLCompiler {
         }
       } else {
         // Check exact match
-        console.log(`Checking exact match: ${ip} === ${entry.ip}`);
+        console.log(`Checking exact match: ${ ip } === ${ entry.ip }`);
         if (ip === entry.ip) {
           return true;
         }
@@ -1294,7 +1303,7 @@ export class VCLCompiler {
 
       // Ensure both IPs are of the same type
       if (!ipType || !cidrType || ipType !== cidrType) {
-        console.error(`IP type mismatch or invalid IP: ${ip} (${ipType}) vs ${cidrIp} (${cidrType})`);
+        console.error(`IP type mismatch or invalid IP: ${ ip } (${ ipType }) vs ${ cidrIp } (${ cidrType })`);
         return false;
       }
 
@@ -1302,7 +1311,7 @@ export class VCLCompiler {
       if (ipType === 'ipv4') {
         // Validate subnet mask for IPv4
         if (cidrSubnet < 0 || cidrSubnet > 32) {
-          console.error(`Invalid IPv4 subnet mask: ${cidrSubnet}`);
+          console.error(`Invalid IPv4 subnet mask: ${ cidrSubnet }`);
           return false;
         }
 
@@ -1322,7 +1331,7 @@ export class VCLCompiler {
       if (ipType === 'ipv6') {
         // Validate subnet mask for IPv6
         if (cidrSubnet < 0 || cidrSubnet > 128) {
-          console.error(`Invalid IPv6 subnet mask: ${cidrSubnet}`);
+          console.error(`Invalid IPv6 subnet mask: ${ cidrSubnet }`);
           return false;
         }
 
@@ -1340,7 +1349,7 @@ export class VCLCompiler {
 
       return false;
     } catch (e) {
-      console.error(`Error checking CIDR match: ${e}`);
+      console.error(`Error checking CIDR match: ${ e }`);
       return false;
     }
   }
@@ -1408,19 +1417,19 @@ export class VCLCompiler {
 
       // Ensure we have 4 octets
       if (octets.length !== 4) {
-        throw new Error(`Invalid IPv4 address: ${ip}`);
+        throw new Error(`Invalid IPv4 address: ${ ip }`);
       }
 
       // Convert each octet to binary and pad to 8 bits
       return octets.map(octet => {
         const num = parseInt(octet, 10);
         if (isNaN(num) || num < 0 || num > 255) {
-          throw new Error(`Invalid IPv4 octet: ${octet}`);
+          throw new Error(`Invalid IPv4 octet: ${ octet }`);
         }
         return num.toString(2).padStart(8, '0');
       }).join('');
     } catch (e) {
-      console.error(`Error converting IPv4 to binary: ${e}`);
+      console.error(`Error converting IPv4 to binary: ${ e }`);
       return '';
     }
   }
@@ -1445,12 +1454,12 @@ export class VCLCompiler {
       return segments.map(segment => {
         const num = parseInt(segment, 16);
         if (isNaN(num) || num < 0 || num > 65535) {
-          throw new Error(`Invalid IPv6 segment: ${segment}`);
+          throw new Error(`Invalid IPv6 segment: ${ segment }`);
         }
         return num.toString(2).padStart(16, '0');
       }).join('');
     } catch (e) {
-      console.error(`Error converting IPv6 to binary: ${e}`);
+      console.error(`Error converting IPv6 to binary: ${ e }`);
       return '';
     }
   }
@@ -1466,7 +1475,7 @@ export class VCLCompiler {
       if (ip.includes('::')) {
         const parts = ip.split('::');
         if (parts.length !== 2) {
-          throw new Error(`Invalid IPv6 address with multiple :: notations: ${ip}`);
+          throw new Error(`Invalid IPv6 address with multiple :: notations: ${ ip }`);
         }
 
         const leftParts = parts[0] ? parts[0].split(':') : [];
@@ -1475,7 +1484,7 @@ export class VCLCompiler {
         // Calculate how many 0 blocks we need to insert
         const missingBlocks = 8 - (leftParts.length + rightParts.length);
         if (missingBlocks < 0) {
-          throw new Error(`Invalid IPv6 address with too many segments: ${ip}`);
+          throw new Error(`Invalid IPv6 address with too many segments: ${ ip }`);
         }
 
         // Create the expanded address
@@ -1491,13 +1500,13 @@ export class VCLCompiler {
       // Ensure we have 8 segments
       const parts = ip.split(':');
       if (parts.length !== 8) {
-        throw new Error(`Invalid IPv6 address with wrong number of segments: ${ip}`);
+        throw new Error(`Invalid IPv6 address with wrong number of segments: ${ ip }`);
       }
 
       // Pad each segment to 4 hex digits
       return parts.map(part => part.padStart(4, '0')).join(':');
     } catch (e) {
-      console.error(`Error normalizing IPv6 address: ${e}`);
+      console.error(`Error normalizing IPv6 address: ${ e }`);
       return '';
     }
   }
