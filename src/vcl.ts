@@ -1124,6 +1124,11 @@ export function createVCLContext(): VCLContext {
     // Returns the number of tokens remaining in a rate limit bucket
     rate_limit_tokens: (key: string) => {
       return SecurityModule.waf.rate_limit_tokens(context, key);
+    },
+
+    // Detects if a request contains malicious patterns
+    detect_attack: (requestData: string, attackType: string) => {
+      return SecurityModule.waf.detect_attack(context, requestData, attackType);
     }
   };
 

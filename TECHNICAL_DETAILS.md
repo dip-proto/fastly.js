@@ -367,6 +367,7 @@ The WAF module provides the following capabilities:
    - `waf.allow()`: Explicitly allows a request that might otherwise be blocked
    - `waf.block(status, message)`: Explicitly blocks a request with a specified status code and message
    - `waf.log(message)`: Logs a message to the WAF logging endpoint
+   - `waf.detect_attack(requestData, attackType)`: Detects if a request contains malicious patterns
 
 2. **Rate Limiting**:
    - `waf.rate_limit(key, limit, window)`: Implements a token bucket rate limiter
@@ -388,6 +389,23 @@ The rate limiting module provides the following capabilities:
    - `ratelimit.penaltybox_add(penaltyboxName, identifier, duration)`: Adds an identifier to a penalty box
    - `ratelimit.penaltybox_has(penaltyboxName, identifier)`: Checks if an identifier is in a penalty box
 
+### Bot Detection
+
+The implementation includes bot detection capabilities through:
+
+1. **User Agent Analysis**:
+   - Detection of common bot signatures in User-Agent headers
+   - Identification of suspicious patterns in request headers
+
+2. **Behavioral Analysis**:
+   - Rate and frequency of requests from the same client
+   - Pattern recognition for automated request sequences
+   - Detection of non-human browsing patterns
+
+3. **Challenge-Response Mechanisms**:
+   - Support for CAPTCHA challenges for suspicious clients
+   - JavaScript-based challenges to verify browser capabilities
+
 These security features allow for comprehensive protection against various threats, including:
 
 - SQL injection attacks
@@ -396,6 +414,7 @@ These security features allow for comprehensive protection against various threa
 - Brute force attacks
 - Denial of service attacks
 - Scraping and bot activity
+- Automated attacks from malicious bots
 
 ## Recent Improvements and Fixes
 
