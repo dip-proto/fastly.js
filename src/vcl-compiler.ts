@@ -104,6 +104,7 @@ export interface VCLContext {
     ttl: number;
     grace?: number;
     stale_while_revalidate?: number;
+    do_esi?: boolean;
   };
   resp: {
     status: number;
@@ -910,6 +911,29 @@ export class VCLCompiler {
       }
       context.resp.http['X-SWR'] = String(swr);
       console.log(`Set resp.http.X-SWR = ${ context.resp.http['X-SWR'] }`);
+    } else if (parts.length === 2 && parts[0] === 'beresp' && parts[1] === 'do_esi') {
+      // Handle ESI processing flag
+      const esiValue = this.evaluateExpression(statement.value, context);
+
+      // Convert to boolean
+      let doEsi = false;
+      if (typeof esiValue === 'boolean') {
+        doEsi = esiValue;
+      } else if (typeof esiValue === 'string') {
+        doEsi = esiValue.toLowerCase() === 'true';
+      } else if (typeof esiValue === 'number') {
+        doEsi = esiValue !== 0;
+      }
+
+      console.log(`Setting beresp.do_esi to ${ doEsi }`);
+      context.beresp.do_esi = doEsi;
+
+      // Also set the X-ESI header for testing
+      if (!context.resp.http) {
+        context.resp.http = {};
+      }
+      context.resp.http['X-ESI'] = doEsi ? 'true' : 'false';
+      console.log(`Set resp.http.X-ESI = ${ context.resp.http['X-ESI'] }`);
     } else {
       console.log(`Unhandled set target: ${ statement.target }`);
     }

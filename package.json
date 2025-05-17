@@ -14,7 +14,9 @@
     "test:all": "bun run test && bun run test:root"
   },
   "devDependencies": {
-    "@types/bun": "latest"
+    "@types/bun": "latest",
+    "@types/chai": "^5.2.2",
+    "chai": "^5.2.0"
   },
   "peerDependencies": {
     "typescript": "^5"

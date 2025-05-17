@@ -22,6 +22,7 @@ import wafFunctionsTests from './waf-functions-tests';
 import rateLimitFunctionsTests from './ratelimit-functions-tests';
 import httpFunctionsTests from './http-functions-tests';
 import timeFunctionsTests from './time-functions-tests';
+import esiFunctionsTests from './esi-functions-tests';
 
 // Run all test suites
 async function runTests() {
@@ -42,7 +43,8 @@ async function runTests() {
     wafFunctionsTests,
     rateLimitFunctionsTests,
     httpFunctionsTests,
-    timeFunctionsTests
+    timeFunctionsTests,
+    esiFunctionsTests
   ]);
 }
 

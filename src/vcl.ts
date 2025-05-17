@@ -19,6 +19,7 @@ import {QueryStringModule} from './vcl-querystring';
 import {UUIDModule} from './vcl-uuid';
 import {WAFModule} from './vcl-waf';
 import {RateLimitModule} from './vcl-ratelimit';
+import {processESI} from './vcl-esi';
 
 /**
  * Loads and parses a VCL file, converting it into executable subroutines.
@@ -74,7 +75,21 @@ export function executeVCL(subroutines: VCLSubroutines, name: string, context: V
   }
 
   try {
-    return subroutines[name](context) || '';
+    const result = subroutines[name](context) || '';
+
+    // Process ESI tags in the response body if ESI is enabled and we're in the deliver phase
+    if (name === 'vcl_deliver' && context.beresp.do_esi && context.obj.response) {
+      // Check if the response is HTML
+      const contentType = context.resp.http['Content-Type'] || '';
+      if (contentType.includes('text/html')) {
+        console.log('Processing ESI tags in response body');
+
+        // Process ESI tags in the response body
+        context.obj.response = processESI(context.obj.response, context);
+      }
+    }
+
+    return result;
   } catch (error) {
     console.error(`Error executing subroutine ${ name }: ${ error.message }`);
     return '';
@@ -107,7 +122,8 @@ export function createVCLContext(): VCLContext {
       http: {},
       ttl: 0,
       grace: 0,
-      stale_while_revalidate: 0
+      stale_while_revalidate: 0,
+      do_esi: false
     },
     resp: {
       status: 0,
