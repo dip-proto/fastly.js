@@ -15,6 +15,8 @@ import {AddressModule} from './vcl-address';
 import {AcceptModule} from './vcl-accept';
 import {BinaryModule} from './vcl-binary';
 import {DigestModule} from './vcl-digest';
+import {QueryStringModule} from './vcl-querystring';
+import {UUIDModule} from './vcl-uuid';
 
 /**
  * Loads and parses a VCL file, converting it into executable subroutines.
@@ -1272,6 +1274,112 @@ export function createVCLContext(): VCLContext {
     // Converts binary data between different encodings
     data_convert: (input: string, inputEncoding: string, outputEncoding: string): string => {
       return BinaryModule.data_convert(input, inputEncoding, outputEncoding);
+    }
+  };
+
+  // Add query string functions
+  context.querystring = {
+    // Gets the value of a parameter from a query string
+    get: (queryString: string, paramName: string): string | null => {
+      return QueryStringModule.get(queryString, paramName);
+    },
+
+    // Sets a parameter in a query string, replacing any existing values
+    set: (queryString: string, paramName: string, paramValue: string): string => {
+      return QueryStringModule.set(queryString, paramName, paramValue);
+    },
+
+    // Adds a parameter to a query string, preserving any existing values
+    add: (queryString: string, paramName: string, paramValue: string): string => {
+      return QueryStringModule.add(queryString, paramName, paramValue);
+    },
+
+    // Removes a parameter from a query string
+    remove: (queryString: string, paramName: string): string => {
+      return QueryStringModule.remove(queryString, paramName);
+    },
+
+    // Removes empty parameters from a query string
+    clean: (queryString: string): string => {
+      return QueryStringModule.clean(queryString);
+    },
+
+    // Keeps only the specified parameters in a query string
+    filter: (queryString: string, paramNames: string[]): string => {
+      return QueryStringModule.filter(queryString, paramNames);
+    },
+
+    // Keeps all parameters except the specified ones in a query string
+    filter_except: (queryString: string, paramNames: string[]): string => {
+      return QueryStringModule.filter_except(queryString, paramNames);
+    },
+
+    // Removes parameters with a specific prefix and separator from a query string
+    filtersep: (queryString: string, prefix: string, separator: string): string => {
+      return QueryStringModule.filtersep(queryString, prefix, separator);
+    },
+
+    // Sorts the parameters in a query string alphabetically by name
+    sort: (queryString: string): string => {
+      return QueryStringModule.sort(queryString);
+    }
+  };
+
+  // Add UUID functions
+  context.uuid = {
+    // Generates a version 3 UUID (namespace + name, MD5)
+    version3: (namespace: string, name: string): string => {
+      return UUIDModule.version3(namespace, name);
+    },
+
+    // Generates a version 4 UUID (random)
+    version4: (): string => {
+      return UUIDModule.version4();
+    },
+
+    // Generates a version 5 UUID (namespace + name, SHA-1)
+    version5: (namespace: string, name: string): string => {
+      return UUIDModule.version5(namespace, name);
+    },
+
+    // Generates a DNS namespace UUID (version 5)
+    dns: (name: string): string => {
+      return UUIDModule.dns(name);
+    },
+
+    // Generates a URL namespace UUID (version 5)
+    url: (name: string): string => {
+      return UUIDModule.url(name);
+    },
+
+    // Validates if a string is a valid UUID
+    is_valid: (uuid: string): boolean => {
+      return UUIDModule.is_valid(uuid);
+    },
+
+    // Checks if a UUID is version 3
+    is_version3: (uuid: string): boolean => {
+      return UUIDModule.is_version3(uuid);
+    },
+
+    // Checks if a UUID is version 4
+    is_version4: (uuid: string): boolean => {
+      return UUIDModule.is_version4(uuid);
+    },
+
+    // Checks if a UUID is version 5
+    is_version5: (uuid: string): boolean => {
+      return UUIDModule.is_version5(uuid);
+    },
+
+    // Decodes a UUID to binary
+    decode: (uuid: string): Uint8Array | null => {
+      return UUIDModule.decode(uuid);
+    },
+
+    // Encodes binary data to a UUID
+    encode: (binary: Uint8Array): string => {
+      return UUIDModule.encode(binary);
     }
   };
 

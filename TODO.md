@@ -255,6 +255,28 @@ All high-priority tasks have been completed. The proxy now supports:
     - Implemented base64url encoding/decoding functions ✅
     - Added comprehensive tests for all digest functions ✅
 
+14. **Query String Functions Implementation** ✅
+    - Implemented querystring.get function to extract parameter values ✅
+    - Implemented querystring.set function to set parameter values ✅
+    - Implemented querystring.add function to add parameters ✅
+    - Implemented querystring.remove function to remove parameters ✅
+    - Implemented querystring.clean function to remove empty parameters ✅
+    - Implemented querystring.filter and querystring.filter_except functions ✅
+    - Implemented querystring.filtersep function for prefix filtering ✅
+    - Implemented querystring.sort function for parameter sorting ✅
+    - Added comprehensive tests for all query string functions ✅
+
+15. **UUID Functions Implementation** ✅
+    - Implemented uuid.version3 function for namespace+name MD5 UUIDs ✅
+    - Implemented uuid.version4 function for random UUIDs ✅
+    - Implemented uuid.version5 function for namespace+name SHA-1 UUIDs ✅
+    - Implemented uuid.dns function for DNS namespace UUIDs ✅
+    - Implemented uuid.url function for URL namespace UUIDs ✅
+    - Implemented uuid.is_valid function for UUID validation ✅
+    - Implemented uuid.is_version3/4/5 functions for version validation ✅
+    - Implemented uuid.decode and uuid.encode functions for binary conversion ✅
+    - Added comprehensive tests for all UUID functions ✅
+
 ## Next Steps
 
 1. **VCL Testing and Validation**
@@ -263,8 +285,8 @@ All high-priority tasks have been completed. The proxy now supports:
      - Address functions ✅
      - Binary data functions ✅
      - Digest functions ✅
-     - Query string functions
-     - UUID functions
+     - Query string functions ✅
+     - UUID functions ✅
      - WAF functions
      - Rate limiting functions
    - Validate all VCL snippets in documentation

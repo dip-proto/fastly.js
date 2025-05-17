@@ -170,6 +170,34 @@ export interface VCLContext {
     data_convert: (input: string, inputEncoding: string, outputEncoding: string) => string;
   };
 
+  // Query string functions
+  querystring?: {
+    get: (queryString: string, paramName: string) => string | null;
+    set: (queryString: string, paramName: string, paramValue: string) => string;
+    add: (queryString: string, paramName: string, paramValue: string) => string;
+    remove: (queryString: string, paramName: string) => string;
+    clean: (queryString: string) => string;
+    filter: (queryString: string, paramNames: string[]) => string;
+    filter_except: (queryString: string, paramNames: string[]) => string;
+    filtersep: (queryString: string, prefix: string, separator: string) => string;
+    sort: (queryString: string) => string;
+  };
+
+  // UUID functions
+  uuid?: {
+    version3: (namespace: string, name: string) => string;
+    version4: () => string;
+    version5: (namespace: string, name: string) => string;
+    dns: (name: string) => string;
+    url: (name: string) => string;
+    is_valid: (uuid: string) => boolean;
+    is_version3: (uuid: string) => boolean;
+    is_version4: (uuid: string) => boolean;
+    is_version5: (uuid: string) => boolean;
+    decode: (uuid: string) => Uint8Array | null;
+    encode: (binary: Uint8Array) => string;
+  };
+
   // Error handler function
   error?: (status: number, message: string) => string;
 
@@ -1053,6 +1081,20 @@ export class VCLCompiler {
 
       if (context.std && context.std.digest && typeof context.std.digest[digestFunction] === 'function') {
         return context.std.digest[digestFunction](...args);
+      }
+    } else if (functionName.startsWith('querystring.')) {
+      // Query string functions
+      const queryStringFunction = functionName.substring(12); // Remove 'querystring.' prefix
+
+      if (context.querystring && typeof context.querystring[queryStringFunction] === 'function') {
+        return context.querystring[queryStringFunction](...args);
+      }
+    } else if (functionName.startsWith('uuid.')) {
+      // UUID functions
+      const uuidFunction = functionName.substring(5); // Remove 'uuid.' prefix
+
+      if (context.uuid && typeof context.uuid[uuidFunction] === 'function') {
+        return context.uuid[uuidFunction](...args);
       }
     } else if (functionName.startsWith('std.')) {
       // Standard library functions

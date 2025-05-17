@@ -16,6 +16,8 @@ import acceptHeaderFunctionsTests from './accept-header-functions-tests';
 import addressFunctionsTests from './address-functions-tests';
 import binaryDataFunctionsTests from './binary-data-functions-tests';
 import digestFunctionsTests from './digest-functions-tests';
+import queryStringFunctionsTests from './query-string-functions-tests';
+import uuidFunctionsTests from './uuid-functions-tests';
 
 // Run all test suites
 async function runTests() {
@@ -30,7 +32,9 @@ async function runTests() {
     acceptHeaderFunctionsTests,
     addressFunctionsTests,
     binaryDataFunctionsTests,
-    digestFunctionsTests
+    digestFunctionsTests,
+    queryStringFunctionsTests,
+    uuidFunctionsTests
   ]);
 }
 
