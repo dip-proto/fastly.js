@@ -28,10 +28,10 @@ const rateLimitFunctionsTests = {
 
           # Increment a counter
           set req.http.X-Counter-1 = std.ratelimit.ratecounter_increment("test_counter", 1);
-          
+
           # Increment it again
           set req.http.X-Counter-2 = std.ratelimit.ratecounter_increment("test_counter", 2);
-          
+
           # Check the total
           set req.http.X-Counter-3 = std.ratelimit.ratecounter_increment("test_counter", 3);
 
@@ -50,28 +50,28 @@ const rateLimitFunctionsTests = {
         (context: VCLContext) => {
           return assert(
             context.req.http['X-Window-ID'] !== undefined,
-            `Expected X-Window-ID to be set, got '${context.req.http['X-Window-ID']}'`
+            `Expected X-Window-ID to be set, got '${ context.req.http['X-Window-ID'] }'`
           );
         },
         // Check first counter increment
         (context: VCLContext) => {
           return assert(
             context.req.http['X-Counter-1'] === '1',
-            `Expected X-Counter-1 to be '1', got '${context.req.http['X-Counter-1']}'`
+            `Expected X-Counter-1 to be '1', got '${ context.req.http['X-Counter-1'] }'`
           );
         },
         // Check second counter increment
         (context: VCLContext) => {
           return assert(
             context.req.http['X-Counter-2'] === '3',
-            `Expected X-Counter-2 to be '3', got '${context.req.http['X-Counter-2']}'`
+            `Expected X-Counter-2 to be '3', got '${ context.req.http['X-Counter-2'] }'`
           );
         },
         // Check third counter increment
         (context: VCLContext) => {
           return assert(
             context.req.http['X-Counter-3'] === '6',
-            `Expected X-Counter-3 to be '6', got '${context.req.http['X-Counter-3']}'`
+            `Expected X-Counter-3 to be '6', got '${ context.req.http['X-Counter-3'] }'`
           );
         }
       ]
@@ -84,13 +84,13 @@ const rateLimitFunctionsTests = {
         sub vcl_recv {
           # Increment counter to 10
           set req.http.X-Counter = std.ratelimit.ratecounter_increment("rate_test", 10);
-          
+
           # Check if rate exceeds 5 per second (should be true)
           set req.http.X-Rate-Exceeded-1 = std.ratelimit.check_rate("rate_test", 5);
-          
+
           # Check if rate exceeds 20 per second (should be false)
           set req.http.X-Rate-Exceeded-2 = std.ratelimit.check_rate("rate_test", 20);
-          
+
           # Check multiple rates (10:1, 20:2, 30:3)
           # - 10 per 1 second (exceeded)
           # - 20 per 2 seconds (not exceeded)
@@ -112,28 +112,28 @@ const rateLimitFunctionsTests = {
         (context: VCLContext) => {
           return assert(
             context.req.http['X-Counter'] === '10',
-            `Expected X-Counter to be '10', got '${context.req.http['X-Counter']}'`
+            `Expected X-Counter to be '10', got '${ context.req.http['X-Counter'] }'`
           );
         },
         // Check first rate limit (should be exceeded)
         (context: VCLContext) => {
           return assert(
             context.req.http['X-Rate-Exceeded-1'] === 'true',
-            `Expected X-Rate-Exceeded-1 to be 'true', got '${context.req.http['X-Rate-Exceeded-1']}'`
+            `Expected X-Rate-Exceeded-1 to be 'true', got '${ context.req.http['X-Rate-Exceeded-1'] }'`
           );
         },
         // Check second rate limit (should not be exceeded)
         (context: VCLContext) => {
           return assert(
             context.req.http['X-Rate-Exceeded-2'] === 'false',
-            `Expected X-Rate-Exceeded-2 to be 'false', got '${context.req.http['X-Rate-Exceeded-2']}'`
+            `Expected X-Rate-Exceeded-2 to be 'false', got '${ context.req.http['X-Rate-Exceeded-2'] }'`
           );
         },
         // Check multi-rate limit (should be exceeded due to first rate)
         (context: VCLContext) => {
           return assert(
             context.req.http['X-Multi-Rate'] === 'true',
-            `Expected X-Multi-Rate to be 'true', got '${context.req.http['X-Multi-Rate']}'`
+            `Expected X-Multi-Rate to be 'true', got '${ context.req.http['X-Multi-Rate'] }'`
           );
         }
       ]
@@ -146,13 +146,13 @@ const rateLimitFunctionsTests = {
         sub vcl_recv {
           # Add client to penalty box for 10 seconds
           set req.http.X-Add-Result = std.ratelimit.penaltybox_add("test_penalty", client.ip, 10);
-          
+
           # Check if client is in penalty box (should be true)
           set req.http.X-In-Penalty-1 = std.ratelimit.penaltybox_has("test_penalty", client.ip);
-          
+
           # Check if another client is in penalty box (should be false)
           set req.http.X-In-Penalty-2 = std.ratelimit.penaltybox_has("test_penalty", "192.168.1.2");
-          
+
           # Check if client is in a non-existent penalty box (should be false)
           set req.http.X-In-Penalty-3 = std.ratelimit.penaltybox_has("nonexistent_penalty", client.ip);
 
@@ -174,21 +174,21 @@ const rateLimitFunctionsTests = {
         (context: VCLContext) => {
           return assert(
             context.req.http['X-In-Penalty-1'] === 'true',
-            `Expected X-In-Penalty-1 to be 'true', got '${context.req.http['X-In-Penalty-1']}'`
+            `Expected X-In-Penalty-1 to be 'true', got '${ context.req.http['X-In-Penalty-1'] }'`
           );
         },
         // Check if another client is not in penalty box
         (context: VCLContext) => {
           return assert(
             context.req.http['X-In-Penalty-2'] === 'false',
-            `Expected X-In-Penalty-2 to be 'false', got '${context.req.http['X-In-Penalty-2']}'`
+            `Expected X-In-Penalty-2 to be 'false', got '${ context.req.http['X-In-Penalty-2'] }'`
           );
         },
         // Check if client is not in non-existent penalty box
         (context: VCLContext) => {
           return assert(
             context.req.http['X-In-Penalty-3'] === 'false',
-            `Expected X-In-Penalty-3 to be 'false', got '${context.req.http['X-In-Penalty-3']}'`
+            `Expected X-In-Penalty-3 to be 'false', got '${ context.req.http['X-In-Penalty-3'] }'`
           );
         }
       ]
@@ -198,3 +198,6 @@ const rateLimitFunctionsTests = {
 
 // Run the test suite
 runTestSuite(rateLimitFunctionsTests);
+
+// Export the test suite
+export default rateLimitFunctionsTests;
