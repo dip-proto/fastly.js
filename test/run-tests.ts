@@ -4,13 +4,14 @@
  * This file runs all the test suites for the VCL implementation.
  */
 
-import { runAllTests } from './test-framework';
+import {runAllTests} from './test-framework';
 import basicVCLTests from './basic-vcl-tests';
 import stdlibTests from './stdlib-tests';
 import cachingTests from './caching-tests';
 import backendErrorTests from './backend-error-tests';
 import randomFunctionsTests from './random-functions-tests';
 import vclFileTests from './vcl-file-tests';
+import securityFeaturesTests from './security-features-tests';
 
 // Run all test suites
 async function runTests() {
@@ -20,7 +21,8 @@ async function runTests() {
     cachingTests,
     backendErrorTests,
     randomFunctionsTests,
-    vclFileTests
+    vclFileTests,
+    securityFeaturesTests
   ]);
 }
 
