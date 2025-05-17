@@ -198,6 +198,16 @@ export interface VCLContext {
     encode: (binary: Uint8Array) => string;
   };
 
+  // WAF functions
+  waf?: {
+    allow: () => void;
+    block: (status: number, message: string) => void;
+    log: (message: string) => void;
+    rate_limit: (key: string, limit: number, window: number) => boolean;
+    rate_limit_tokens: (key: string) => number;
+    detect_attack: (requestData: string, attackType: string) => boolean;
+  };
+
   // Error handler function
   error?: (status: number, message: string) => string;
 
@@ -1095,6 +1105,13 @@ export class VCLCompiler {
 
       if (context.uuid && typeof context.uuid[uuidFunction] === 'function') {
         return context.uuid[uuidFunction](...args);
+      }
+    } else if (functionName.startsWith('waf.')) {
+      // WAF functions
+      const wafFunction = functionName.substring(4); // Remove 'waf.' prefix
+
+      if (context.waf && typeof context.waf[wafFunction] === 'function') {
+        return context.waf[wafFunction](...args);
       }
     } else if (functionName.startsWith('std.')) {
       // Standard library functions

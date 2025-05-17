@@ -368,10 +368,20 @@ The WAF module provides the following capabilities:
    - `waf.block(status, message)`: Explicitly blocks a request with a specified status code and message
    - `waf.log(message)`: Logs a message to the WAF logging endpoint
    - `waf.detect_attack(requestData, attackType)`: Detects if a request contains malicious patterns
+     - Supports detection of SQL injection, XSS, path traversal, command injection, LFI, and RFI attacks
+     - Can detect specific attack types or any attack type with the "any" parameter
+     - Returns true if an attack is detected, false otherwise
 
 2. **Rate Limiting**:
    - `waf.rate_limit(key, limit, window)`: Implements a token bucket rate limiter
+     - Uses the token bucket algorithm for precise rate limiting
+     - The key parameter allows for rate limiting based on different attributes (e.g., client.ip)
+     - The limit parameter specifies the maximum number of requests allowed in the window
+     - The window parameter specifies the time window in seconds
+     - Returns true if the request is allowed, false if the rate limit is exceeded
    - `waf.rate_limit_tokens(key)`: Returns the number of tokens remaining in a rate limit bucket
+     - Useful for monitoring rate limit status and implementing custom rate limiting logic
+     - Returns 0 when the rate limit is exhausted
 
 ### Rate Limiting Functions
 
@@ -545,6 +555,7 @@ The VCL proxy implementation has successfully completed all high-priority tasks 
    - Digest and encoding functions
    - HTTP and query string functions
    - Random functions
+   - UUID functions
    - WAF (Web Application Firewall) functions
    - Rate limiting functions
 

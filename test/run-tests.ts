@@ -18,6 +18,7 @@ import binaryDataFunctionsTests from './binary-data-functions-tests';
 import digestFunctionsTests from './digest-functions-tests';
 import queryStringFunctionsTests from './query-string-functions-tests';
 import uuidFunctionsTests from './uuid-functions-tests';
+import wafFunctionsTests from './waf-functions-tests';
 
 // Run all test suites
 async function runTests() {
@@ -34,7 +35,8 @@ async function runTests() {
     binaryDataFunctionsTests,
     digestFunctionsTests,
     queryStringFunctionsTests,
-    uuidFunctionsTests
+    uuidFunctionsTests,
+    wafFunctionsTests
   ]);
 }
 

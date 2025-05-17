@@ -17,6 +17,7 @@ import {BinaryModule} from './vcl-binary';
 import {DigestModule} from './vcl-digest';
 import {QueryStringModule} from './vcl-querystring';
 import {UUIDModule} from './vcl-uuid';
+import {WAFModule} from './vcl-waf';
 
 /**
  * Loads and parses a VCL file, converting it into executable subroutines.
@@ -1148,35 +1149,35 @@ export function createVCLContext(): VCLContext {
   };
 
   // Add WAF functions
-  context.std.waf = {
+  context.waf = {
     // Explicitly allows a request that might otherwise be blocked by WAF rules
     allow: () => {
-      return SecurityModule.waf.allow(context);
+      return WAFModule.allow();
     },
 
     // Explicitly blocks a request with a specified status code and message
     block: (status: number, message: string) => {
-      return SecurityModule.waf.block(context, status, message);
+      return WAFModule.block(status, message);
     },
 
     // Logs a message to the WAF logging endpoint
     log: (message: string) => {
-      return SecurityModule.waf.log(context, message);
+      return WAFModule.log(message);
     },
 
     // Implements a token bucket rate limiter
     rate_limit: (key: string, limit: number, window: number) => {
-      return SecurityModule.waf.rate_limit(context, key, limit, window);
+      return WAFModule.rate_limit(key, limit, window);
     },
 
     // Returns the number of tokens remaining in a rate limit bucket
     rate_limit_tokens: (key: string) => {
-      return SecurityModule.waf.rate_limit_tokens(context, key);
+      return WAFModule.rate_limit_tokens(key);
     },
 
     // Detects if a request contains malicious patterns
     detect_attack: (requestData: string, attackType: string) => {
-      return SecurityModule.waf.detect_attack(context, requestData, attackType);
+      return WAFModule.detect_attack(requestData, attackType);
     }
   };
 

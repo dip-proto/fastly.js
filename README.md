@@ -26,6 +26,8 @@ For comprehensive documentation, tutorials, and examples, please visit the [docu
 - **Backend Configuration**: Support for multiple backends, health checks, and load balancing
 - **Error Handling**: Comprehensive error handling with custom error pages
 - **Random Functions**: Generate random values with deterministic seeded options
+- **UUID Functions**: Generate and validate UUIDs (v3, v4, v5) with namespace support
+- **WAF Functions**: Web Application Firewall with attack detection and rate limiting
 - **Director Management**: Implement load balancing across multiple backends
 
 ## Requirements
@@ -173,6 +175,63 @@ Run the proxy with this configuration:
 bun run index.ts error-handling.vcl
 ```
 
+#### Example 4: WAF and Rate Limiting
+
+Create a file named `waf-protection.vcl` with the following content:
+
+```vcl
+sub vcl_recv {
+  # Block SQL injection attempts
+  if (waf.detect_attack(req.url, "sql")) {
+    waf.log("SQL injection attempt detected in URL: " + req.url);
+    error 403 "Forbidden";
+  }
+
+  # Block XSS attempts
+  if (waf.detect_attack(req.http.User-Agent, "xss")) {
+    waf.log("XSS attempt detected in User-Agent: " + req.http.User-Agent);
+    error 403 "Forbidden";
+  }
+
+  # Rate limit by client IP (10 requests per 5 seconds)
+  if (!waf.rate_limit(client.ip, 10, 5)) {
+    waf.log("Rate limit exceeded for IP: " + client.ip);
+    error 429 "Too Many Requests";
+  }
+
+  return(lookup);
+}
+
+sub vcl_error {
+  # Custom error page for rate limiting
+  if (obj.status == 429) {
+    set obj.http.Content-Type = "text/html; charset=utf-8";
+    set obj.http.Retry-After = "5";
+    synthetic {"
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Rate Limit Exceeded</title>
+        </head>
+        <body>
+          <h1>Rate Limit Exceeded</h1>
+          <p>You have made too many requests. Please try again in 5 seconds.</p>
+        </body>
+      </html>
+    "};
+    return(deliver);
+  }
+
+  return(deliver);
+}
+```
+
+Run the proxy with this configuration:
+
+```bash
+bun run index.ts waf-protection.vcl
+```
+
 ### Using with Custom Backends
 
 You can configure multiple backends in your VCL file:
@@ -219,6 +278,13 @@ This will execute all test suites, including:
 - Caching behavior tests
 - Backend error handling tests
 - Random functions tests
+- Accept header functions tests
+- Address functions tests
+- Binary data functions tests
+- Digest functions tests
+- Query string functions tests
+- UUID functions tests
+- WAF functions tests
 
 ## Project Structure
 

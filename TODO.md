@@ -277,6 +277,16 @@ All high-priority tasks have been completed. The proxy now supports:
     - Implemented uuid.decode and uuid.encode functions for binary conversion ✅
     - Added comprehensive tests for all UUID functions ✅
 
+16. **WAF Functions Implementation** ✅
+    - Implemented waf.allow function to explicitly allow requests ✅
+    - Implemented waf.block function to block requests with status code and message ✅
+    - Implemented waf.log function for WAF logging ✅
+    - Implemented waf.rate_limit function for token bucket rate limiting ✅
+    - Implemented waf.rate_limit_tokens function to check remaining tokens ✅
+    - Implemented waf.detect_attack function for attack pattern detection ✅
+    - Added support for SQL injection, XSS, path traversal, command injection, LFI, and RFI detection ✅
+    - Added comprehensive tests for all WAF functions ✅
+
 ## Next Steps
 
 1. **VCL Testing and Validation**
@@ -287,7 +297,7 @@ All high-priority tasks have been completed. The proxy now supports:
      - Digest functions ✅
      - Query string functions ✅
      - UUID functions ✅
-     - WAF functions
+     - WAF functions ✅
      - Rate limiting functions
    - Validate all VCL snippets in documentation
    - Implement automated validation for VCL snippets in markdown files
