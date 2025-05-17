@@ -56,6 +56,7 @@ All high-priority tasks have been completed. The proxy now supports:
      - Implement time formatting (`strftime`) ✅
      - Implement time parsing (`std.time`) ✅
      - Implement time conversion (`time.hex_to_time`) ✅
+     - Added comprehensive tests for all time functions ✅
 
    - **Math Functions** ✅
      - Implement type conversion (`std.integer`, `std.real`) ✅
@@ -73,6 +74,7 @@ All high-priority tasks have been completed. The proxy now supports:
      - Implement header manipulation (`header.get`, `header.set`, `header.unset`) ✅
      - Implement header filtering (`header.filter`, `header.filter_except`) ✅
      - Implement status code handling (`http.status_matches`) ✅
+     - Added comprehensive tests for all HTTP functions ✅
 
    - **Query String Functions** ✅
      - Implement parameter extraction (`querystring.get`) ✅
@@ -304,13 +306,15 @@ All high-priority tasks have been completed. The proxy now supports:
      - Address functions ✅
      - Binary data functions ✅
      - Digest functions ✅
+     - HTTP functions ✅
      - Query string functions ✅
+     - Time functions ✅
      - UUID functions ✅
      - WAF functions ✅
      - Rate limiting functions ✅
    - Validate all VCL snippets in documentation
    - Implement automated validation for VCL snippets in markdown files
-   - Create a comprehensive test suite that covers all VCL functions
+   - Create a comprehensive test suite that covers all VCL functions ✅
 
 2. **Performance Optimization**
    - Optimize VCL execution for better performance

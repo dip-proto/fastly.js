@@ -112,6 +112,7 @@ The implementation will support the following categories of VCL functions:
    - Time formatting (`strftime`)
    - Time parsing (`std.time`)
    - Time conversion (`time.hex_to_time`)
+   - Comprehensive tests for all time functions
 
 3. **Math Functions**
    - Basic arithmetic operations
@@ -131,6 +132,7 @@ The implementation will support the following categories of VCL functions:
    - Status code handling (`http.status_matches`)
    - Cookie handling
    - Query string parsing
+   - Comprehensive tests for all HTTP functions
 
 6. **Query String Functions**
    - Parameter extraction (`querystring.get`, `querystring.filter_except`, `querystring.filter`)
@@ -576,6 +578,7 @@ The VCL proxy implementation has successfully completed all high-priority tasks 
    - UUID functions
    - WAF (Web Application Firewall) functions
    - Rate limiting functions
+   - Comprehensive tests for all function categories
 
 3. **Advanced Features**:
    - Caching with TTL, grace periods, and stale-while-revalidate

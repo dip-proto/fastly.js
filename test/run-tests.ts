@@ -20,6 +20,8 @@ import queryStringFunctionsTests from './query-string-functions-tests';
 import uuidFunctionsTests from './uuid-functions-tests';
 import wafFunctionsTests from './waf-functions-tests';
 import rateLimitFunctionsTests from './ratelimit-functions-tests';
+import httpFunctionsTests from './http-functions-tests';
+import timeFunctionsTests from './time-functions-tests';
 
 // Run all test suites
 async function runTests() {
@@ -38,7 +40,9 @@ async function runTests() {
     queryStringFunctionsTests,
     uuidFunctionsTests,
     wafFunctionsTests,
-    rateLimitFunctionsTests
+    rateLimitFunctionsTests,
+    httpFunctionsTests,
+    timeFunctionsTests
   ]);
 }
 

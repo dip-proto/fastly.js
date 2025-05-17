@@ -10,11 +10,12 @@ VCL functions are organized into several categories:
 2. **Math Functions**: Functions for mathematical operations
 3. **Time Functions**: Functions for working with dates and times
 4. **Digest Functions**: Functions for cryptographic operations
-5. **Logging Functions**: Functions for logging messages
-6. **Director Functions**: Functions for backend selection
-7. **Geo Functions**: Functions for geolocation
-8. **Ratelimit Functions**: Functions for rate limiting
-9. **WAF Functions**: Functions for web application firewall
+5. **HTTP Functions**: Functions for HTTP header and status manipulation
+6. **Logging Functions**: Functions for logging messages
+7. **Director Functions**: Functions for backend selection
+8. **Geo Functions**: Functions for geolocation
+9. **Ratelimit Functions**: Functions for rate limiting
+10. **WAF Functions**: Functions for web application firewall
 
 ## String Functions
 
@@ -259,6 +260,107 @@ Formats a time according to the format string.
 **Example:**
 ```vcl
 set req.http.X-Date = std.strftime("%Y-%m-%d %H:%M:%S", std.time.now());
+```
+
+## HTTP Functions
+
+### header.get(headers, name)
+
+Gets the value of a header.
+
+**Parameters:**
+- `headers`: The headers object (e.g., `req.http.*`)
+- `name`: The name of the header to get
+
+**Returns:**
+- The value of the header, or an empty string if not found
+
+**Example:**
+```vcl
+set req.http.X-Original-UA = header.get(req.http.*, "User-Agent");
+```
+
+### header.set(headers, name, value)
+
+Sets the value of a header.
+
+**Parameters:**
+- `headers`: The headers object (e.g., `req.http.*`)
+- `name`: The name of the header to set
+- `value`: The value to set
+
+**Returns:**
+- The modified headers object
+
+**Example:**
+```vcl
+set req.http.* = header.set(req.http.*, "X-Custom-Header", "New Value");
+```
+
+### header.unset(headers, name)
+
+Removes a header.
+
+**Parameters:**
+- `headers`: The headers object (e.g., `req.http.*`)
+- `name`: The name of the header to remove
+
+**Returns:**
+- The modified headers object
+
+**Example:**
+```vcl
+set req.http.* = header.unset(req.http.*, "X-To-Remove");
+```
+
+### header.filter(headers, pattern)
+
+Keeps only headers that match a pattern.
+
+**Parameters:**
+- `headers`: The headers object (e.g., `req.http.*`)
+- `pattern`: The regex pattern to match header names against
+
+**Returns:**
+- The filtered headers object
+
+**Example:**
+```vcl
+set req.http.* = header.filter(req.http.*, "^X-");
+```
+
+### header.filter_except(headers, pattern)
+
+Removes headers that match a pattern.
+
+**Parameters:**
+- `headers`: The headers object (e.g., `req.http.*`)
+- `pattern`: The regex pattern to match header names against
+
+**Returns:**
+- The filtered headers object
+
+**Example:**
+```vcl
+set req.http.* = header.filter_except(req.http.*, "^X-");
+```
+
+### http.status_matches(status, pattern)
+
+Checks if a status code matches a pattern.
+
+**Parameters:**
+- `status`: The HTTP status code to check
+- `pattern`: The pattern to match against (e.g., "2xx", "30[1-3]", "4xx,5xx")
+
+**Returns:**
+- `true` if the status code matches the pattern, `false` otherwise
+
+**Example:**
+```vcl
+if (http.status_matches(resp.status, "5xx")) {
+  set resp.http.X-Error = "Server Error";
+}
 ```
 
 ## Digest Functions
