@@ -18,6 +18,7 @@ import {DigestModule} from './vcl-digest';
 import {QueryStringModule} from './vcl-querystring';
 import {UUIDModule} from './vcl-uuid';
 import {WAFModule} from './vcl-waf';
+import {RateLimitModule} from './vcl-ratelimit';
 
 /**
  * Loads and parses a VCL file, converting it into executable subroutines.
@@ -1185,32 +1186,32 @@ export function createVCLContext(): VCLContext {
   context.std.ratelimit = {
     // Opens a rate counter window with the specified duration
     open_window: (windowSeconds: number) => {
-      return SecurityModule.ratelimit.open_window(context, windowSeconds);
+      return RateLimitModule.open_window(windowSeconds);
     },
 
     // Increments a named rate counter by a specified amount
     ratecounter_increment: (counterName: string, incrementBy: number = 1) => {
-      return SecurityModule.ratelimit.ratecounter_increment(context, counterName, incrementBy);
+      return RateLimitModule.ratecounter_increment(counterName, incrementBy);
     },
 
     // Checks if a rate limit has been exceeded
     check_rate: (counterName: string, ratePerSecond: number) => {
-      return SecurityModule.ratelimit.check_rate(context, counterName, ratePerSecond);
+      return RateLimitModule.check_rate(counterName, ratePerSecond);
     },
 
     // Checks if any of multiple rate limits have been exceeded
     check_rates: (counterName: string, rates: string) => {
-      return SecurityModule.ratelimit.check_rates(context, counterName, rates);
+      return RateLimitModule.check_rates(counterName, rates);
     },
 
     // Adds an identifier to a penalty box for a specified duration
     penaltybox_add: (penaltyboxName: string, identifier: string, duration: number) => {
-      return SecurityModule.ratelimit.penaltybox_add(context, penaltyboxName, identifier, duration);
+      return RateLimitModule.penaltybox_add(penaltyboxName, identifier, duration);
     },
 
     // Checks if an identifier is in a penalty box
     penaltybox_has: (penaltyboxName: string, identifier: string) => {
-      return SecurityModule.ratelimit.penaltybox_has(context, penaltyboxName, identifier);
+      return RateLimitModule.penaltybox_has(penaltyboxName, identifier);
     }
   };
 
