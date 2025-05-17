@@ -12,6 +12,8 @@ import backendErrorTests from './backend-error-tests';
 import randomFunctionsTests from './random-functions-tests';
 import vclFileTests from './vcl-file-tests';
 import securityFeaturesTests from './security-features-tests';
+import acceptHeaderFunctionsTests from './accept-header-functions-tests';
+import addressFunctionsTests from './address-functions-tests';
 
 // Run all test suites
 async function runTests() {
@@ -22,7 +24,9 @@ async function runTests() {
     backendErrorTests,
     randomFunctionsTests,
     vclFileTests,
-    securityFeaturesTests
+    securityFeaturesTests,
+    acceptHeaderFunctionsTests,
+    addressFunctionsTests
   ]);
 }
 

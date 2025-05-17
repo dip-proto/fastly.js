@@ -229,18 +229,32 @@ All high-priority tasks have been completed. The proxy now supports:
 
 ## Next Steps
 
-1. **Performance Optimization**
+1. **VCL Testing and Validation**
+   - Add tests for missing VCL function categories:
+     - Accept header functions
+     - Address functions
+     - Binary data functions
+     - Digest functions
+     - Query string functions
+     - UUID functions
+     - WAF functions
+     - Rate limiting functions
+   - Validate all VCL snippets in documentation
+   - Implement automated validation for VCL snippets in markdown files
+   - Create a comprehensive test suite that covers all VCL functions
+
+2. **Performance Optimization**
    - Optimize VCL execution for better performance
    - Implement more efficient regex handling
    - Optimize cache lookups and storage
    - Add benchmarking tools to measure performance
 
-2. **Edge Side Includes (ESI)**
+3. **Edge Side Includes (ESI)**
    - Implement basic ESI tag processing
    - Support ESI includes, variables, and conditionals
    - Add ESI fragment caching
 
-3. **Advanced Security Features**
+4. **Advanced Security Features**
    - Implement basic WAF capabilities ✅
    - Add rate limiting functionality ✅
    - Implement bot detection mechanisms ✅
@@ -249,7 +263,7 @@ All high-priority tasks have been completed. The proxy now supports:
    - Implement path traversal detection ✅
    - Add CSRF protection
 
-4. **Monitoring and Analytics**
+5. **Monitoring and Analytics**
    - Implement detailed logging
    - Add performance metrics collection
    - Create a dashboard for monitoring

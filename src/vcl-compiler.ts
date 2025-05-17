@@ -147,6 +147,22 @@ export interface VCLContext {
     state?: string;
   };
 
+  // Address functions
+  addr?: {
+    is_ipv4: (address: string) => boolean;
+    is_ipv6: (address: string) => boolean;
+    is_unix: (address: string) => boolean;
+    extract_bits: (address: string, offset: number, length: number) => number;
+  };
+
+  // Accept header functions
+  accept?: {
+    language_lookup: (availableLanguages: string, defaultLanguage: string, acceptLanguageHeader: string) => string;
+    charset_lookup: (availableCharsets: string, defaultCharset: string, acceptCharsetHeader: string) => string;
+    encoding_lookup: (availableEncodings: string, defaultEncoding: string, acceptEncodingHeader: string) => string;
+    media_lookup: (availableMediaTypes: string, defaultMediaType: string, mediaTypePatterns: string, acceptHeader: string) => string;
+  };
+
   // Error handler function
   error?: (status: number, message: string) => string;
 
@@ -989,6 +1005,20 @@ export class VCLCompiler {
       // Log function
       console.log(`[VCL] ${ args[0] }`);
       return null;
+    } else if (functionName.startsWith('addr.')) {
+      // Address functions
+      const addrFunction = functionName.substring(5); // Remove 'addr.' prefix
+
+      if (context.addr && typeof context.addr[addrFunction] === 'function') {
+        return context.addr[addrFunction](...args);
+      }
+    } else if (functionName.startsWith('accept.')) {
+      // Accept header functions
+      const acceptFunction = functionName.substring(7); // Remove 'accept.' prefix
+
+      if (context.accept && typeof context.accept[acceptFunction] === 'function') {
+        return context.accept[acceptFunction](...args);
+      }
     } else if (functionName.startsWith('std.')) {
       // Standard library functions
       const stdFunction = functionName.substring(4); // Remove 'std.' prefix

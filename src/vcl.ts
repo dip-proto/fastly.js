@@ -11,6 +11,8 @@ import {VCLLexer} from './vcl-parser';
 import {VCLParser} from './vcl-parser-impl';
 import {VCLCompiler, VCLSubroutines, VCLContext} from './vcl-compiler';
 import {SecurityModule} from './vcl-security';
+import {AddressModule} from './vcl-address';
+import {AcceptModule} from './vcl-accept';
 
 /**
  * Loads and parses a VCL file, converting it into executable subroutines.
@@ -1183,6 +1185,52 @@ export function createVCLContext(): VCLContext {
     // Checks if an identifier is in a penalty box
     penaltybox_has: (penaltyboxName: string, identifier: string) => {
       return SecurityModule.ratelimit.penaltybox_has(context, penaltyboxName, identifier);
+    }
+  };
+
+  // Add address functions
+  context.addr = {
+    // Determines if a given address is an IPv4 address
+    is_ipv4: (address: string): boolean => {
+      return AddressModule.is_ipv4(address);
+    },
+
+    // Determines if a given address is an IPv6 address
+    is_ipv6: (address: string): boolean => {
+      return AddressModule.is_ipv6(address);
+    },
+
+    // Determines if a given address is a Unix domain socket address
+    is_unix: (address: string): boolean => {
+      return AddressModule.is_unix(address);
+    },
+
+    // Extracts a range of bits from an IP address
+    extract_bits: (address: string, offset: number, length: number): number => {
+      return AddressModule.extract_bits(address, offset, length);
+    }
+  };
+
+  // Add accept header functions
+  context.accept = {
+    // Selects the best match from an Accept-Language header value against available languages
+    language_lookup: (availableLanguages: string, defaultLanguage: string, acceptLanguageHeader: string): string => {
+      return AcceptModule.language_lookup(availableLanguages, defaultLanguage, acceptLanguageHeader);
+    },
+
+    // Selects the best match from an Accept-Charset header value against available charsets
+    charset_lookup: (availableCharsets: string, defaultCharset: string, acceptCharsetHeader: string): string => {
+      return AcceptModule.charset_lookup(availableCharsets, defaultCharset, acceptCharsetHeader);
+    },
+
+    // Selects the best match from an Accept-Encoding header value against available encodings
+    encoding_lookup: (availableEncodings: string, defaultEncoding: string, acceptEncodingHeader: string): string => {
+      return AcceptModule.encoding_lookup(availableEncodings, defaultEncoding, acceptEncodingHeader);
+    },
+
+    // Selects the best match from an Accept header value against available media types
+    media_lookup: (availableMediaTypes: string, defaultMediaType: string, mediaTypePatterns: string, acceptHeader: string): string => {
+      return AcceptModule.media_lookup(availableMediaTypes, defaultMediaType, mediaTypePatterns, acceptHeader);
     }
   };
 
