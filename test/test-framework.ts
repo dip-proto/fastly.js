@@ -5,8 +5,8 @@
  * with actual VCL code snippets.
  */
 
-import { createVCLContext, executeVCL, loadVCL } from '../src/vcl';
-import { VCLContext, VCLSubroutines } from '../src/vcl-compiler';
+import {createVCLContext, executeVCL, loadVCL} from '../src/vcl';
+import {VCLContext, VCLSubroutines} from '../src/vcl-compiler';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as http from 'http';
@@ -34,12 +34,12 @@ interface Test {
   vclFile?: string;
   vclSnippet?: string;
   run: (context: VCLContext, subroutines: VCLSubroutines) => Promise<void>;
-  assertions: Array<(context: VCLContext) => boolean | { success: boolean, message: string }>;
+  assertions: Array<(context: VCLContext) => boolean | {success: boolean, message: string;}>;
 }
 
 // Run a test suite
 export async function runTestSuite(suite: TestSuite): Promise<TestResult[]> {
-  console.log(`\n=== Running Test Suite: ${suite.name} ===\n`);
+  console.log(`\n=== Running Test Suite: ${ suite.name } ===\n`);
 
   const results: TestResult[] = [];
 
@@ -48,12 +48,12 @@ export async function runTestSuite(suite: TestSuite): Promise<TestResult[]> {
     try {
       await suite.setup();
     } catch (error) {
-      console.error(`Error in setup: ${error.message}`);
+      console.error(`Error in setup: ${ error.message }`);
       return [
         {
           name: 'Setup',
           success: false,
-          message: `Setup failed: ${error.message}`,
+          message: `Setup failed: ${ error.message }`,
           error,
           duration: 0
         }
@@ -68,10 +68,10 @@ export async function runTestSuite(suite: TestSuite): Promise<TestResult[]> {
 
     // Print result
     if (result.success) {
-      console.log(`✅ ${result.name} (${result.duration}ms)`);
+      console.log(`✅ ${ result.name } (${ result.duration }ms)`);
     } else {
-      console.log(`❌ ${result.name} (${result.duration}ms)`);
-      console.log(`   Error: ${result.message}`);
+      console.log(`❌ ${ result.name } (${ result.duration }ms)`);
+      console.log(`   Error: ${ result.message }`);
     }
   }
 
@@ -80,11 +80,11 @@ export async function runTestSuite(suite: TestSuite): Promise<TestResult[]> {
     try {
       await suite.teardown();
     } catch (error) {
-      console.error(`Error in teardown: ${error.message}`);
+      console.error(`Error in teardown: ${ error.message }`);
       results.push({
         name: 'Teardown',
         success: false,
-        message: `Teardown failed: ${error.message}`,
+        message: `Teardown failed: ${ error.message }`,
         error,
         duration: 0
       });
@@ -93,8 +93,8 @@ export async function runTestSuite(suite: TestSuite): Promise<TestResult[]> {
 
   // Print summary
   const successCount = results.filter(r => r.success).length;
-  console.log(`\n=== Test Suite Summary: ${suite.name} ===`);
-  console.log(`Total: ${results.length}, Passed: ${successCount}, Failed: ${results.length - successCount}`);
+  console.log(`\n=== Test Suite Summary: ${ suite.name } ===`);
+  console.log(`Total: ${ results.length }, Passed: ${ successCount }, Failed: ${ results.length - successCount }`);
 
   return results;
 }
@@ -114,22 +114,26 @@ async function runTest(test: Test): Promise<TestResult> {
       // Load from file
       try {
         const vclPath = path.join(process.cwd(), test.vclFile);
-        console.log(`Loading VCL file: ${vclPath}`);
+        console.log(`Loading VCL file: ${ vclPath }`);
         subroutines = loadVCL(vclPath);
       } catch (error) {
-        console.error(`Error loading VCL file: ${error.message}`);
+        console.error(`Error loading VCL file: ${ error.message }`);
         throw error;
       }
     } else if (test.vclSnippet) {
       // Create a temporary file with the VCL snippet
-      const tempFile = `./test/temp_${Date.now()}.vcl`;
-      fs.writeFileSync(tempFile, test.vclSnippet);
+      const tempFile = `./test/temp_${ Date.now() }.vcl`;
+      try {
+        fs.writeFileSync(tempFile, test.vclSnippet);
 
-      // Load the VCL from the temporary file
-      subroutines = loadVCL(tempFile);
-
-      // Delete the temporary file
-      fs.unlinkSync(tempFile);
+        // Load the VCL from the temporary file
+        subroutines = loadVCL(tempFile);
+      } finally {
+        // Always delete the temporary file, even if an error occurs
+        if (fs.existsSync(tempFile)) {
+          fs.unlinkSync(tempFile);
+        }
+      }
     }
 
     // Run the test
@@ -187,7 +191,7 @@ export function createMockRequest(
   // Set request properties
   context.req.url = url;
   context.req.method = method;
-  context.req.http = { ...headers };
+  context.req.http = {...headers};
 
   return context;
 }
@@ -199,7 +203,7 @@ export function executeSubroutine(
   subroutineName: string
 ): string {
   if (!subroutines[subroutineName]) {
-    console.log(`Subroutine ${subroutineName} not found, using default behavior`);
+    console.log(`Subroutine ${ subroutineName } not found, using default behavior`);
 
     // Create a default subroutine for testing
     if (subroutineName === 'vcl_recv') {
@@ -228,28 +232,55 @@ export function executeSubroutine(
 export function assert(
   condition: boolean,
   message: string
-): { success: boolean, message: string } {
+): {success: boolean, message: string;} {
   return {
     success: condition,
     message: condition ? 'Success' : message
   };
 }
 
+// Clean up any temporary test files that might have been left behind
+function cleanupTempFiles(): void {
+  try {
+    const testDir = path.join(process.cwd(), 'test');
+    if (fs.existsSync(testDir)) {
+      const files = fs.readdirSync(testDir);
+      for (const file of files) {
+        if (file.startsWith('temp_') && file.endsWith('.vcl')) {
+          const filePath = path.join(testDir, file);
+          console.log(`Cleaning up temporary file: ${ filePath }`);
+          fs.unlinkSync(filePath);
+        }
+      }
+    }
+  } catch (error) {
+    console.error(`Error cleaning up temporary files: ${ error.message }`);
+  }
+}
+
 // Run all test suites
 export async function runAllTests(suites: TestSuite[]): Promise<void> {
   console.log('=== Running All Test Suites ===\n');
 
+  // Clean up any temporary files before starting
+  cleanupTempFiles();
+
   let totalTests = 0;
   let passedTests = 0;
 
-  for (const suite of suites) {
-    const results = await runTestSuite(suite);
-    totalTests += results.length;
-    passedTests += results.filter(r => r.success).length;
+  try {
+    for (const suite of suites) {
+      const results = await runTestSuite(suite);
+      totalTests += results.length;
+      passedTests += results.filter(r => r.success).length;
+    }
+  } finally {
+    // Always clean up temporary files, even if tests fail
+    cleanupTempFiles();
   }
 
   console.log('\n=== All Tests Complete ===');
-  console.log(`Total: ${totalTests}, Passed: ${passedTests}, Failed: ${totalTests - passedTests}`);
+  console.log(`Total: ${ totalTests }, Passed: ${ passedTests }, Failed: ${ totalTests - passedTests }`);
 
   if (totalTests === passedTests) {
     console.log('🎉 All tests passed!');
