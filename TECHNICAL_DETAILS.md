@@ -74,7 +74,8 @@ The proxy will implement the following request flow, mirroring Fastly's VCL exec
 
 1. **Client Request Reception**
    - Execute `vcl_recv`
-   - Handle return values: `pass`, `lookup`, `error`, `hash`, `purge`
+   - Handle return values: `pass`, `lookup`, `error`, `hash`, `purge`, `restart`
+   - If `restart` is returned, increment `req.restarts` and start over from `vcl_recv`
 
 2. **Cache Lookup**
    - Generate cache key using `vcl_hash`
@@ -82,17 +83,20 @@ The proxy will implement the following request flow, mirroring Fastly's VCL exec
    - If found, execute `vcl_hit`
    - If not found, execute `vcl_miss`
    - If passing, execute `vcl_pass`
+   - Handle `restart` return value in any subroutine
 
 3. **Backend Request**
    - Send request to backend
    - Receive backend response
    - Execute `vcl_fetch`
    - Handle return values: `deliver`, `pass`, `error`, `restart`
+   - If `restart` is returned, increment `req.restarts` and start over from `vcl_recv`
 
 4. **Response Delivery**
    - Execute `vcl_deliver`
    - Send response to client
    - Execute `vcl_log`
+   - Handle `restart` return value (restart processing from `vcl_recv`)
 
 ## VCL Function Implementation
 
@@ -581,6 +585,29 @@ These security features allow for comprehensive protection against various threa
   - Tests for invalid IP addresses and edge cases
 - Fixed compatibility issues with the VCL compiler to ensure proper handling of ACL declarations and membership checks
 
+### Request Restart Implementation
+
+- Implemented the restart statement according to Fastly VCL specifications:
+  - Support for restarting request processing from the beginning
+  - Tracking of restart count in req.restarts
+  - Prevention of infinite restart loops with configurable limits
+  - Support for common restart use cases:
+    - URL normalization
+    - Authentication retries
+    - Backend failover
+    - Request modification
+- Technical implementation details:
+  - Integration with the VCL execution flow
+  - Proper state management during restarts
+  - Preservation of request modifications across restarts
+  - Efficient handling of restart conditions
+- Added comprehensive tests for restart functionality:
+  - Tests for basic restart behavior
+  - Tests for restart count tracking
+  - Tests for maximum restart limit
+  - Tests for request modifications across restarts
+- Fixed compatibility issues with the VCL compiler to ensure proper handling of restart statements
+
 ## Current Implementation Status
 
 The VCL proxy implementation has successfully completed all high-priority tasks and most medium-priority tasks. The current implementation provides a robust, Fastly VCL-compatible HTTP proxy with the following capabilities:
@@ -622,8 +649,25 @@ The VCL proxy implementation has successfully completed all high-priority tasks 
    - Dynamic backend selection using the director.backend function
    - Comprehensive test coverage for all director types
 
-5. **Remaining Tasks**:
-   - Edge Side Includes (ESI) support
+5. **Request Restart Implementation**:
+   - Support for the restart statement in VCL
+   - Tracking of restart count in req.restarts
+   - Prevention of infinite restart loops with configurable limits
+   - Support for common restart use cases:
+     - URL normalization
+     - Authentication retries
+     - Backend failover
+     - Request modification
+   - Comprehensive test coverage for restart functionality
+
+6. **Edge Side Includes (ESI) Implementation**:
+   - Support for ESI tag parsing and processing
+   - Implementation of include, remove, comment, and choose/when/otherwise tags
+   - ESI variable resolution
+   - Support for nested ESI tags
+   - Comprehensive test coverage for ESI functionality
+
+7. **Remaining Tasks**:
    - Performance optimizations
    - Advanced security features
    - Monitoring and analytics

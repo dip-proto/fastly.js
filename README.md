@@ -31,6 +31,7 @@ For comprehensive documentation, tutorials, and examples, please visit the [docu
 - **WAF Functions**: Web Application Firewall with attack detection and rate limiting
 - **Director Management**: Implement load balancing across multiple backends
 - **Goto Statements**: Control flow with goto statements and labels
+- **Request Restart**: Support for restarting requests with the restart statement
 
 ## Requirements
 
@@ -360,6 +361,66 @@ Run the proxy with this configuration:
 bun run index.ts goto-flow.vcl
 ```
 
+#### Example 7: Request Restart
+
+Create a file named `restart-example.vcl` with the following content:
+
+```vcl
+sub vcl_recv {
+  # Track restarts
+  set req.http.X-Restart-Count = req.restarts;
+
+  # First pass
+  if (req.restarts == 0) {
+    # First pass: Add a custom header
+    set req.http.X-Custom-Header = "First Pass";
+    set req.http.X-Restart-Reason = "first_pass";
+    restart;
+  }
+
+  # Second pass
+  if (req.restarts == 1) {
+    # Second pass: Modify the custom header
+    set req.http.X-Custom-Header = req.http.X-Custom-Header + ", Second Pass";
+    set req.http.X-Restart-Reason = "second_pass";
+    restart;
+  }
+
+  # Third pass
+  if (req.restarts == 2) {
+    # Third pass: Finalize the custom header
+    set req.http.X-Custom-Header = req.http.X-Custom-Header + ", Final Pass";
+    set req.http.X-Restart-Reason = "final_pass";
+  }
+
+  # Prevent infinite loops
+  if (req.restarts >= 4) {
+    set req.http.X-Max-Restarts-Reached = "true";
+    error 503 "Maximum number of restarts reached";
+  }
+
+  return(lookup);
+}
+
+sub vcl_deliver {
+  # Add headers to show restart information
+  set resp.http.X-Restart-Count = req.restarts;
+  set resp.http.X-Custom-Header = req.http.X-Custom-Header;
+
+  if (req.http.X-Restart-Reason) {
+    set resp.http.X-Restart-Reason = req.http.X-Restart-Reason;
+  }
+
+  return(deliver);
+}
+```
+
+Run the proxy with this configuration:
+
+```bash
+bun run index.ts restart-example.vcl
+```
+
 ### Using with Custom Backends
 
 You can configure multiple backends in your VCL file:
@@ -416,6 +477,7 @@ This will execute all test suites, including:
 - Rate limiting functions tests
 - ESI functions tests
 - Goto statement tests
+- Request restart tests
 - Real-world VCL tests
 
 All tests are currently passing, indicating that the implementation is working correctly.
