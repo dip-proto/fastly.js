@@ -338,7 +338,7 @@ The implementation will be divided into phases to allow for incremental developm
    - Detailed error logging and monitoring
    - Automatic retries with fallback backends
 
-7. **Phase 7: Advanced Features** (Mostly Completed)
+7. **Phase 7: Advanced Features** ✅
    - Implemented ACLs (Access Control Lists) ✅
      - Support for IPv4 and IPv6 addresses with CIDR notation
      - ACL membership checking
@@ -353,7 +353,16 @@ The implementation will be divided into phases to allow for incremental developm
      - String, boolean, integer, float, and regex lookups
      - Key existence checking
      - Table management functions
-   - Edge Side Includes (ESI) (not yet implemented) ❌
+   - Implemented Edge Side Includes (ESI) ✅
+     - ESI tag parsing and processing
+     - Support for include, remove, comment, and choose/when/otherwise tags
+     - ESI variable resolution
+     - Nested ESI tag support
+   - Implemented goto statements and labels ✅
+     - Support for non-linear control flow
+     - Label definition and resolution
+     - Proper execution of statements after labels
+     - Comprehensive tests for goto functionality
 
 Each phase includes comprehensive testing to ensure correctness and performance. The implementation has successfully completed phases 1-6 and partially completed phase 7.
 
@@ -485,18 +494,32 @@ These security features allow for comprehensive protection against various threa
 - Fixed issues with the VCL parser to correctly handle function calls
 - Improved error handling in the parser to provide better error messages
 - Enhanced the parser to handle different VCL syntax variations (e.g., with or without parentheses in return statements)
+- Added support for goto statements and labels
+- Implemented proper label resolution and execution flow
+
+### ESI Implementation
+
+- Added a new `vcl-esi.ts` module to implement Edge Side Includes functionality
+- Implemented ESI tag parsing and processing
+- Added support for include, remove, comment, and choose/when/otherwise tags
+- Implemented ESI variable resolution
+- Added support for nested ESI tags
+- Created comprehensive tests for ESI functionality
 
 ### Test Framework Improvements
 
 - Fixed file path handling in the test framework to correctly load VCL files from different locations
 - Added better error reporting when loading and parsing VCL files
 - Implemented a more robust test framework that can handle different VCL syntax variations
+- Added support for testing goto statements and ESI functionality
+- Improved test coverage for all VCL features
 
 ### Error Handling Improvements
 
 - Implemented comprehensive error handling in the VCL runtime
 - Added support for custom error pages and error handling logic
 - Improved error reporting and logging
+- Enhanced error handling for edge cases in goto statements and ESI processing
 
 ### All Tests Passing
 

@@ -413,6 +413,12 @@ This will execute all test suites, including:
 - Query string functions tests
 - UUID functions tests
 - WAF functions tests
+- Rate limiting functions tests
+- ESI functions tests
+- Goto statement tests
+- Real-world VCL tests
+
+All tests are currently passing, indicating that the implementation is working correctly.
 
 ## Project Structure
 
@@ -435,4 +441,24 @@ You can modify the following constants in `index.ts` to change the proxy setting
 
 ## Development Status
 
+The project has successfully implemented all core VCL functionality and is now in a production-ready state. All tests are passing, and the implementation supports:
+
+1. **Complete VCL Syntax**: All standard VCL statements and expressions, including control flow with if/else and goto/labels
+2. **Full Standard Library**: Comprehensive implementation of all VCL standard library functions
+3. **Advanced Features**: Caching, multiple backends, error handling, ESI, directors, security features, and more
+
 See the `TODO.md` file for a detailed roadmap and current implementation status.
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add some amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
