@@ -313,6 +313,16 @@ All high-priority tasks have been completed. The proxy now supports:
     - Implemented maximum restart limit to prevent infinite loops ✅
     - Added support for URL normalization, authentication, and failover use cases ✅
     - Added comprehensive tests for restart functionality ✅
+    - Implemented complex examples of restart usage ✅
+      - URL normalization example with proper req.url updates ✅
+      - Authentication with token validation example ✅
+      - Backend failover with health checking example ✅
+      - A/B testing with traffic splitting example ✅
+    - Created integration tests that demonstrate restart functionality in real-world scenarios ✅
+      - URL normalization test with proper handling of infinite loop prevention ✅
+      - Authentication test with token validation ✅
+      - Backend failover test with error handling ✅
+      - A/B testing test with traffic distribution ✅
 
 ## Next Steps (Current Focus)
 

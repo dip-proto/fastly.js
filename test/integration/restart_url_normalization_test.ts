@@ -60,9 +60,16 @@ function runTests() {
     // Initialize tracking variables
     let restartCount = 0;
     let restartReasons: string[] = [];
+    const maxRestarts = 10; // Set a maximum restart limit to prevent infinite loops
 
     // Process the request with support for restarts
     let processRequest = async () => {
+      // Check if we've exceeded the maximum number of restarts
+      if (restartCount > maxRestarts) {
+        console.log(`⚠️ Exceeded maximum number of restarts (${ maxRestarts }). Aborting.`);
+        return 'error';
+      }
+
       // Execute vcl_recv
       console.log(`Executing vcl_recv (restart ${ restartCount })...`);
       const recvResult = executeVCL(subroutines, 'vcl_recv', context);
@@ -81,6 +88,11 @@ function runTests() {
         restartCount++;
         context.req.restarts = restartCount;
 
+        // Update the URL from the X-Current-URL header if it exists
+        if (context.req.http['X-Current-URL']) {
+          context.req.url = context.req.http['X-Current-URL'];
+        }
+
         // Process the request again
         return await processRequest();
       }
@@ -89,7 +101,7 @@ function runTests() {
     };
 
     // Start processing the request
-    processRequest().then(() => {
+    processRequest().then((result) => {
       console.log(`Final URL: ${ context.req.url }`);
       console.log(`Restart count: ${ restartCount }`);
       console.log(`Restart reasons: ${ restartReasons.join(', ') }`);
@@ -97,24 +109,30 @@ function runTests() {
       // Verify the results
       let passed = true;
 
-      if (context.req.url !== testCase.expectedUrl) {
-        console.log(`❌ URL mismatch: expected ${ testCase.expectedUrl }, got ${ context.req.url }`);
-        passed = false;
-      }
-
-      if (restartCount !== testCase.expectedRestarts) {
-        console.log(`❌ Restart count mismatch: expected ${ testCase.expectedRestarts }, got ${ restartCount }`);
-        passed = false;
-      }
-
-      if (restartReasons.length !== testCase.expectedReasons.length) {
-        console.log(`❌ Restart reasons count mismatch: expected ${ testCase.expectedReasons.length }, got ${ restartReasons.length }`);
+      // Check if we exceeded the maximum number of restarts
+      if (result === 'error') {
+        console.log(`❌ Test failed due to exceeding maximum number of restarts`);
         passed = false;
       } else {
-        for (let i = 0; i < restartReasons.length; i++) {
-          if (restartReasons[i] !== testCase.expectedReasons[i]) {
-            console.log(`❌ Restart reason mismatch at index ${ i }: expected ${ testCase.expectedReasons[i] }, got ${ restartReasons[i] }`);
-            passed = false;
+        if (context.req.url !== testCase.expectedUrl) {
+          console.log(`❌ URL mismatch: expected ${ testCase.expectedUrl }, got ${ context.req.url }`);
+          passed = false;
+        }
+
+        if (restartCount !== testCase.expectedRestarts) {
+          console.log(`❌ Restart count mismatch: expected ${ testCase.expectedRestarts }, got ${ restartCount }`);
+          passed = false;
+        }
+
+        if (restartReasons.length !== testCase.expectedReasons.length) {
+          console.log(`❌ Restart reasons count mismatch: expected ${ testCase.expectedReasons.length }, got ${ restartReasons.length }`);
+          passed = false;
+        } else {
+          for (let i = 0; i < restartReasons.length; i++) {
+            if (restartReasons[i] !== testCase.expectedReasons[i]) {
+              console.log(`❌ Restart reason mismatch at index ${ i }: expected ${ testCase.expectedReasons[i] }, got ${ restartReasons[i] }`);
+              passed = false;
+            }
           }
         }
       }
@@ -138,8 +156,10 @@ function runTests() {
 
         if (failedTests === 0) {
           console.log('✅ All tests passed');
+          process.exit(0);
         } else {
           console.log('❌ Some tests failed');
+          process.exit(1);
         }
       }
     });

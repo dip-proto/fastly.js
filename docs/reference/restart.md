@@ -71,6 +71,7 @@ sub vcl_recv {
 2. **Set a reason for the restart**: Use a custom header like `X-Restart-Reason` to track why a restart occurred.
 3. **Limit the number of restarts**: Set a maximum number of restarts (usually 3-5) to prevent infinite loops.
 4. **Use restarts sparingly**: Restarts can impact performance, so use them only when necessary.
+5. **Update req.url when normalizing URLs**: When using restart for URL normalization, make sure to update `req.url` with the normalized version before restarting.
 
 ## Example
 
@@ -124,6 +125,21 @@ The URL normalization example demonstrates how to use restarts to:
 - Add index.html to URLs ending with a slash
 - Convert URLs to lowercase for consistency
 
+**Important Note**: When using restart for URL normalization, always update `req.url` with the normalized version before restarting. For example:
+
+```vcl
+# Store the normalized URL in a header
+set req.http.X-Current-URL = regsub(req.url, "//", "/");
+
+# Update the actual URL with the normalized version
+set req.url = req.http.X-Current-URL;
+
+# Then restart
+restart;
+```
+
+Failing to update `req.url` can lead to infinite restart loops.
+
 ### Authentication with Token Validation Example
 
 The authentication example demonstrates how to use restarts to:
@@ -164,6 +180,31 @@ You can run all the integration tests with the following command:
 
 ```bash
 ./test/integration/run_restart_tests.sh
+```
+
+## Troubleshooting Restart Issues
+
+### Infinite Restart Loops
+
+If you're experiencing infinite restart loops, check for these common issues:
+
+1. **Not updating req.url**: When normalizing URLs, make sure to update `req.url` with the normalized version before restarting.
+2. **Missing restart counter check**: Always check `req.restarts` to prevent infinite loops.
+3. **Condition always evaluates to true**: Ensure your restart conditions can eventually become false.
+4. **Maximum restart limit too high**: Set a reasonable maximum restart limit (3-5 is usually sufficient).
+
+### Debugging Restart Flows
+
+To debug restart flows, add headers to track the restart count and reason:
+
+```vcl
+# Track restart count
+set req.http.X-Restart-Count = req.restarts;
+
+# Track restart reason
+if (req.http.X-Restart-Reason) {
+    set resp.http.X-Restart-Reason = req.http.X-Restart-Reason;
+}
 ```
 
 ## See Also

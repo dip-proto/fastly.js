@@ -3,19 +3,19 @@
 
 sub vcl_recv {
     # FASTLY RECV
-    
+
     # Track restarts
     set req.http.X-Restart-Count = req.restarts;
-    
+
     # Debug
     log "Current restart count: " + req.restarts;
-    
+
     # First time through, save the original URL
     if (req.restarts == 0) {
         # Initialize headers
         set req.http.X-Original-URL = req.url;
         set req.http.X-Current-URL = req.url;
-        
+
         # First pass: Handle double slashes
         if (req.http.X-Current-URL ~ "//") {
             set req.http.X-Current-URL = regsub(req.http.X-Current-URL, "//", "/");
@@ -43,12 +43,15 @@ sub vcl_recv {
             # No restart here, continue processing
         }
     }
-    
+
     # Prevent infinite loops
     if (req.restarts >= 5) {
         set req.http.X-Max-Restarts-Reached = "true";
         error 503 "Maximum number of restarts reached";
     }
+
+    # Update the actual URL with the normalized version
+    set req.url = req.http.X-Current-URL;
 
     # Log the normalized URL
     log "Normalized URL: " + req.http.X-Current-URL + " (original: " + req.http.X-Original-URL + ")";
