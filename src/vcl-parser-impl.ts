@@ -23,6 +23,7 @@ import {
   VCLHashDataStatement,
   VCLGotoStatement,
   VCLLabelStatement,
+  VCLRestartStatement,
   VCLExpression,
   VCLBinaryExpression,
   VCLIdentifier,
@@ -248,6 +249,8 @@ export class VCLParser {
           return this.parseDeclareStatement();
         case 'goto':
           return this.parseGotoStatement();
+        case 'restart':
+          return this.parseRestartStatement();
       }
     } else if (this.match(TokenType.IDENTIFIER)) {
       const identifier = this.previous().value;
@@ -976,6 +979,26 @@ export class VCLParser {
     return {
       type: 'GotoStatement',
       label,
+      location: {
+        line: token.line,
+        column: token.column
+      }
+    };
+  }
+
+  /**
+   * Parses a restart statement
+   *
+   * @returns The parsed restart statement
+   */
+  private parseRestartStatement(): VCLRestartStatement {
+    const token = this.previous();
+
+    // Consume the semicolon
+    this.consume(TokenType.PUNCTUATION, "Expected ';' after restart statement");
+
+    return {
+      type: 'RestartStatement',
       location: {
         line: token.line,
         column: token.column

@@ -21,6 +21,7 @@ export type VCLNodeType =
   | 'HashDataStatement'
   | 'GotoStatement'
   | 'LabelStatement'
+  | 'RestartStatement'
   | 'BinaryExpression'
   | 'TernaryExpression'
   | 'FunctionCall'
@@ -128,6 +129,10 @@ export interface VCLLabelStatement extends VCLStatement {
   type: 'LabelStatement';
   name: string;
   statement?: VCLStatement;
+}
+
+export interface VCLRestartStatement extends VCLStatement {
+  type: 'RestartStatement';
 }
 
 export type VCLExpression =

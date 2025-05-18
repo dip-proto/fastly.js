@@ -20,6 +20,7 @@ import {
   VCLHashDataStatement,
   VCLGotoStatement,
   VCLLabelStatement,
+  VCLRestartStatement,
   VCLExpression,
   VCLBinaryExpression,
   VCLTernaryExpression,
@@ -93,6 +94,7 @@ export interface VCLContext {
     method: string;
     http: Record<string, string>;
     backend?: string; // Name of the selected backend
+    restarts?: number; // Counter for request restarts
   };
   bereq: {
     url: string;
@@ -878,6 +880,8 @@ export class VCLCompiler {
         return this.executeHashDataStatement(statement as VCLHashDataStatement, context);
       case 'GotoStatement':
         return this.executeGotoStatement(statement as VCLGotoStatement, context);
+      case 'RestartStatement':
+        return this.executeRestartStatement(statement as VCLRestartStatement, context);
       case 'LabelStatement':
         // Execute the statement associated with the label, if any
         const labelStmt = statement as VCLLabelStatement;
@@ -1327,6 +1331,18 @@ export class VCLCompiler {
   private executeGotoStatement(statement: VCLGotoStatement, context: VCLContext): string {
     // Return a special string that will be handled by the compileSubroutine method
     return `__goto__:${ statement.label }`;
+  }
+
+  /**
+   * Executes a restart statement, returning the "restart" action
+   *
+   * @param statement - The restart statement to execute
+   * @param context - The VCL context
+   * @returns The string "restart"
+   */
+  private executeRestartStatement(statement: VCLRestartStatement, context: VCLContext): string {
+    console.log(`Executing restart statement`);
+    return "restart";
   }
 
   /**

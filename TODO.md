@@ -123,6 +123,7 @@ All high-priority tasks have been completed. The proxy now supports:
    - Support Edge Side Includes (ESI) ✅
    - Implement random functions ✅
    - Implement goto statements and labels ✅
+   - Implement restart functionality ✅
 
 2. **Security Features** ✅
    - Implement basic WAF (Web Application Firewall) capabilities ✅
@@ -306,6 +307,13 @@ All high-priority tasks have been completed. The proxy now supports:
     - Implemented proper execution of statements after labels ✅
     - Added comprehensive tests for goto functionality ✅
 
+19. **Restart Functionality Implementation** ✅
+    - Implemented restart statement for request processing restart ✅
+    - Added restart counter to track number of restarts ✅
+    - Implemented maximum restart limit to prevent infinite loops ✅
+    - Added support for URL normalization, authentication, and failover use cases ✅
+    - Added comprehensive tests for restart functionality ✅
+
 ## Next Steps (Current Focus)
 
 1. **Performance Optimization**
@@ -351,7 +359,7 @@ The project has successfully implemented all core VCL functionality and is now i
 
 1. **Complete VCL Syntax** ✅
    - All standard VCL statements and expressions
-   - Control flow including if/else, goto/labels
+   - Control flow including if/else, goto/labels, restart
    - Variable declarations and assignments
    - Subroutine definitions and calls
 

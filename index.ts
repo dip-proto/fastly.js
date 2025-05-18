@@ -142,8 +142,40 @@ const server = Bun.serve({
             context.req.http[key.toLowerCase()] = value;
         }
 
-        // Execute vcl_recv
-        let action = executeVCL(vclSubroutines, 'vcl_recv', context) || "lookup";
+        // Maximum number of restarts to prevent infinite loops
+        const MAX_RESTARTS = 3;
+
+        // Process the request, with support for restarts
+        let processRequest = async () => {
+            // Execute vcl_recv
+            let action = executeVCL(vclSubroutines, 'vcl_recv', context) || "lookup";
+
+            // Handle restart action
+            if (action === "restart") {
+                // Check if we've reached the maximum number of restarts
+                if (context.req.restarts >= MAX_RESTARTS) {
+                    console.error(`Maximum number of restarts (${ MAX_RESTARTS }) reached`);
+                    context.std.error(503, `Maximum number of restarts (${ MAX_RESTARTS }) reached`);
+                    executeVCL(vclSubroutines, 'vcl_error', context);
+                    return new Response(context.obj.response, {
+                        status: context.obj.status || 503,
+                        headers: context.obj.http
+                    });
+                }
+
+                // Increment the restart counter
+                context.req.restarts++;
+                console.log(`Request restarted (${ context.req.restarts }/${ MAX_RESTARTS })`);
+
+                // Process the request again
+                return await processRequest();
+            }
+
+            return action;
+        };
+
+        // Start processing the request
+        let action = await processRequest();
 
         // Handle error action from vcl_recv
         if (action === "error") {

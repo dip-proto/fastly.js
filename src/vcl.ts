@@ -127,7 +127,8 @@ export function createVCLContext(): VCLContext {
       url: '',
       method: '',
       http: {},
-      backend: 'default'
+      backend: 'default',
+      restarts: 0 // Initialize restarts counter to 0
     },
     bereq: {
       url: '',

@@ -50,6 +50,7 @@ Detailed documentation for specific features:
 
 - [Edge Side Includes (ESI)](./features/edge-side-includes.md)
 - [Goto Statements](./goto.md)
+- [Restart Functionality](./reference/restart.md)
 
 ### API Reference
 
