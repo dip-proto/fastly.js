@@ -117,7 +117,7 @@ We've created several advanced examples that demonstrate real-world use cases fo
 
 ### URL Normalization Example
 
-The [URL normalization example](../../examples/restart/url_normalization.vcl) demonstrates how to use restarts to:
+The URL normalization example demonstrates how to use restarts to:
 
 - Remove double slashes from URLs
 - Add trailing slashes to directory URLs
@@ -126,7 +126,7 @@ The [URL normalization example](../../examples/restart/url_normalization.vcl) de
 
 ### Authentication with Token Validation Example
 
-The [authentication example](../../examples/restart/auth_token_validation.vcl) demonstrates how to use restarts to:
+The authentication example demonstrates how to use restarts to:
 
 - Extract authentication tokens from different sources (query parameters, cookies)
 - Validate and normalize tokens
@@ -135,7 +135,7 @@ The [authentication example](../../examples/restart/auth_token_validation.vcl) d
 
 ### Backend Failover with Health Checking Example
 
-The [backend failover example](../../examples/restart/backend_failover.vcl) demonstrates how to use restarts to:
+The backend failover example demonstrates how to use restarts to:
 
 - Select backends based on request type
 - Failover to secondary backends when primary is unhealthy
@@ -144,7 +144,7 @@ The [backend failover example](../../examples/restart/backend_failover.vcl) demo
 
 ### A/B Testing with Traffic Splitting Example
 
-The [A/B testing example](../../examples/restart/ab_testing.vcl) demonstrates how to use restarts to:
+The A/B testing example demonstrates how to use restarts to:
 
 - Assign users to test groups based on cookies, user IDs, or random assignment
 - Route requests to different backends based on test group

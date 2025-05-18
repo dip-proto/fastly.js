@@ -25,7 +25,7 @@ interface RestartTestCase {
 const testCases: RestartTestCase[] = [
   {
     name: 'Simple Restart',
-    vclFile: './examples/restart/simple_restart_fixed46.vcl',
+    vclFile: './test/fixtures/restart/simple_restart_fixed46.vcl',
     initialUrl: '/test',
     initialHeaders: {
       'Host': 'example.com',
@@ -40,7 +40,7 @@ const testCases: RestartTestCase[] = [
   },
   {
     name: 'URL Normalization',
-    vclFile: './examples/restart/url_normalization_fixed51.vcl',
+    vclFile: './test/fixtures/restart/url_normalization_fixed51.vcl',
     initialUrl: '/path//to/directory',
     initialHeaders: {
       'Host': 'example.com',

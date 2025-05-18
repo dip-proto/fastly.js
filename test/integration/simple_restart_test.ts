@@ -6,7 +6,7 @@ import {loadVCL, createVCLContext, executeVCL} from '../../src/vcl';
 
 // Load the VCL file
 console.log('Loading simple restart VCL file...');
-const subroutines = loadVCL('./examples/restart/simple_restart.vcl');
+const subroutines = loadVCL('./test/fixtures/restart/simple_restart.vcl');
 
 // Print the loaded subroutines
 console.log('Loaded subroutines:');

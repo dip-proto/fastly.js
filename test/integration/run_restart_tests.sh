@@ -5,9 +5,6 @@
 echo "Running restart integration tests..."
 echo "===================================="
 
-# Create examples directory if it doesn't exist
-mkdir -p examples/restart
-
 # Run URL normalization test
 echo -e "\n\n=== URL Normalization Test ==="
 bun run test/integration/restart_url_normalization_test.ts
