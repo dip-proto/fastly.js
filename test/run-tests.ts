@@ -27,6 +27,7 @@ import esiFunctionsTests from './esi-functions-tests';
 import csrfProtectionTests from './csrf-protection-tests';
 import comprehensiveVCLTests from './comprehensive-vcl-tests';
 import realWorldVCLTests from './real-world-vcl-tests';
+import realWorldEcommerceTests from './real-world-ecommerce-tests';
 import {gotoTests} from './goto-tests';
 
 // Run all test suites
@@ -54,6 +55,7 @@ async function runTests() {
     multiFileTests,
     comprehensiveVCLTests,
     realWorldVCLTests,
+    realWorldEcommerceTests,
     gotoTests
   ]);
 }
