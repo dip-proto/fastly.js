@@ -30,6 +30,7 @@ For comprehensive documentation, tutorials, and examples, please visit the [docu
 - **UUID Functions**: Generate and validate UUIDs (v3, v4, v5) with namespace support
 - **WAF Functions**: Web Application Firewall with attack detection and rate limiting
 - **Director Management**: Implement load balancing across multiple backends
+- **Goto Statements**: Control flow with goto statements and labels
 
 ## Requirements
 
@@ -290,6 +291,73 @@ Run the proxy with this configuration:
 
 ```bash
 bun run index.ts rate-limiting.vcl
+```
+
+#### Example 6: Flow Control with Goto
+
+Create a file named `goto-flow.vcl` with the following content:
+
+```vcl
+sub vcl_recv {
+  if (req.http.Cookie ~ "logged_in=true") {
+    # Jump to logged-in user processing
+    goto logged_in_user;
+  } else {
+    # Jump to anonymous user processing
+    goto anonymous_user;
+  }
+
+  # Logged-in user processing
+  logged_in_user:
+    set req.http.X-User-Type = "logged_in";
+
+    if (req.http.Cookie ~ "user_role=admin") {
+      # Jump to admin user processing
+      goto admin_user;
+    } else {
+      # Jump to regular user processing
+      goto regular_user;
+    }
+
+  # Anonymous user processing
+  anonymous_user:
+    set req.http.X-User-Type = "anonymous";
+    goto user_end;
+
+  # Admin user processing
+  admin_user:
+    set req.http.X-User-Role = "admin";
+    goto user_end;
+
+  # Regular user processing
+  regular_user:
+    set req.http.X-User-Role = "regular";
+
+  # End of user processing
+  user_end:
+    set req.http.X-User-Processing-Complete = "true";
+
+  return(lookup);
+}
+
+sub vcl_deliver {
+  # Add user information to response headers
+  if (req.http.X-User-Type) {
+    set resp.http.X-User-Type = req.http.X-User-Type;
+  }
+
+  if (req.http.X-User-Role) {
+    set resp.http.X-User-Role = req.http.X-User-Role;
+  }
+
+  return(deliver);
+}
+```
+
+Run the proxy with this configuration:
+
+```bash
+bun run index.ts goto-flow.vcl
 ```
 
 ### Using with Custom Backends

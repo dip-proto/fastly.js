@@ -21,6 +21,8 @@ import {
   VCLLogStatement,
   VCLSyntheticStatement,
   VCLHashDataStatement,
+  VCLGotoStatement,
+  VCLLabelStatement,
   VCLExpression,
   VCLBinaryExpression,
   VCLIdentifier,
@@ -36,9 +38,11 @@ import {
 export class VCLParser {
   private tokens: Token[] = [];
   private current: number = 0;
+  private source: string;
 
-  constructor(tokens: Token[]) {
+  constructor(tokens: Token[], source: string) {
     this.tokens = tokens.filter(token => token.type !== TokenType.WHITESPACE);
+    this.source = source;
   }
 
   parse(): VCLProgram {
@@ -147,6 +151,9 @@ export class VCLParser {
 
     this.consume(TokenType.PUNCTUATION, "Expected '{' after subroutine name");
 
+    // Store the start position of the subroutine body
+    const startPos = this.tokens[this.current - 1].position + 1;
+
     const body: VCLStatement[] = [];
 
     // Parse statements until we reach the closing brace
@@ -154,12 +161,19 @@ export class VCLParser {
       body.push(this.parseStatement());
     }
 
+    // Store the end position of the subroutine body
+    const endPos = this.tokens[this.current].position;
+
+    // Extract the raw VCL code for the subroutine body
+    const rawVCL = this.source.substring(startPos, endPos);
+
     this.consume(TokenType.PUNCTUATION, "Expected '}' after subroutine body");
 
     return {
       type: 'Subroutine',
       name: nameToken.value,
       body,
+      raw: rawVCL,
       location: {
         line: nameToken.line,
         column: nameToken.column
@@ -173,6 +187,36 @@ export class VCLParser {
    * @returns The parsed VCL statement
    */
   private parseStatement(): VCLStatement {
+    // Check for label (identifier followed by a colon)
+    if (this.check(TokenType.IDENTIFIER)) {
+      const nextToken = this.peek(1);
+      if (nextToken && nextToken.type === TokenType.PUNCTUATION && nextToken.value === ':') {
+        const labelName = this.advance().value;
+        const labelToken = this.previous();
+
+        // Consume the colon
+        this.advance();
+
+        console.log(`Parsed label (early check): ${ labelName }`);
+
+        // Check if the next token is a set statement
+        let statement = null;
+        if (this.check(TokenType.KEYWORD, 'set')) {
+          statement = this.parseSetStatement();
+        }
+
+        return {
+          type: 'LabelStatement',
+          name: labelName,
+          statement: statement,
+          location: {
+            line: labelToken.line,
+            column: labelToken.column
+          }
+        };
+      }
+    }
+
     // Skip comments
     if (this.match(TokenType.COMMENT)) {
       return {
@@ -202,6 +246,8 @@ export class VCLParser {
           return this.parseSyntheticStatement();
         case 'declare':
           return this.parseDeclareStatement();
+        case 'goto':
+          return this.parseGotoStatement();
       }
     } else if (this.match(TokenType.IDENTIFIER)) {
       const identifier = this.previous().value;
@@ -303,6 +349,26 @@ export class VCLParser {
           };
         }
       }
+    }
+
+    // Check for label (identifier followed by a colon)
+    if (this.match(TokenType.IDENTIFIER) && this.check(TokenType.PUNCTUATION, ':')) {
+      const labelName = this.previous().value;
+      const labelToken = this.previous();
+
+      // Consume the colon
+      this.advance();
+
+      console.log(`Parsed label: ${ labelName }`);
+
+      return {
+        type: 'LabelStatement',
+        name: labelName,
+        location: {
+          line: labelToken.line,
+          column: labelToken.column
+        }
+      };
     }
 
     // Skip unknown statements
@@ -892,6 +958,31 @@ export class VCLParser {
     };
   }
 
+  /**
+   * Parses a goto statement
+   *
+   * @returns The parsed goto statement
+   */
+  private parseGotoStatement(): VCLGotoStatement {
+    const token = this.previous();
+
+    // Parse the label name
+    const labelToken = this.consume(TokenType.IDENTIFIER, "Expected label name after 'goto'");
+    const label = labelToken.value;
+
+    // Consume the semicolon
+    this.consume(TokenType.PUNCTUATION, "Expected ';' after goto statement");
+
+    return {
+      type: 'GotoStatement',
+      label,
+      location: {
+        line: token.line,
+        column: token.column
+      }
+    };
+  }
+
   private parseExpression(): VCLExpression {
     return this.parseTernary();
   }
@@ -1299,8 +1390,16 @@ export class VCLParser {
     return this.peek().type === TokenType.EOF;
   }
 
-  private peek(): Token {
-    return this.tokens[this.current];
+  private peek(offset?: number): Token {
+    if (offset === undefined) {
+      return this.tokens[this.current];
+    }
+
+    const index = this.current + offset;
+    if (index >= this.tokens.length) {
+      return this.tokens[this.tokens.length - 1];
+    }
+    return this.tokens[index];
   }
 
   private previous(): Token {

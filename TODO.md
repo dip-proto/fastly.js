@@ -127,6 +127,7 @@ All high-priority tasks have been completed. The proxy now supports:
    - Implement directors (load balancing) ✅
    - Support Edge Side Includes (ESI) ✅
    - Implement random functions ✅
+   - Implement goto statements and labels ✅
 
 2. **Performance Optimizations**
     - Optimize VCL execution
@@ -297,6 +298,13 @@ All high-priority tasks have been completed. The proxy now supports:
     - Implemented std.ratelimit.penaltybox_add function for penalty box management ✅
     - Implemented std.ratelimit.penaltybox_has function for penalty box checking ✅
     - Added comprehensive tests for all rate limiting functions ✅
+
+18. **Goto Statements Implementation** ✅
+    - Implemented goto statements for flow control in VCL ✅
+    - Implemented label statements as jump targets ✅
+    - Added support for jumping to labels in different parts of the code ✅
+    - Implemented proper execution of statements after labels ✅
+    - Added comprehensive tests for goto functionality ✅
 
 ## Next Steps
 

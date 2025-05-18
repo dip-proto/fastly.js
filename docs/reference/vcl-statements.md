@@ -152,6 +152,35 @@ for (backend in backends) {
 }
 ```
 
+### goto
+
+Jumps to a labeled section of code.
+
+**Syntax:**
+```vcl
+goto label_name;
+```
+
+**Example:**
+```vcl
+if (req.http.Host == "admin.example.com") {
+  goto admin_processing;
+}
+
+# Regular processing
+set req.http.X-Request-Type = "regular";
+goto request_end;
+
+# Admin processing
+admin_processing:
+  set req.http.X-Request-Type = "admin";
+  set req.http.X-Admin-Access = "true";
+
+# End of processing
+request_end:
+  set req.http.X-Processing-Complete = "true";
+```
+
 ## Subroutine Statements
 
 ### sub

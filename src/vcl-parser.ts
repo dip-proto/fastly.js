@@ -19,6 +19,8 @@ export type VCLNodeType =
   | 'LogStatement'
   | 'SyntheticStatement'
   | 'HashDataStatement'
+  | 'GotoStatement'
+  | 'LabelStatement'
   | 'BinaryExpression'
   | 'TernaryExpression'
   | 'FunctionCall'
@@ -117,6 +119,17 @@ export interface VCLHashDataStatement extends VCLStatement {
   value: VCLExpression;
 }
 
+export interface VCLGotoStatement extends VCLStatement {
+  type: 'GotoStatement';
+  label: string;
+}
+
+export interface VCLLabelStatement extends VCLStatement {
+  type: 'LabelStatement';
+  name: string;
+  statement?: VCLStatement;
+}
+
 export type VCLExpression =
   | VCLBinaryExpression
   | VCLTernaryExpression
@@ -192,13 +205,14 @@ export interface Token {
   value: string;
   line: number;
   column: number;
+  position?: number; // Position in the source code
 }
 
 // VCL Keywords
 const VCL_KEYWORDS = [
   'sub', 'if', 'else', 'elseif', 'return', 'set', 'unset', 'error',
   'synthetic', 'hash_data', 'true', 'false', 'deliver', 'fetch',
-  'pass', 'hash', 'lookup', 'restart', 'purge', 'acl'
+  'pass', 'hash', 'lookup', 'restart', 'purge', 'acl', 'goto'
 ];
 
 // Lexer class to tokenize VCL code
@@ -460,11 +474,11 @@ export class VCLLexer {
       // Check for VCL time units like "5m" (5 minutes)
       const value = this.input.substring(start, this.position);
 
-      console.log(`Tokenizing time value: ${value}`);
+      console.log(`Tokenizing time value: ${ value }`);
 
       this.tokens.push({
         type: TokenType.STRING, // Treat time values as strings to preserve the unit
-        value: `"${value}"`, // Wrap in quotes to make it a string literal
+        value: `"${ value }"`, // Wrap in quotes to make it a string literal
         line: startLine,
         column: startColumn
       });
@@ -514,7 +528,7 @@ export class VCLLexer {
 
     const value = this.input.substring(start, this.position);
 
-    console.log(`Tokenized identifier: ${value}`);
+    console.log(`Tokenized identifier: ${ value }`);
 
     // Check if it's a keyword
     if (VCL_KEYWORDS.includes(value)) {
@@ -588,7 +602,7 @@ export class VCLLexer {
     }
 
     const value = this.input.substring(start, this.position);
-    console.log(`Tokenized regex: ${value}`);
+    console.log(`Tokenized regex: ${ value }`);
 
     this.tokens.push({
       type: TokenType.REGEX,
@@ -640,4 +654,25 @@ export class VCLLexer {
     this.position++;
     this.column++;
   }
+}
+
+/**
+ * Parse VCL code into an AST
+ *
+ * @param input - The VCL code to parse
+ * @returns The parsed VCL program
+ */
+export function parseVCL(input: string): VCLProgram {
+  // Tokenize the input
+  const lexer = new VCLLexer(input);
+  const tokens = lexer.tokenize();
+
+  // Add position information to tokens
+  for (let i = 0; i < tokens.length; i++) {
+    tokens[i].position = input.indexOf(tokens[i].value, tokens[i - 1]?.position || 0);
+  }
+
+  // Parse the tokens into an AST
+  const parser = new VCLParser(tokens, input);
+  return parser.parse();
 }

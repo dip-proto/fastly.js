@@ -35,7 +35,7 @@ export function loadVCLContent(content: string): VCLSubroutines {
     const tokens = lexer.tokenize();
 
     // Parse the tokens into an AST
-    const parser = new VCLParser(tokens);
+    const parser = new VCLParser(tokens, content);
     const ast = parser.parse();
 
     // Compile the AST into executable functions
