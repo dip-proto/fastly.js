@@ -290,7 +290,21 @@ export class VCLLexer {
       }
 
       // Handle punctuation
-      if (/[(){}\[\],;.]/.test(char)) {
+      if (/[(){}\[\],;]/.test(char)) {
+        this.tokenizePunctuation();
+        continue;
+      }
+
+      // Handle dot separately to properly tokenize property access
+      if (char === '.') {
+        // Check if the dot is part of a number (e.g., 3.14)
+        if (this.position > 0 && /[0-9]/.test(this.input[this.position - 1]) &&
+          this.position + 1 < this.input.length && /[0-9]/.test(this.input[this.position + 1])) {
+          // This is part of a number, let the number tokenizer handle it
+          continue;
+        }
+
+        // Otherwise, tokenize as punctuation
         this.tokenizePunctuation();
         continue;
       }
@@ -513,11 +527,23 @@ export class VCLLexer {
     while (this.position < this.input.length) {
       const char = this.input[this.position];
 
-      // Always accept letters, digits, underscore, dot
-      if (/[a-zA-Z0-9_.]/.test(char)) {
+      // Always accept letters, digits, underscore
+      if (/[a-zA-Z0-9_]/.test(char)) {
         this.advance();
-        // After we've seen a letter, digit, underscore, or dot, we can accept hyphens
+        // After we've seen a letter, digit, or underscore, we can accept hyphens
         includeHyphen = true;
+      }
+      // Handle dots separately to properly tokenize property access
+      else if (char === '.') {
+        // If we're at the beginning of an identifier or the previous character was a dot,
+        // include the dot as part of the identifier (for cases like .name)
+        if (this.position === start || this.input[this.position - 1] === '.') {
+          this.advance();
+        }
+        // Otherwise, stop tokenizing the current identifier
+        else {
+          break;
+        }
       }
       // Accept hyphens only after we've seen a letter, digit, underscore, or dot
       // This prevents operators like "-" from being treated as part of an identifier

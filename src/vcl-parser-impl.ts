@@ -448,21 +448,9 @@ export class VCLParser {
     // For VCL, we need to handle the special case of regex matching
     // which is typically written as: if (req.url ~ "^/api/")
 
-    // Parse the left side of the condition
-    let left: VCLExpression;
-    if (this.match(TokenType.IDENTIFIER)) {
-      const identifier = this.previous().value;
-      left = {
-        type: 'Identifier',
-        name: identifier,
-        location: {
-          line: this.previous().line,
-          column: this.previous().column
-        }
-      };
-    } else {
-      left = this.parseExpression();
-    }
+    // Parse the left side of the condition using parseExpression to handle complex expressions
+    // including property access chains
+    let left = this.parseExpression();
 
     // Parse the operator
     let operator: string;
@@ -486,18 +474,23 @@ export class VCLParser {
       // If no operator is found, use the left expression as the condition
       this.consume(TokenType.PUNCTUATION, "Expected ')' after condition");
 
-      // Parse the opening brace
-      this.consume(TokenType.PUNCTUATION, "Expected '{' after if condition");
-
       const consequent: VCLStatement[] = [];
 
-      // Parse statements until we reach the closing brace
-      while (!this.check(TokenType.PUNCTUATION, '}') && !this.isAtEnd()) {
+      // Check if there's an opening brace
+      const hasBraces = this.match(TokenType.PUNCTUATION, '{');
+
+      // Parse statements until we reach the closing brace or an 'else' keyword
+      while ((!hasBraces || !this.check(TokenType.PUNCTUATION, '}')) &&
+        !this.check(TokenType.KEYWORD, 'else') &&
+        !this.isAtEnd()) {
         const statement = this.parseStatement();
         consequent.push(statement);
       }
 
-      this.consume(TokenType.PUNCTUATION, "Expected '}' after if body");
+      // If we had opening braces, consume the closing brace
+      if (hasBraces) {
+        this.consume(TokenType.PUNCTUATION, "Expected '}' after if body");
+      }
 
       // Check for else
       let alternate: VCLStatement[] | undefined;
@@ -513,18 +506,23 @@ export class VCLParser {
           // Create an alternate array with just the else if statement
           alternate = [elseIfStatement];
         } else {
-          // Parse the opening brace
-          this.consume(TokenType.PUNCTUATION, "Expected '{' after else");
-
           alternate = [];
 
-          // Parse statements until we reach the closing brace
-          while (!this.check(TokenType.PUNCTUATION, '}') && !this.isAtEnd()) {
+          // Check if there's an opening brace
+          const hasBraces = this.match(TokenType.PUNCTUATION, '{');
+
+          // Parse statements until we reach the closing brace or another 'else' keyword
+          while ((!hasBraces || !this.check(TokenType.PUNCTUATION, '}')) &&
+            !this.check(TokenType.KEYWORD, 'else') &&
+            !this.isAtEnd()) {
             const statement = this.parseStatement();
             alternate.push(statement);
           }
 
-          this.consume(TokenType.PUNCTUATION, "Expected '}' after else body");
+          // If we had opening braces, consume the closing brace
+          if (hasBraces) {
+            this.consume(TokenType.PUNCTUATION, "Expected '}' after else body");
+          }
         }
       }
 
@@ -621,18 +619,23 @@ export class VCLParser {
     // Consume the closing parenthesis
     this.consume(TokenType.PUNCTUATION, "Expected ')' after condition");
 
-    // Parse the opening brace
-    this.consume(TokenType.PUNCTUATION, "Expected '{' after if condition");
-
     const consequent: VCLStatement[] = [];
 
-    // Parse statements until we reach the closing brace
-    while (!this.check(TokenType.PUNCTUATION, '}') && !this.isAtEnd()) {
+    // Check if there's an opening brace
+    const hasBraces = this.match(TokenType.PUNCTUATION, '{');
+
+    // Parse statements until we reach the closing brace or an 'else' keyword
+    while ((!hasBraces || !this.check(TokenType.PUNCTUATION, '}')) &&
+      !this.check(TokenType.KEYWORD, 'else') &&
+      !this.isAtEnd()) {
       const statement = this.parseStatement();
       consequent.push(statement);
     }
 
-    this.consume(TokenType.PUNCTUATION, "Expected '}' after if body");
+    // If we had opening braces, consume the closing brace
+    if (hasBraces) {
+      this.consume(TokenType.PUNCTUATION, "Expected '}' after if body");
+    }
 
     // Check for else
     let alternate: VCLStatement[] | undefined;
@@ -745,13 +748,54 @@ export class VCLParser {
     const token = this.previous();
 
     // Parse the target (e.g., req.http.X-Header)
-    // With our updated tokenizer, the entire identifier including dots and hyphens
-    // should be tokenized as a single IDENTIFIER token
+    // Use parseExpression to handle complex expressions including property access chains
     if (!this.match(TokenType.IDENTIFIER)) {
       this.error("Expected identifier after 'set'");
     }
 
-    const target = this.previous().value;
+    // Create the identifier expression
+    let targetExpr: VCLExpression = {
+      type: 'Identifier',
+      name: this.previous().value,
+      location: {
+        line: this.previous().line,
+        column: this.previous().column
+      }
+    };
+
+    // Handle property access (e.g., req.http.X-Header)
+    while (this.check(TokenType.IDENTIFIER) && this.peek().value.startsWith('.')) {
+      // Consume the property token
+      const propertyToken = this.advance();
+      const propertyName = propertyToken.value.substring(1); // Remove the leading dot
+
+      targetExpr = {
+        type: 'MemberAccess',
+        object: targetExpr,
+        property: propertyName,
+        location: {
+          line: propertyToken.line,
+          column: propertyToken.column
+        }
+      };
+    }
+
+    // Convert the expression to a string target
+    let target = '';
+    if (targetExpr.type === 'Identifier') {
+      target = targetExpr.name;
+    } else if (targetExpr.type === 'MemberAccess') {
+      // Recursively build the target string
+      const buildTarget = (expr: VCLExpression): string => {
+        if (expr.type === 'Identifier') {
+          return expr.name;
+        } else if (expr.type === 'MemberAccess') {
+          return `${ buildTarget(expr.object) }.${ expr.property }`;
+        }
+        return '';
+      };
+      target = buildTarget(targetExpr);
+    }
 
     // Parse the equals sign
     this.consume(TokenType.OPERATOR, "Expected '=' after identifier");
@@ -1229,7 +1273,6 @@ export class VCLParser {
   }
 
   private parsePrimary(): VCLExpression {
-    console.log(`Parsing primary expression, current token: ${ this.peek().type } - ${ this.peek().value }`);
 
     // Handle parenthesized expressions
     if (this.match(TokenType.PUNCTUATION, '(')) {
@@ -1241,7 +1284,7 @@ export class VCLParser {
     // Handle literals
     if (this.match(TokenType.STRING)) {
       const token = this.previous();
-      console.log(`Parsed string literal: ${ token.value }`);
+
 
       // Remove quotes
       let value = token.value;
@@ -1263,7 +1306,7 @@ export class VCLParser {
 
     if (this.match(TokenType.NUMBER)) {
       const token = this.previous();
-      console.log(`Parsed number literal: ${ token.value }`);
+
       return {
         type: 'NumberLiteral',
         value: parseFloat(token.value),
@@ -1276,7 +1319,7 @@ export class VCLParser {
 
     if (this.match(TokenType.REGEX)) {
       const token = this.previous();
-      console.log(`Parsed regex literal: ${ token.value }`);
+
 
       // Extract pattern and flags
       let pattern = token.value;
@@ -1307,14 +1350,15 @@ export class VCLParser {
 
     if (this.match(TokenType.IDENTIFIER)) {
       const token = this.previous();
-      console.log(`Parsed identifier: ${ token.value }`);
+
 
       // Check if this is a function call
       if (this.check(TokenType.PUNCTUATION, '(')) {
         return this.parseFunctionCall(token);
       }
 
-      return {
+      // Create the identifier expression
+      let result: VCLExpression = {
         type: 'Identifier',
         name: token.value,
         location: {
@@ -1322,6 +1366,25 @@ export class VCLParser {
           column: token.column
         }
       };
+
+      // Handle property access (e.g., req.url)
+      while (this.check(TokenType.IDENTIFIER) && this.peek().value.startsWith('.')) {
+        // Consume the property token
+        const propertyToken = this.advance();
+        const propertyName = propertyToken.value.substring(1); // Remove the leading dot
+
+        result = {
+          type: 'MemberAccess',
+          object: result,
+          property: propertyName,
+          location: {
+            line: propertyToken.line,
+            column: propertyToken.column
+          }
+        };
+      }
+
+      return result;
     }
 
     if (this.match(TokenType.KEYWORD, 'true')) {
@@ -1431,8 +1494,6 @@ export class VCLParser {
 
   private parseFunctionCall(token: Token): VCLExpression {
     const name = token.value;
-    console.log(`Parsing function call: ${ name }`);
-
     // Consume the opening parenthesis
     this.consume(TokenType.PUNCTUATION, "Expected '(' after function name");
 
@@ -1448,9 +1509,7 @@ export class VCLParser {
     // Consume the closing parenthesis
     this.consume(TokenType.PUNCTUATION, "Expected ')' after function arguments");
 
-    console.log(`Parsed function call with ${ args.length } arguments`);
-
-    // Check if there's a member access after the function call (e.g., func().name)
+    // Create the function call expression
     let result: VCLExpression = {
       type: 'FunctionCall',
       name,
@@ -1462,7 +1521,11 @@ export class VCLParser {
     };
 
     // Handle member access (e.g., func().name)
-    if (this.match(TokenType.PUNCTUATION, '.')) {
+    // Keep checking for property access chains (e.g., func().prop1.prop2)
+    while (this.check(TokenType.PUNCTUATION, '.')) {
+      // Consume the dot
+      this.advance();
+
       // Parse the property name
       const propertyToken = this.consume(TokenType.IDENTIFIER, "Expected property name after '.'");
 
