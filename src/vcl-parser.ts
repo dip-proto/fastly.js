@@ -16,6 +16,10 @@ export type VCLNodeType =
 	| "GotoStatement"
 	| "LabelStatement"
 	| "RestartStatement"
+	| "IncludeStatement"
+	| "ImportStatement"
+	| "BackendDeclaration"
+	| "TableDeclaration"
 	| "BinaryExpression"
 	| "UnaryExpression"
 	| "TernaryExpression"
@@ -41,6 +45,10 @@ export interface VCLProgram extends VCLNode {
 	subroutines: VCLSubroutine[];
 	comments: VCLComment[];
 	acls: VCLACL[];
+	includes: VCLIncludeStatement[];
+	imports: VCLImportStatement[];
+	tables: VCLTableDeclaration[];
+	backends: VCLBackendDeclaration[];
 }
 
 export interface VCLACL extends VCLNode {
@@ -53,6 +61,7 @@ export interface VCLACLEntry extends VCLNode {
 	type: "ACLEntry";
 	ip: string;
 	subnet?: number;
+	negated?: boolean;
 }
 
 export interface VCLSubroutine extends VCLNode {
@@ -133,6 +142,44 @@ export interface VCLLabelStatement extends VCLStatement {
 
 export interface VCLRestartStatement extends VCLStatement {
 	type: "RestartStatement";
+}
+
+export interface VCLIncludeStatement extends VCLNode {
+	type: "IncludeStatement";
+	module: string;
+}
+
+export interface VCLImportStatement extends VCLNode {
+	type: "ImportStatement";
+	module: string;
+}
+
+export interface VCLTableDeclaration extends VCLNode {
+	type: "TableDeclaration";
+	name: string;
+	valueType?: string;
+	entries: VCLTableEntry[];
+}
+
+export interface VCLTableEntry {
+	key: string;
+	value: string;
+}
+
+export interface VCLBackendDeclaration extends VCLNode {
+	type: "BackendDeclaration";
+	name: string;
+	properties: VCLBackendProperty[];
+}
+
+export interface VCLBackendProperty {
+	name: string;
+	value: string | number | VCLBackendProbe;
+}
+
+export interface VCLBackendProbe {
+	type: "probe";
+	properties: VCLBackendProperty[];
 }
 
 export interface VCLDeclareStatement extends VCLStatement {
@@ -248,6 +295,13 @@ const VCL_KEYWORDS = [
 	"purge",
 	"acl",
 	"goto",
+	"include",
+	"import",
+	"backend",
+	"table",
+	"director",
+	"penaltybox",
+	"ratecounter",
 ];
 
 export class VCLLexer {

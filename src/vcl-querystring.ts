@@ -99,4 +99,76 @@ export const QueryStringModule = {
 
 		return sortedParams.toString();
 	},
+
+	globfilter(queryString: string, pattern: string): string {
+		const params = parseQueryString(String(queryString));
+		const filtered = new URLSearchParams();
+		const glob = globToRegex(String(pattern));
+
+		for (const [name, value] of params.entries()) {
+			if (!glob.test(name)) {
+				filtered.append(name, value);
+			}
+		}
+
+		return filtered.toString();
+	},
+
+	globfilter_except(queryString: string, pattern: string): string {
+		const params = parseQueryString(String(queryString));
+		const filtered = new URLSearchParams();
+		const glob = globToRegex(String(pattern));
+
+		for (const [name, value] of params.entries()) {
+			if (glob.test(name)) {
+				filtered.append(name, value);
+			}
+		}
+
+		return filtered.toString();
+	},
+
+	regfilter(queryString: string, pattern: string): string {
+		const params = parseQueryString(String(queryString));
+		const filtered = new URLSearchParams();
+
+		try {
+			const regex = new RegExp(String(pattern));
+			for (const [name, value] of params.entries()) {
+				if (!regex.test(name)) {
+					filtered.append(name, value);
+				}
+			}
+		} catch {
+			return params.toString();
+		}
+
+		return filtered.toString();
+	},
+
+	regfilter_except(queryString: string, pattern: string): string {
+		const params = parseQueryString(String(queryString));
+		const filtered = new URLSearchParams();
+
+		try {
+			const regex = new RegExp(String(pattern));
+			for (const [name, value] of params.entries()) {
+				if (regex.test(name)) {
+					filtered.append(name, value);
+				}
+			}
+		} catch {
+			return params.toString();
+		}
+
+		return filtered.toString();
+	},
 };
+
+function globToRegex(pattern: string): RegExp {
+	const escaped = pattern
+		.replace(/[.+^${}()|[\]\\]/g, "\\$&")
+		.replace(/\*/g, ".*")
+		.replace(/\?/g, ".");
+	return new RegExp(`^${escaped}$`);
+}

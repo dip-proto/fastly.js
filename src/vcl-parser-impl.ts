@@ -3,6 +3,8 @@ import {
 	TokenType,
 	type VCLACL,
 	type VCLACLEntry,
+	type VCLBackendDeclaration,
+	type VCLBackendProperty,
 	type VCLComment,
 	type VCLErrorStatement,
 	type VCLExpression,
@@ -10,6 +12,8 @@ import {
 	type VCLHashDataStatement,
 	type VCLIdentifier,
 	type VCLIfStatement,
+	type VCLImportStatement,
+	type VCLIncludeStatement,
 	type VCLLabelStatement,
 	type VCLLogStatement,
 	type VCLNumberLiteral,
@@ -21,6 +25,8 @@ import {
 	type VCLStringLiteral,
 	type VCLSubroutine,
 	type VCLSyntheticStatement,
+	type VCLTableDeclaration,
+	type VCLTableEntry,
 	type VCLUnsetStatement,
 } from "./vcl-parser";
 
@@ -40,21 +46,40 @@ export class VCLParser {
 			subroutines: [],
 			comments: [],
 			acls: [],
+			includes: [],
+			imports: [],
+			tables: [],
+			backends: [],
 		};
 
 		while (!this.isAtEnd()) {
 			if (this.match(TokenType.COMMENT)) {
 				program.comments.push(this.parseComment());
-			} else if (
-				this.match(TokenType.KEYWORD) &&
-				this.previous().value === "sub"
-			) {
-				program.subroutines.push(this.parseSubroutine());
-			} else if (
-				this.match(TokenType.KEYWORD) &&
-				this.previous().value === "acl"
-			) {
-				program.acls.push(this.parseACL());
+			} else if (this.check(TokenType.KEYWORD)) {
+				const keyword = this.peek().value;
+				this.advance();
+				switch (keyword) {
+					case "sub":
+						program.subroutines.push(this.parseSubroutine());
+						break;
+					case "acl":
+						program.acls.push(this.parseACL());
+						break;
+					case "include":
+						program.includes.push(this.parseIncludeStatement());
+						break;
+					case "import":
+						program.imports.push(this.parseImportStatement());
+						break;
+					case "table":
+						program.tables.push(this.parseTableDeclaration());
+						break;
+					case "backend":
+						program.backends.push(this.parseBackendDeclaration());
+						break;
+					default:
+						break;
+				}
 			} else {
 				this.advance();
 			}
@@ -101,6 +126,13 @@ export class VCLParser {
 
 		// Parse entries until we reach the closing brace
 		while (!this.check(TokenType.PUNCTUATION, "}") && !this.isAtEnd()) {
+			// Check for negation operator
+			let negated = false;
+			if (this.check(TokenType.OPERATOR, "!")) {
+				negated = true;
+				this.advance();
+			}
+
 			// Parse an IP address or CIDR notation
 			if (this.match(TokenType.STRING)) {
 				const ipToken = this.previous();
@@ -115,11 +147,19 @@ export class VCLParser {
 
 				let subnet: number | undefined;
 
-				// Check for CIDR notation
+				// Check for CIDR notation inside the string
 				if (ip.includes("/")) {
 					const parts = ip.split("/");
 					ip = parts[0];
 					subnet = parseInt(parts[1], 10);
+				}
+
+				// Check for CIDR notation outside the string: "192.168.0.0"/16
+				if (this.check(TokenType.OPERATOR, "/")) {
+					this.advance();
+					if (this.match(TokenType.NUMBER)) {
+						subnet = parseInt(this.previous().value, 10);
+					}
 				}
 
 				// Validate IP address format
@@ -153,6 +193,7 @@ export class VCLParser {
 					type: "ACLEntry",
 					ip,
 					subnet,
+					negated,
 					location: {
 						line: ipToken.line,
 						column: ipToken.column,
@@ -174,6 +215,127 @@ export class VCLParser {
 				line: nameToken.line,
 				column: nameToken.column,
 			},
+		};
+	}
+
+	private parseIncludeStatement(): VCLIncludeStatement {
+		const token = this.previous();
+		const moduleToken = this.consume(TokenType.STRING, "Expected module name after 'include'");
+		let module = moduleToken.value;
+		if ((module.startsWith('"') && module.endsWith('"')) ||
+			(module.startsWith("'") && module.endsWith("'"))) {
+			module = module.slice(1, -1);
+		}
+		if (this.check(TokenType.PUNCTUATION, ";")) {
+			this.advance();
+		}
+		return {
+			type: "IncludeStatement",
+			module,
+			location: { line: token.line, column: token.column },
+		};
+	}
+
+	private parseImportStatement(): VCLImportStatement {
+		const token = this.previous();
+		const moduleToken = this.consume(TokenType.IDENTIFIER, "Expected module name after 'import'");
+		if (this.check(TokenType.PUNCTUATION, ";")) {
+			this.advance();
+		}
+		return {
+			type: "ImportStatement",
+			module: moduleToken.value,
+			location: { line: token.line, column: token.column },
+		};
+	}
+
+	private parseTableDeclaration(): VCLTableDeclaration {
+		const token = this.previous();
+		const nameToken = this.consume(TokenType.IDENTIFIER, "Expected table name");
+		let valueType: string | undefined;
+		if (this.check(TokenType.IDENTIFIER)) {
+			valueType = this.advance().value;
+		}
+		this.consume(TokenType.PUNCTUATION, "Expected '{' after table name");
+
+		const entries: VCLTableEntry[] = [];
+		while (!this.check(TokenType.PUNCTUATION, "}") && !this.isAtEnd()) {
+			if (this.match(TokenType.STRING)) {
+				const keyToken = this.previous();
+				let key = keyToken.value;
+				if ((key.startsWith('"') && key.endsWith('"')) ||
+					(key.startsWith("'") && key.endsWith("'"))) {
+					key = key.slice(1, -1);
+				}
+				this.consume(TokenType.PUNCTUATION, "Expected ':' after table key");
+				let value = "";
+				if (this.match(TokenType.STRING)) {
+					value = this.previous().value;
+					if ((value.startsWith('"') && value.endsWith('"')) ||
+						(value.startsWith("'") && value.endsWith("'"))) {
+						value = value.slice(1, -1);
+					}
+				} else if (this.match(TokenType.NUMBER)) {
+					value = this.previous().value;
+				} else if (this.match(TokenType.IDENTIFIER)) {
+					value = this.previous().value;
+				}
+				if (this.check(TokenType.PUNCTUATION, ",")) {
+					this.advance();
+				}
+				entries.push({ key, value });
+			} else {
+				this.advance();
+			}
+		}
+		this.consume(TokenType.PUNCTUATION, "Expected '}' after table entries");
+
+		return {
+			type: "TableDeclaration",
+			name: nameToken.value,
+			valueType,
+			entries,
+			location: { line: token.line, column: token.column },
+		};
+	}
+
+	private parseBackendDeclaration(): VCLBackendDeclaration {
+		const token = this.previous();
+		const nameToken = this.consume(TokenType.IDENTIFIER, "Expected backend name");
+		this.consume(TokenType.PUNCTUATION, "Expected '{' after backend name");
+
+		const properties: VCLBackendProperty[] = [];
+		while (!this.check(TokenType.PUNCTUATION, "}") && !this.isAtEnd()) {
+			if (this.match(TokenType.PUNCTUATION, ".")) {
+				const propName = this.consume(TokenType.IDENTIFIER, "Expected property name").value;
+				this.consume(TokenType.OPERATOR, "Expected '=' after property name");
+				let value: string | number = "";
+				if (this.match(TokenType.STRING)) {
+					value = this.previous().value;
+					if ((value.startsWith('"') && value.endsWith('"')) ||
+						(value.startsWith("'") && value.endsWith("'"))) {
+						value = (value as string).slice(1, -1);
+					}
+				} else if (this.match(TokenType.NUMBER)) {
+					value = parseFloat(this.previous().value);
+				} else if (this.match(TokenType.IDENTIFIER)) {
+					value = this.previous().value;
+				}
+				if (this.check(TokenType.PUNCTUATION, ";")) {
+					this.advance();
+				}
+				properties.push({ name: propName, value });
+			} else {
+				this.advance();
+			}
+		}
+		this.consume(TokenType.PUNCTUATION, "Expected '}' after backend properties");
+
+		return {
+			type: "BackendDeclaration",
+			name: nameToken.value,
+			properties,
+			location: { line: token.line, column: token.column },
 		};
 	}
 

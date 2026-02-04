@@ -7,7 +7,7 @@ import {
 	type VCLContext,
 	type VCLSubroutines,
 } from "./vcl-compiler";
-import { DigestModule } from "./vcl-digest";
+import { DigestModule, CryptoModule } from "./vcl-digest";
 import { processESI } from "./vcl-esi";
 import { createHeaderModule } from "./vcl-header";
 import { createMathModule } from "./vcl-math";
@@ -300,10 +300,19 @@ export function createVCLContext(): VCLContext {
 		digest: {
 			hash_md5: DigestModule.hash_md5,
 			hash_sha1: DigestModule.hash_sha1,
+			hash_sha224: DigestModule.hash_sha224,
 			hash_sha256: DigestModule.hash_sha256,
+			hash_sha384: DigestModule.hash_sha384,
 			hash_sha512: DigestModule.hash_sha512,
+			hash_crc32: DigestModule.hash_crc32,
+			hash_crc32b: DigestModule.hash_crc32b,
 			hash_xxh32: DigestModule.hash_xxh32,
 			hash_xxh64: DigestModule.hash_xxh64,
+			hash_sha1_from_base64: DigestModule.hash_sha1_from_base64,
+			hash_sha256_from_base64: DigestModule.hash_sha256_from_base64,
+			hash_sha512_from_base64: DigestModule.hash_sha512_from_base64,
+			hash_xxh32_from_base64: DigestModule.hash_xxh32_from_base64,
+			hash_xxh64_from_base64: DigestModule.hash_xxh64_from_base64,
 			hmac_md5: DigestModule.hmac_md5,
 			hmac_sha1: DigestModule.hmac_sha1,
 			hmac_sha256: DigestModule.hmac_sha256,
@@ -319,6 +328,16 @@ export function createVCLContext(): VCLContext {
 			base64url_decode: DigestModule.base64url_decode,
 			base64url_nopad: DigestModule.base64url_nopad,
 			base64url_nopad_decode: DigestModule.base64url_nopad_decode,
+			awsv4_hmac: DigestModule.awsv4_hmac,
+			rsa_verify: DigestModule.rsa_verify,
+			ecdsa_verify: DigestModule.ecdsa_verify,
+		},
+
+		crypto: {
+			encrypt_base64: CryptoModule.encrypt_base64,
+			decrypt_base64: CryptoModule.decrypt_base64,
+			encrypt_hex: CryptoModule.encrypt_hex,
+			decrypt_hex: CryptoModule.decrypt_hex,
 		},
 
 		header: {
@@ -800,18 +819,26 @@ export function createVCLContext(): VCLContext {
 		filter_except: QueryStringModule.filter_except,
 		filtersep: QueryStringModule.filtersep,
 		sort: QueryStringModule.sort,
+		globfilter: QueryStringModule.globfilter,
+		globfilter_except: QueryStringModule.globfilter_except,
+		regfilter: QueryStringModule.regfilter,
+		regfilter_except: QueryStringModule.regfilter_except,
 	};
 
 	context.uuid = {
 		version3: UUIDModule.version3,
 		version4: UUIDModule.version4,
 		version5: UUIDModule.version5,
+		version7: UUIDModule.version7,
 		dns: UUIDModule.dns,
 		url: UUIDModule.url,
+		oid: UUIDModule.oid,
+		x500: UUIDModule.x500,
 		is_valid: UUIDModule.is_valid,
 		is_version3: UUIDModule.is_version3,
 		is_version4: UUIDModule.is_version4,
 		is_version5: UUIDModule.is_version5,
+		is_version7: UUIDModule.is_version7,
 		decode: UUIDModule.decode,
 		encode: UUIDModule.encode,
 	};

@@ -78,6 +78,36 @@ export const AcceptModule = {
 		return lookupAcceptHeader(available, defaultLang, header);
 	},
 
+	language_filter_basic: (
+		lookup: string,
+		defaultValue: string,
+		language: string,
+		nmatches: number,
+	): string => {
+		const languages = String(lookup).split(":");
+		const matches: number[] = [];
+
+		for (const lang of String(language).split(",")) {
+			let l = lang.trim();
+			const semicolonIdx = l.indexOf(";");
+			if (semicolonIdx !== -1) {
+				l = l.substring(0, semicolonIdx);
+			}
+			const idx = languages.indexOf(l);
+			if (idx !== -1) {
+				matches.push(idx);
+			}
+		}
+
+		if (matches.length === 0) {
+			return String(defaultValue);
+		}
+
+		const limitedMatches = matches.slice(0, nmatches);
+		limitedMatches.sort((a, b) => a - b);
+		return limitedMatches.map((i) => languages[i]).join(",");
+	},
+
 	charset_lookup: (
 		available: string,
 		defaultCharset: string,

@@ -1,11 +1,20 @@
-/**
- * VCL Standard Library Functions Module
- *
- * Implements all std.* functions from Fastly VCL.
- * Reference: https://developer.fastly.com/reference/vcl/functions/
- */
-
 import * as path from "node:path";
+import {
+	strtol as strtolImpl,
+	regsub as regsubImpl,
+	regsuball as regsuballImpl,
+	substr as substrImpl,
+	urlencode,
+	urldecode,
+	cstr_escape,
+	json_escape,
+	xml_escape,
+	boltsort_sort,
+	setcookie_get_value_by_name,
+	setcookie_delete_by_name,
+	subfield,
+	Utf8Module,
+} from "./vcl-strings";
 
 export interface StdModule {
 	strlen: (s: string) => number;
@@ -39,6 +48,15 @@ export interface StdModule {
 	time: (s: string) => number;
 	integer2time: (n: number) => Date;
 	log: (message: string) => void;
+	substr: (s: string, offset: number, length?: number) => string;
+	regsub: (s: string, pattern: string, replacement: string) => string;
+	regsuball: (s: string, pattern: string, replacement: string) => string;
+	urlencode: (s: string) => string;
+	urldecode: (s: string) => string;
+	cstr_escape: (s: string) => string;
+	json_escape: (s: string) => string;
+	xml_escape: (s: string) => string;
+	subfield: (header: string, name: string, separator?: string) => string;
 }
 
 const IPV4_REGEX = /^(\d{1,3}\.){3}\d{1,3}$/;
@@ -166,12 +184,7 @@ export function createStdModule(): StdModule {
 			return Number.isNaN(result) ? 0 : result;
 		},
 
-		strtol: (s: string, base: number): number => {
-			const b = Math.floor(base);
-			if (b < 2 || b > 36) return 0;
-			const result = parseInt(String(s), b);
-			return Number.isNaN(result) ? 0 : result;
-		},
+		strtol: strtolImpl,
 
 		strtof: (s: string): number => {
 			const result = parseFloat(String(s));
@@ -238,5 +251,15 @@ export function createStdModule(): StdModule {
 		log: (message: string): void => {
 			console.log(`[VCL] ${message}`);
 		},
+
+		substr: substrImpl,
+		regsub: regsubImpl,
+		regsuball: regsuballImpl,
+		urlencode,
+		urldecode,
+		cstr_escape,
+		json_escape,
+		xml_escape,
+		subfield,
 	};
 }

@@ -343,23 +343,33 @@ export function createStrftime(): StrftimeFunction {
 
 export function createParseTimeDelta(): ParseTimeDeltaFunction {
 	return (delta: string): number => {
-		const str = String(delta).trim();
+		const str = String(delta);
 		let totalSeconds = 0;
-		let hasMatch = false;
+		let numStr = "";
 
-		const pattern = /(-?\d+(?:\.\d+)?)(ms|s|m|h|d|w|y)/g;
-		let match;
-
-		while ((match = pattern.exec(str)) !== null) {
-			hasMatch = true;
-			const num = parseFloat(match[1]);
-			const unit = match[2];
-			totalSeconds += num * (TIME_UNITS[unit] || 1);
+		for (const char of str) {
+			const c = char.toLowerCase();
+			if (c >= "0" && c <= "9") {
+				numStr += c;
+			} else if (c === "d") {
+				const num = parseInt(numStr, 10);
+				if (!Number.isNaN(num)) totalSeconds += num * 24 * 60 * 60;
+				numStr = "";
+			} else if (c === "h") {
+				const num = parseInt(numStr, 10);
+				if (!Number.isNaN(num)) totalSeconds += num * 60 * 60;
+				numStr = "";
+			} else if (c === "m") {
+				const num = parseInt(numStr, 10);
+				if (!Number.isNaN(num)) totalSeconds += num * 60;
+				numStr = "";
+			} else if (c === "s") {
+				const num = parseInt(numStr, 10);
+				if (!Number.isNaN(num)) totalSeconds += num;
+				numStr = "";
+			}
 		}
 
-		if (hasMatch) return totalSeconds;
-
-		const parsed = parseFloat(str);
-		return Number.isNaN(parsed) ? 0 : parsed;
+		return totalSeconds;
 	};
 }
