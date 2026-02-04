@@ -139,7 +139,7 @@ function testRegexMatching() {
 			if (ctx.req.url.match(/^\/users\/(\d+)$/)) {
 				const matches = ctx.req.url.match(/^\/users\/(\d+)$/);
 				if (matches && matches.length > 1) {
-					ctx.req.http["X-User-ID"] = matches[1];
+					ctx.req.http["X-User-ID"] = matches[1]!;
 				}
 			}
 			return "lookup";

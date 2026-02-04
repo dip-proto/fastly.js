@@ -89,7 +89,7 @@ const cachingTests = {
 				missContext.resp.http = { ...context.resp.http };
 
 				// Store the miss context for assertions
-				context.missContext = {
+				(context as any).missContext = {
 					resp: { ...context.resp },
 					obj: { ...context.obj },
 				};
@@ -113,9 +113,9 @@ const cachingTests = {
 				};
 
 				// Store the hit context for assertions
-				context.hitContext = { ...context };
-				context.hitContext.resp = { ...context.resp };
-				context.hitContext.resp.http = { ...context.resp.http };
+				(context as any).hitContext = { ...context };
+				(context as any).hitContext.resp = { ...context.resp };
+				(context as any).hitContext.resp.http = { ...context.resp.http };
 
 				// Restore the miss context for assertions
 				context.resp = missContext.resp;
@@ -144,15 +144,15 @@ const cachingTests = {
 				// Check cache hit
 				(context: VCLContext) => {
 					return assert(
-						context.hitContext.resp.http["X-Cache"] === "HIT",
-						`Expected X-Cache to be 'HIT', got '${context.hitContext.resp.http["X-Cache"]}'`,
+						(context as any).hitContext.resp.http["X-Cache"] === "HIT",
+						`Expected X-Cache to be 'HIT', got '${(context as any).hitContext.resp.http["X-Cache"]}'`,
 					);
 				},
 				// Check cache hits count
 				(context: VCLContext) => {
 					return assert(
-						context.hitContext.resp.http["X-Cache-Hits"] === "1",
-						`Expected X-Cache-Hits to be '1', got '${context.hitContext.resp.http["X-Cache-Hits"]}'`,
+						(context as any).hitContext.resp.http["X-Cache-Hits"] === "1",
+						`Expected X-Cache-Hits to be '1', got '${(context as any).hitContext.resp.http["X-Cache-Hits"]}'`,
 					);
 				},
 			],
@@ -207,7 +207,7 @@ const cachingTests = {
 				executeSubroutine(context, subroutines, "vcl_fetch");
 
 				// Store the TTL values for assertions
-				context.ttlValues = {
+				(context as any).ttlValues = {
 					ttl: context.beresp.ttl,
 					grace: context.beresp.grace,
 					swr: context.beresp.stale_while_revalidate,
@@ -217,22 +217,22 @@ const cachingTests = {
 				// Check TTL
 				(context: VCLContext) => {
 					return assert(
-						context.ttlValues.ttl === 10,
-						`Expected TTL to be 10, got '${context.ttlValues.ttl}'`,
+						(context as any).ttlValues.ttl === 10,
+						`Expected TTL to be 10, got '${(context as any).ttlValues.ttl}'`,
 					);
 				},
 				// Check grace period
 				(context: VCLContext) => {
 					return assert(
-						context.ttlValues.grace === 3600,
-						`Expected grace period to be 3600, got '${context.ttlValues.grace}'`,
+						(context as any).ttlValues.grace === 3600,
+						`Expected grace period to be 3600, got '${(context as any).ttlValues.grace}'`,
 					);
 				},
 				// Check stale-while-revalidate
 				(context: VCLContext) => {
 					return assert(
-						context.ttlValues.swr === 30,
-						`Expected stale-while-revalidate to be 30, got '${context.ttlValues.swr}'`,
+						(context as any).ttlValues.swr === 30,
+						`Expected stale-while-revalidate to be 30, got '${(context as any).ttlValues.swr}'`,
 					);
 				},
 			],

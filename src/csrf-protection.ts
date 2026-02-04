@@ -9,28 +9,19 @@ import type { VCLContext } from "./vcl-compiler";
 export function generateCSRFToken(context: VCLContext, secret: string): string {
 	const clientIp = context.client?.ip || "127.0.0.1";
 	const userAgent = context.req.http["User-Agent"] || "";
-	const timestamp = context.time?.hex
-		? context.time.hex
-		: Date.now().toString(16);
+	// Use time module's hex property if available, otherwise use current timestamp
+	const timeModule = context.time as { hex?: string } | undefined;
+	const timestamp = timeModule?.hex ?? Date.now().toString(16);
 
-	return createHash("sha256")
-		.update(`${clientIp}${userAgent}${secret}${timestamp}`)
-		.digest("hex");
+	return createHash("sha256").update(`${clientIp}${userAgent}${secret}${timestamp}`).digest("hex");
 }
 
-export function validateCSRFToken(
-	context: VCLContext,
-	token: string,
-	secret: string,
-): boolean {
+export function validateCSRFToken(context: VCLContext, token: string, secret: string): boolean {
 	const expectedToken = generateCSRFToken(context, secret);
 	return token === expectedToken;
 }
 
-export function protectAgainstCSRF(
-	context: VCLContext,
-	secret: string,
-): boolean {
+export function protectAgainstCSRF(context: VCLContext, secret: string): boolean {
 	if (context.req.method === "GET") {
 		const token = generateCSRFToken(context, secret);
 		context.req.http["X-CSRF-Token"] = token;

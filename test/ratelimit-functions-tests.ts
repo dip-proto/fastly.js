@@ -164,7 +164,7 @@ const rateLimitFunctionsTests = {
 				RateLimitModule.init();
 
 				// Set client IP
-				context.client.ip = "192.168.1.1";
+				context.client!.ip = "192.168.1.1";
 
 				// Execute the subroutine
 				executeSubroutine(context, subroutines, "vcl_recv");

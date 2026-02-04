@@ -16,6 +16,7 @@ export type VCLNodeType =
 	| "GotoStatement"
 	| "LabelStatement"
 	| "RestartStatement"
+	| "DeclareStatement"
 	| "IncludeStatement"
 	| "ImportStatement"
 	| "BackendDeclaration"
@@ -28,6 +29,7 @@ export type VCLNodeType =
 	| "StringLiteral"
 	| "NumberLiteral"
 	| "RegexLiteral"
+	| "MemberAccess"
 	| "Comment"
 	| "ACL"
 	| "ACLEntry";
@@ -73,76 +75,115 @@ export interface VCLSubroutine extends VCLNode {
 	returnType?: string;
 }
 
-export interface VCLStatement extends VCLNode {
+// Base statement interface (not used directly in unions)
+export interface VCLBaseStatement extends VCLNode {
+	type: VCLStatementType;
+}
+
+export type VCLStatementType =
+	| "Statement"
+	| "Assignment"
+	| "IfStatement"
+	| "ReturnStatement"
+	| "ErrorStatement"
+	| "SetStatement"
+	| "UnsetStatement"
+	| "LogStatement"
+	| "SyntheticStatement"
+	| "HashDataStatement"
+	| "GotoStatement"
+	| "LabelStatement"
+	| "RestartStatement"
+	| "DeclareStatement";
+
+export interface VCLEmptyStatement extends VCLNode {
 	type: "Statement";
 }
 
-export interface VCLAssignment extends VCLStatement {
+export interface VCLAssignment extends VCLNode {
 	type: "Assignment";
 	left: VCLIdentifier;
 	right: VCLExpression;
 }
 
-export interface VCLIfStatement extends VCLStatement {
+export interface VCLIfStatement extends VCLNode {
 	type: "IfStatement";
 	test: VCLExpression;
 	consequent: VCLStatement[];
 	alternate?: VCLStatement[];
+	condition?: VCLExpression; // Alias for test (deprecated)
 }
 
-export interface VCLReturnStatement extends VCLStatement {
+export interface VCLReturnStatement extends VCLNode {
 	type: "ReturnStatement";
 	argument: string;
 	value?: VCLExpression;
 }
 
-export interface VCLErrorStatement extends VCLStatement {
+export interface VCLErrorStatement extends VCLNode {
 	type: "ErrorStatement";
 	status: number;
 	message: string;
 }
 
-export interface VCLSetStatement extends VCLStatement {
+export interface VCLSetStatement extends VCLNode {
 	type: "SetStatement";
 	target: string;
 	value: VCLExpression;
 	operator?: string;
 }
 
-export interface VCLUnsetStatement extends VCLStatement {
+export interface VCLUnsetStatement extends VCLNode {
 	type: "UnsetStatement";
 	target: string;
 }
 
-export interface VCLLogStatement extends VCLStatement {
+export interface VCLLogStatement extends VCLNode {
 	type: "LogStatement";
 	message: VCLExpression;
 }
 
-export interface VCLSyntheticStatement extends VCLStatement {
+export interface VCLSyntheticStatement extends VCLNode {
 	type: "SyntheticStatement";
 	content: string;
 }
 
-export interface VCLHashDataStatement extends VCLStatement {
+export interface VCLHashDataStatement extends VCLNode {
 	type: "HashDataStatement";
 	value: VCLExpression;
 }
 
-export interface VCLGotoStatement extends VCLStatement {
+export interface VCLGotoStatement extends VCLNode {
 	type: "GotoStatement";
 	label: string;
 }
 
-export interface VCLLabelStatement extends VCLStatement {
+export interface VCLLabelStatement extends VCLNode {
 	type: "LabelStatement";
 	name: string;
-	statement?: VCLStatement;
+	statement?: VCLStatement | null;
 }
 
-export interface VCLRestartStatement extends VCLStatement {
+export interface VCLRestartStatement extends VCLNode {
 	type: "RestartStatement";
 }
+
+// VCLStatement is a discriminated union of all statement types
+export type VCLStatement =
+	| VCLEmptyStatement
+	| VCLAssignment
+	| VCLIfStatement
+	| VCLReturnStatement
+	| VCLErrorStatement
+	| VCLSetStatement
+	| VCLUnsetStatement
+	| VCLLogStatement
+	| VCLSyntheticStatement
+	| VCLHashDataStatement
+	| VCLGotoStatement
+	| VCLLabelStatement
+	| VCLRestartStatement
+	| VCLDeclareStatement;
 
 export interface VCLIncludeStatement extends VCLNode {
 	type: "IncludeStatement";
@@ -182,10 +223,16 @@ export interface VCLBackendProbe {
 	properties: VCLBackendProperty[];
 }
 
-export interface VCLDeclareStatement extends VCLStatement {
+export interface VCLDeclareStatement extends VCLNode {
 	type: "DeclareStatement";
 	variableName: string;
 	variableType: string;
+}
+
+export interface VCLMemberAccess extends VCLNode {
+	type: "MemberAccess";
+	object: VCLExpression;
+	property: string;
 }
 
 export type VCLExpression =
@@ -196,7 +243,8 @@ export type VCLExpression =
 	| VCLIdentifier
 	| VCLStringLiteral
 	| VCLNumberLiteral
-	| VCLRegexLiteral;
+	| VCLRegexLiteral
+	| VCLMemberAccess;
 
 export interface VCLBinaryExpression extends VCLNode {
 	type: "BinaryExpression";
@@ -317,7 +365,7 @@ export class VCLLexer {
 
 	tokenize(): Token[] {
 		while (this.position < this.input.length) {
-			const char = this.input[this.position];
+			const char = this.input[this.position]!;
 
 			if (/\s/.test(char)) {
 				this.tokenizeWhitespace();
@@ -352,10 +400,7 @@ export class VCLLexer {
 
 			if (char === "{") {
 				const prevToken = this.tokens[this.tokens.length - 1];
-				if (
-					prevToken?.type === TokenType.KEYWORD &&
-					prevToken.value === "synthetic"
-				) {
+				if (prevToken?.type === TokenType.KEYWORD && prevToken.value === "synthetic") {
 					this.tokenizeSyntheticBlock();
 					continue;
 				}
@@ -367,8 +412,7 @@ export class VCLLexer {
 			}
 
 			if (char === ".") {
-				const prevIsDigit =
-					this.position > 0 && /[0-9]/.test(this.input[this.position - 1]);
+				const prevIsDigit = this.position > 0 && /[0-9]/.test(this.input[this.position - 1] ?? "");
 				const nextIsDigit = /[0-9]/.test(this.peek());
 				if (prevIsDigit && nextIsDigit) continue;
 				this.tokenizePunctuation();
@@ -390,16 +434,11 @@ export class VCLLexer {
 	}
 
 	private peek(): string {
-		return this.position + 1 < this.input.length
-			? this.input[this.position + 1]
-			: "";
+		return this.position + 1 < this.input.length ? (this.input[this.position + 1] ?? "") : "";
 	}
 
 	private tokenizeWhitespace(): void {
-		while (
-			this.position < this.input.length &&
-			/\s/.test(this.input[this.position])
-		) {
+		while (this.position < this.input.length && /\s/.test(this.input[this.position] ?? "")) {
 			if (this.input[this.position] === "\n") {
 				this.line++;
 				this.column = 1;
@@ -415,10 +454,7 @@ export class VCLLexer {
 		const startLine = this.line;
 		const startColumn = this.column;
 		this.advance();
-		while (
-			this.position < this.input.length &&
-			this.input[this.position] !== "\n"
-		) {
+		while (this.position < this.input.length && this.input[this.position] !== "\n") {
 			this.advance();
 		}
 		this.tokens.push({
@@ -485,17 +521,11 @@ export class VCLLexer {
 			"0": "\0",
 		};
 		let content = "";
-		while (
-			this.position < this.input.length &&
-			this.input[this.position] !== quote
-		) {
-			if (
-				this.input[this.position] === "\\" &&
-				this.position + 1 < this.input.length
-			) {
+		while (this.position < this.input.length && this.input[this.position] !== quote) {
+			if (this.input[this.position] === "\\" && this.position + 1 < this.input.length) {
 				this.advance();
-				content +=
-					escapes[this.input[this.position]] ?? this.input[this.position];
+				const escChar = this.input[this.position] ?? "";
+				content += escapes[escChar] ?? escChar;
 				this.advance();
 				continue;
 			}
@@ -545,28 +575,16 @@ export class VCLLexer {
 		const startLine = this.line;
 		const startColumn = this.column;
 
-		while (
-			this.position < this.input.length &&
-			/[0-9]/.test(this.input[this.position])
-		)
+		while (this.position < this.input.length && /[0-9]/.test(this.input[this.position] ?? ""))
 			this.advance();
-		if (
-			this.position < this.input.length &&
-			this.input[this.position] === "."
-		) {
+		if (this.position < this.input.length && this.input[this.position] === ".") {
 			this.advance();
-			while (
-				this.position < this.input.length &&
-				/[0-9]/.test(this.input[this.position])
-			)
+			while (this.position < this.input.length && /[0-9]/.test(this.input[this.position] ?? ""))
 				this.advance();
 		}
 
 		// Time units (s, m, h, d, y)
-		if (
-			this.position < this.input.length &&
-			/[smhdy]/.test(this.input[this.position])
-		) {
+		if (this.position < this.input.length && /[smhdy]/.test(this.input[this.position] ?? "")) {
 			this.advance();
 			const value = this.input.substring(start, this.position);
 			this.tokens.push({
@@ -595,7 +613,7 @@ export class VCLLexer {
 		let includeHyphen = false;
 
 		while (this.position < this.input.length) {
-			const char = this.input[this.position];
+			const char = this.input[this.position] ?? "";
 			const nextChar = this.peek();
 
 			if (/[a-zA-Z0-9_]/.test(char)) {
@@ -607,11 +625,7 @@ export class VCLLexer {
 			} else if (char === ":" && /[a-zA-Z_]/.test(nextChar)) {
 				this.advance();
 				includeHyphen = false;
-			} else if (
-				includeHyphen &&
-				char === "-" &&
-				/[a-zA-Z0-9_]/.test(nextChar)
-			) {
+			} else if (includeHyphen && char === "-" && /[a-zA-Z0-9_]/.test(nextChar)) {
 				this.advance();
 				includeHyphen = false;
 			} else {
@@ -620,9 +634,7 @@ export class VCLLexer {
 		}
 
 		const value = this.input.substring(start, this.position);
-		const type = VCL_KEYWORDS.includes(value)
-			? TokenType.KEYWORD
-			: TokenType.IDENTIFIER;
+		const type = VCL_KEYWORDS.includes(value) ? TokenType.KEYWORD : TokenType.IDENTIFIER;
 		this.tokens.push({
 			type,
 			value,
@@ -638,7 +650,7 @@ export class VCLLexer {
 		const startColumn = this.column;
 		while (
 			this.position < this.input.length &&
-			/[+\-*/%=<>!&|^~]/.test(this.input[this.position])
+			/[+\-*/%=<>!&|^~]/.test(this.input[this.position] ?? "")
 		) {
 			this.advance();
 		}

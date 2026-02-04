@@ -117,8 +117,7 @@ const queryStringFunctionsTests = {
 				// Check adding to existing query string
 				(context: VCLContext) => {
 					return assert(
-						context.req.http["X-Result2"] ===
-							"category=electronics&sort=price&limit=20",
+						context.req.http["X-Result2"] === "category=electronics&sort=price&limit=20",
 						`Expected X-Result2 to be 'category=electronics&sort=price&limit=20', got '${context.req.http["X-Result2"]}'`,
 					);
 				},
@@ -133,8 +132,7 @@ const queryStringFunctionsTests = {
 				// Check building query string from scratch
 				(context: VCLContext) => {
 					return assert(
-						context.req.http["X-Built-QS"] ===
-							"product=laptop&brand=acme&price=500-1000",
+						context.req.http["X-Built-QS"] === "product=laptop&brand=acme&price=500-1000",
 						`Expected X-Built-QS to be 'product=laptop&brand=acme&price=500-1000', got '${context.req.http["X-Built-QS"]}'`,
 					);
 				},
@@ -175,8 +173,7 @@ const queryStringFunctionsTests = {
 				// Check setting new parameter
 				(context: VCLContext) => {
 					return assert(
-						context.req.http["X-Result2"] ===
-							"category=electronics&sort=price&limit=20",
+						context.req.http["X-Result2"] === "category=electronics&sort=price&limit=20",
 						`Expected X-Result2 to be 'category=electronics&sort=price&limit=20', got '${context.req.http["X-Result2"]}'`,
 					);
 				},
@@ -223,8 +220,7 @@ const queryStringFunctionsTests = {
 				// Check removing a parameter
 				(context: VCLContext) => {
 					return assert(
-						context.req.http["X-Result1"] ===
-							"id=123&category=electronics&page=1",
+						context.req.http["X-Result1"] === "id=123&category=electronics&page=1",
 						`Expected X-Result1 to be 'id=123&category=electronics&page=1', got '${context.req.http["X-Result1"]}'`,
 					);
 				},
@@ -238,8 +234,7 @@ const queryStringFunctionsTests = {
 				// Check removing non-existent parameter
 				(context: VCLContext) => {
 					return assert(
-						context.req.http["X-Result3"] ===
-							"id=123&category=electronics&sort=price&page=1",
+						context.req.http["X-Result3"] === "id=123&category=electronics&sort=price&page=1",
 						`Expected X-Result3 to be unchanged, got '${context.req.http["X-Result3"]}'`,
 					);
 				},
@@ -284,8 +279,7 @@ const queryStringFunctionsTests = {
 				// Check cleaning query string with no empty parameters
 				(context: VCLContext) => {
 					return assert(
-						context.req.http["X-Result2"] ===
-							"id=123&category=electronics&sort=price",
+						context.req.http["X-Result2"] === "id=123&category=electronics&sort=price",
 						`Expected X-Result2 to be unchanged, got '${context.req.http["X-Result2"]}'`,
 					);
 				},

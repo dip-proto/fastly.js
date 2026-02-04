@@ -15,7 +15,7 @@ describe("VCL Table Functions Tests", () => {
 		// Parse the VCL code
 		const lexer = new VCLLexer(vclCode);
 		const tokens = lexer.tokenize();
-		const parser = new VCLParser(tokens);
+		const parser = new VCLParser(tokens, vclCode);
 		const ast = parser.parse();
 
 		// Compile the AST
@@ -26,16 +26,16 @@ describe("VCL Table Functions Tests", () => {
 		const context = createVCLContext();
 
 		// Add tables and entries
-		context.std.table.add("features");
-		context.std.table.add_entry("features", "new_checkout", "true");
-		context.std.table.add_entry("features", "is_enabled", true);
+		context.std!.table!.add("features");
+		context.std!.table!.add_entry("features", "new_checkout", "true");
+		context.std!.table!.add_entry("features", "is_enabled", true);
 
-		context.std.table.add("settings");
-		context.std.table.add_entry("settings", "max_items", 10);
-		context.std.table.add_entry("settings", "discount_rate", 0.15);
+		context.std!.table!.add("settings");
+		context.std!.table!.add_entry("settings", "max_items", 10);
+		context.std!.table!.add_entry("settings", "discount_rate", 0.15);
 
-		context.std.table.add("patterns");
-		context.std.table.add_entry(
+		context.std!.table!.add("patterns");
+		context.std!.table!.add_entry(
 			"patterns",
 			"url",
 			"^https?://[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}(/.*)?$",
@@ -72,7 +72,7 @@ describe("VCL Table Functions Tests", () => {
 		// Parse the VCL code
 		const lexer = new VCLLexer(vclCode);
 		const tokens = lexer.tokenize();
-		const parser = new VCLParser(tokens);
+		const parser = new VCLParser(tokens, vclCode);
 		const ast = parser.parse();
 
 		// Compile the AST

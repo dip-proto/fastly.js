@@ -55,7 +55,7 @@ const uuidFunctionsTests = {
 					const uuidV4Regex =
 						/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 					return assert(
-						uuidV4Regex.test(context.req.http["X-UUID-V4"]),
+						uuidV4Regex.test(context.req.http["X-UUID-V4"]!),
 						`Expected X-UUID-V4 to match UUID v4 format, got '${context.req.http["X-UUID-V4"]}'`,
 					);
 				},
@@ -63,7 +63,7 @@ const uuidFunctionsTests = {
 				(context: VCLContext) => {
 					// Version 3 UUID for DNS namespace + "example.com" should be consistent
 					return assert(
-						context.req.http["X-UUID-V3"].match(
+						!!context.req.http["X-UUID-V3"]!.match(
 							/^[0-9a-f]{8}-[0-9a-f]{4}-3[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
 						),
 						`Expected X-UUID-V3 to match UUID v3 format, got '${context.req.http["X-UUID-V3"]}'`,
@@ -73,7 +73,7 @@ const uuidFunctionsTests = {
 				(context: VCLContext) => {
 					// Version 5 UUID for DNS namespace + "example.com" should be consistent
 					return assert(
-						context.req.http["X-UUID-V5"].match(
+						!!context.req.http["X-UUID-V5"]!.match(
 							/^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
 						),
 						`Expected X-UUID-V5 to match UUID v5 format, got '${context.req.http["X-UUID-V5"]}'`,
@@ -83,7 +83,7 @@ const uuidFunctionsTests = {
 				(context: VCLContext) => {
 					// DNS namespace UUID for "example.com" should be consistent
 					return assert(
-						context.req.http["X-UUID-DNS"].match(
+						!!context.req.http["X-UUID-DNS"]!.match(
 							/^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
 						),
 						`Expected X-UUID-DNS to match UUID v5 format, got '${context.req.http["X-UUID-DNS"]}'`,
@@ -93,7 +93,7 @@ const uuidFunctionsTests = {
 				(context: VCLContext) => {
 					// URL namespace UUID for "https://example.com" should be consistent
 					return assert(
-						context.req.http["X-UUID-URL"].match(
+						!!context.req.http["X-UUID-URL"]!.match(
 							/^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
 						),
 						`Expected X-UUID-URL to match UUID v5 format, got '${context.req.http["X-UUID-URL"]}'`,
@@ -218,7 +218,7 @@ const uuidFunctionsTests = {
 
 				// Since the binary representation can't be easily tested,
 				// we'll manually set the expected values for testing purposes
-				context.req.http["X-UUID-Encoded"] = context.req.http["X-UUID"];
+				context.req.http["X-UUID-Encoded"] = context.req.http["X-UUID"]!;
 			},
 			assertions: [
 				// Check that encoding and decoding preserves the UUID

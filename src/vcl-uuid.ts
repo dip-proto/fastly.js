@@ -30,8 +30,8 @@ function uuidv7(): string {
 	bytes[4] = Number((timestamp >> 8n) & 0xffn);
 	bytes[5] = Number(timestamp & 0xffn);
 
-	bytes[6] = (bytes[6] & 0x0f) | 0x70;
-	bytes[8] = (bytes[8] & 0x3f) | 0x80;
+	bytes[6] = (bytes[6]! & 0x0f) | 0x70;
+	bytes[8] = (bytes[8]! & 0x3f) | 0x80;
 
 	return stringify(bytes);
 }

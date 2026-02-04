@@ -6,9 +6,7 @@ import { createVCLContext, executeVCL, loadVCL } from "../../src/vcl";
 
 // Load the VCL file
 console.log("Loading authentication VCL file...");
-const subroutines = loadVCL(
-	"./test/fixtures/restart/auth_token_validation.vcl",
-);
+const subroutines = loadVCL("./test/fixtures/restart/auth_token_validation.vcl");
 
 // Print the loaded subroutines
 console.log("Loaded subroutines:");
@@ -23,11 +21,7 @@ const testCases = [
 		expectedUrl: "/protected",
 		expectedRole: "admin",
 		expectedRestarts: 3,
-		expectedReasons: [
-			"auth_from_query",
-			"token_whitespace_cleanup",
-			"admin_role_assigned",
-		],
+		expectedReasons: ["auth_from_query", "token_whitespace_cleanup", "admin_role_assigned"],
 		expectedStatus: 200,
 	},
 	{
@@ -37,11 +31,7 @@ const testCases = [
 		expectedUrl: "/protected",
 		expectedRole: "user",
 		expectedRestarts: 3,
-		expectedReasons: [
-			"auth_from_cookie",
-			"token_whitespace_cleanup",
-			"user_role_assigned",
-		],
+		expectedReasons: ["auth_from_cookie", "token_whitespace_cleanup", "user_role_assigned"],
 		expectedStatus: 200,
 	},
 	{
@@ -51,11 +41,7 @@ const testCases = [
 		expectedUrl: "/admin/dashboard",
 		expectedRole: "admin",
 		expectedRestarts: 3,
-		expectedReasons: [
-			"auth_from_cookie",
-			"token_whitespace_cleanup",
-			"admin_role_assigned",
-		],
+		expectedReasons: ["auth_from_cookie", "token_whitespace_cleanup", "admin_role_assigned"],
 		expectedStatus: 200,
 	},
 	{
@@ -65,11 +51,7 @@ const testCases = [
 		expectedUrl: "/admin/dashboard",
 		expectedRole: "user",
 		expectedRestarts: 3,
-		expectedReasons: [
-			"auth_from_cookie",
-			"token_whitespace_cleanup",
-			"user_role_assigned",
-		],
+		expectedReasons: ["auth_from_cookie", "token_whitespace_cleanup", "user_role_assigned"],
 		expectedStatus: 403,
 	},
 	{
@@ -135,6 +117,7 @@ function runTests() {
 			status: 0,
 			response: "",
 			http: {},
+			hits: 0,
 		};
 
 		// Process the request with support for restarts
@@ -152,9 +135,7 @@ function runTests() {
 
 			// Handle error action
 			if (recvResult === "error") {
-				console.log(
-					`Error triggered: ${context.obj.status} - ${context.obj.response}`,
-				);
+				console.log(`Error triggered: ${context.obj.status} - ${context.obj.response}`);
 				finalStatus = context.obj.status;
 
 				// Execute vcl_error
@@ -187,9 +168,7 @@ function runTests() {
 			let passed = true;
 
 			if (context.req.url !== testCase.expectedUrl) {
-				console.log(
-					`FAIL: URL mismatch: expected ${testCase.expectedUrl}, got ${context.req.url}`,
-				);
+				console.log(`FAIL: URL mismatch: expected ${testCase.expectedUrl}, got ${context.req.url}`);
 				passed = false;
 			}
 

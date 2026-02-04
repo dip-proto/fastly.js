@@ -27,7 +27,7 @@ const securityHeadersTest = {
 
 				// Set the state based on the result
 				if (result === "deliver") {
-					context.fastly.state = "deliver";
+					context.fastly!.state = "deliver";
 				}
 			},
 			assertions: [

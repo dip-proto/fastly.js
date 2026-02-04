@@ -56,8 +56,8 @@ const backendAssignmentTest = {
 				// Check that the request is passed (not cached)
 				(context: VCLContext) => {
 					return assert(
-						context.fastly.state === "pass",
-						`Expected state to be pass, got ${context.fastly.state}`,
+						context.fastly!.state === "pass",
+						`Expected state to be pass, got ${context.fastly!.state}`,
 					);
 				},
 			],

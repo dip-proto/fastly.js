@@ -3,9 +3,7 @@
  */
 
 function parseQueryString(queryString: string): URLSearchParams {
-	const clean = queryString.startsWith("?")
-		? queryString.substring(1)
-		: queryString;
+	const clean = queryString.startsWith("?") ? queryString.substring(1) : queryString;
 	return new URLSearchParams(clean);
 }
 

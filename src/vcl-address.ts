@@ -23,10 +23,10 @@ function ipv4ToInt(ip: string): number {
 	}
 	const octets = ip.split(".");
 	return (
-		(parseInt(octets[0], 10) << 24) |
-		(parseInt(octets[1], 10) << 16) |
-		(parseInt(octets[2], 10) << 8) |
-		parseInt(octets[3], 10)
+		(parseInt(octets[0] ?? "0", 10) << 24) |
+		(parseInt(octets[1] ?? "0", 10) << 16) |
+		(parseInt(octets[2] ?? "0", 10) << 8) |
+		parseInt(octets[3] ?? "0", 10)
 	);
 }
 
@@ -35,11 +35,7 @@ function extractBits(ipInt: number, offset: number, length: number): number {
 	return (ipInt & mask) >>> (32 - offset - length);
 }
 
-function extractBitsFromIPv4(
-	ip: string,
-	offset: number,
-	length: number,
-): number {
+function extractBitsFromIPv4(ip: string, offset: number, length: number): number {
 	if (
 		!isValidIPv4(ip) ||
 		offset < 0 ||
@@ -53,11 +49,7 @@ function extractBitsFromIPv4(
 	return extractBits(ipv4ToInt(ip), offset, length);
 }
 
-function extractBitsFromIPv6(
-	ip: string,
-	offset: number,
-	length: number,
-): number {
+function extractBitsFromIPv6(ip: string, offset: number, length: number): number {
 	if (
 		!isValidIPv6(ip) ||
 		offset < 0 ||
@@ -69,7 +61,7 @@ function extractBitsFromIPv6(
 		return 0;
 	}
 	const parts = ip.split(":");
-	const ipInt = (parseInt(parts[0], 16) << 16) | (parseInt(parts[1], 16) || 0);
+	const ipInt = (parseInt(parts[0] ?? "0", 16) << 16) | (parseInt(parts[1] ?? "0", 16) || 0);
 	return extractBits(ipInt, offset, length);
 }
 
@@ -79,11 +71,7 @@ export const AddressModule = {
 	is_ipv6: (address: string): boolean => isValidIPv6(address),
 
 	is_unix: (address: string): boolean => {
-		return (
-			typeof address === "string" &&
-			address.startsWith("/") &&
-			!address.includes("\0")
-		);
+		return typeof address === "string" && address.startsWith("/") && !address.includes("\0");
 	},
 
 	extract_bits: (address: string, offset: number, length: number): number => {

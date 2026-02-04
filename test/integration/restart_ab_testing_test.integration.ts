@@ -106,14 +106,14 @@ async function runTests() {
 		};
 
 		// Mock the random function on context.std
-		context.std.random.bool = (numerator: number, denominator: number) => {
+		(context.std!.random! as any).bool = (numerator: number, denominator: number) => {
 			console.log(`Mock randombool called with ${numerator}/${denominator}`);
 			return testCase.randomResult;
 		};
 
 		// Mock the hash function for user ID based assignment on context.std
-		const originalHashSha1 = context.std.digest.hash_sha1;
-		context.std.digest.hash_sha1 = (input: string) => {
+		const originalHashSha1 = context.std!.digest!.hash_sha1;
+		context.std!.digest!.hash_sha1 = (input: string) => {
 			console.log(`Mock hash_sha1 called with ${input}`);
 			// Return the test-specific hash result if available
 			if (testCase.userHashResult) {
@@ -124,8 +124,8 @@ async function runTests() {
 
 		// Set up backends
 		context.backends = {
-			version_a: { name: "version_a" },
-			version_b: { name: "version_b" },
+			version_a: { name: "version_a" } as any,
+			version_b: { name: "version_b" } as any,
 		};
 
 		// Add cookies
@@ -146,11 +146,11 @@ async function runTests() {
 		context.tables = {
 			feature_flags: {
 				name: "feature_flags",
-				entries: [
-					{ key: "homepage_redesign", value: "active" },
-					{ key: "new_checkout", value: "active" },
-					{ key: "personalization", value: "inactive" },
-				],
+				entries: {
+					homepage_redesign: "active",
+					new_checkout: "active",
+					personalization: "inactive",
+				},
 			},
 		};
 
@@ -164,9 +164,7 @@ async function runTests() {
 			console.log(`Current URL: ${context.req.url}`);
 			console.log(`Selected backend: ${context.req.backend}`);
 			console.log(`AB Test: ${context.req.http["X-AB-Test"]}`);
-			console.log(
-				`Selected Version: ${context.req.http["X-Selected-Version"]}`,
-			);
+			console.log(`Selected Version: ${context.req.http["X-Selected-Version"]}`);
 
 			// Capture restart reason only if it's new (not already captured)
 			const currentReason = context.req.http["X-Restart-Reason"];
@@ -202,9 +200,7 @@ async function runTests() {
 		let passed = true;
 
 		if (testCase.expectedUrl && context.req.url !== testCase.expectedUrl) {
-			console.log(
-				`FAIL: URL mismatch: expected ${testCase.expectedUrl}, got ${context.req.url}`,
-			);
+			console.log(`FAIL: URL mismatch: expected ${testCase.expectedUrl}, got ${context.req.url}`);
 			passed = false;
 		}
 

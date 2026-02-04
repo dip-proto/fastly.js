@@ -26,11 +26,7 @@ const vclFileTests = {
 				const _recvResult = executeSubroutine(context, subroutines, "vcl_recv");
 
 				// Execute vcl_deliver
-				const _deliverResult = executeSubroutine(
-					context,
-					subroutines,
-					"vcl_deliver",
-				);
+				const _deliverResult = executeSubroutine(context, subroutines, "vcl_deliver");
 			},
 			assertions: [
 				// Check if the header was set correctly
@@ -116,11 +112,7 @@ const vclFileTests = {
 				const _recvResult = executeSubroutine(context, subroutines, "vcl_recv");
 
 				// Execute vcl_deliver
-				const _deliverResult = executeSubroutine(
-					context,
-					subroutines,
-					"vcl_deliver",
-				);
+				const _deliverResult = executeSubroutine(context, subroutines, "vcl_deliver");
 			},
 			assertions: [
 				// Check string function results
@@ -176,9 +168,7 @@ const vclFileTests = {
 
 				// The error should have been handled internally and returned 'error'
 				if (recvResult !== "error") {
-					throw new Error(
-						`Expected recvResult to be 'error', got '${recvResult}'`,
-					);
+					throw new Error(`Expected recvResult to be 'error', got '${recvResult}'`);
 				}
 
 				// No need to manually execute vcl_error or vcl_deliver as they should have been

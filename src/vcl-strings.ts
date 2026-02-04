@@ -94,8 +94,7 @@ export function cstr_escape(str: string): string {
 		else if (code === 0x0a) result += "\\n";
 		else if (code === 0x0d) result += "\\r";
 		else if (code === 0x09) result += "\\t";
-		else if (code < 0x20 || code > 0x7e)
-			result += `\\x${code.toString(16).padStart(2, "0")}`;
+		else if (code < 0x20 || code > 0x7e) result += `\\x${code.toString(16).padStart(2, "0")}`;
 		else result += char;
 	}
 	return result;
@@ -239,8 +238,8 @@ export function boltsort_sort(url: string): string {
 		if (!qs) return url;
 		const params = qs.split("&").filter(Boolean);
 		params.sort((a, b) => {
-			const keyA = a.split("=")[0];
-			const keyB = b.split("=")[0];
+			const keyA = a.split("=")[0] ?? "";
+			const keyB = b.split("=")[0] ?? "";
 			return keyA.localeCompare(keyB);
 		});
 		return `${base}?${params.join("&")}`;
@@ -254,7 +253,10 @@ export function setcookie_get_value_by_name(setCookieHeader: string, name: strin
 	for (const cookie of cookies) {
 		const parts = cookie.trim().split(";");
 		if (parts.length > 0) {
-			const [cookieName, ...valueParts] = parts[0].split("=");
+			const firstPart = parts[0] ?? "";
+			const partPieces = firstPart.split("=");
+			const cookieName = partPieces[0] ?? "";
+			const valueParts = partPieces.slice(1);
 			if (cookieName.trim() === search) {
 				return valueParts.join("=");
 			}
@@ -271,7 +273,9 @@ export function setcookie_delete_by_name(setCookieHeader: string, name: string):
 	for (const cookie of cookies) {
 		const parts = cookie.trim().split(";");
 		if (parts.length > 0) {
-			const [cookieName] = parts[0].split("=");
+			const firstPart = parts[0] ?? "";
+			const partPieces = firstPart.split("=");
+			const cookieName = partPieces[0] ?? "";
 			if (cookieName.trim() !== search) {
 				result.push(cookie.trim());
 			}

@@ -45,30 +45,20 @@ const timeFunctionsTests = {
 			assertions: [
 				// Check time.add
 				(context: VCLContext) => {
-					const baseTime = parseInt(context.req.http["X-Base-Time"], 10);
-					const timePlus1Hour = parseInt(
-						context.req.http["X-Time-Plus-1Hour"],
-						10,
-					);
-					const timePlus1Day = parseInt(
-						context.req.http["X-Time-Plus-1Day"],
-						10,
-					);
+					const baseTime = parseInt(context.req.http["X-Base-Time"]!, 10);
+					const timePlus1Hour = parseInt(context.req.http["X-Time-Plus-1Hour"]!, 10);
+					const timePlus1Day = parseInt(context.req.http["X-Time-Plus-1Day"]!, 10);
 
 					return assert(
-						timePlus1Hour === baseTime + 3600 &&
-							timePlus1Day === baseTime + 86400,
+						timePlus1Hour === baseTime + 3600 && timePlus1Day === baseTime + 86400,
 						`Expected time.add to work correctly`,
 					);
 				},
 				// Check time.sub
 				(context: VCLContext) => {
-					const baseTime = parseInt(context.req.http["X-Base-Time"], 10);
-					const timeMinus1Hour = parseInt(
-						context.req.http["X-Time-Minus-1Hour"],
-						10,
-					);
-					const timeDiff = parseInt(context.req.http["X-Time-Diff"], 10);
+					const baseTime = parseInt(context.req.http["X-Base-Time"]!, 10);
+					const timeMinus1Hour = parseInt(context.req.http["X-Time-Minus-1Hour"]!, 10);
+					const timeDiff = parseInt(context.req.http["X-Time-Diff"]!, 10);
 
 					return assert(
 						timeMinus1Hour === baseTime - 3600 && timeDiff === 3600,
@@ -123,8 +113,8 @@ const timeFunctionsTests = {
 				},
 				// Check std.time
 				(context: VCLContext) => {
-					const baseTime = parseInt(context.req.http["X-Base-Time"], 10);
-					const parsedTime = parseInt(context.req.http["X-Parsed-Time"], 10);
+					const baseTime = parseInt(context.req.http["X-Base-Time"]!, 10);
+					const parsedTime = parseInt(context.req.http["X-Parsed-Time"]!, 10);
 
 					return assert(
 						Math.abs(parsedTime - baseTime) < 100, // Allow small difference due to timezone handling

@@ -21,64 +21,22 @@ export interface Tables {
 }
 
 export interface TableModule {
-	lookup: (
-		tables: Tables,
-		tableName: string,
-		key: string,
-		defaultValue?: string,
-	) => string;
-	lookup_bool: (
-		tables: Tables,
-		tableName: string,
-		key: string,
-		defaultValue?: boolean,
-	) => boolean;
-	lookup_integer: (
-		tables: Tables,
-		tableName: string,
-		key: string,
-		defaultValue?: number,
-	) => number;
-	lookup_float: (
-		tables: Tables,
-		tableName: string,
-		key: string,
-		defaultValue?: number,
-	) => number;
-	lookup_ip: (
-		tables: Tables,
-		tableName: string,
-		key: string,
-		defaultValue?: string,
-	) => string;
-	lookup_rtime: (
-		tables: Tables,
-		tableName: string,
-		key: string,
-		defaultValue?: number,
-	) => number;
+	lookup: (tables: Tables, tableName: string, key: string, defaultValue?: string) => string;
+	lookup_bool: (tables: Tables, tableName: string, key: string, defaultValue?: boolean) => boolean;
+	lookup_integer: (tables: Tables, tableName: string, key: string, defaultValue?: number) => number;
+	lookup_float: (tables: Tables, tableName: string, key: string, defaultValue?: number) => number;
+	lookup_ip: (tables: Tables, tableName: string, key: string, defaultValue?: string) => string;
+	lookup_rtime: (tables: Tables, tableName: string, key: string, defaultValue?: number) => number;
 	lookup_acl: (tables: Tables, tableName: string, key: string) => string | null;
-	lookup_backend: (
-		tables: Tables,
-		tableName: string,
-		key: string,
-	) => string | null;
-	lookup_regex: (
-		tables: Tables,
-		tableName: string,
-		key: string,
-	) => RegExp | null;
+	lookup_backend: (tables: Tables, tableName: string, key: string) => string | null;
+	lookup_regex: (tables: Tables, tableName: string, key: string) => RegExp | null;
 	contains: (tables: Tables, tableName: string, key: string) => boolean;
 }
 
 const IPV4_REGEX = /^(\d{1,3}\.){3}\d{1,3}$/;
 const IPV6_REGEX = /^([0-9a-fA-F]{0,4}:){2,7}[0-9a-fA-F]{0,4}$/;
 
-function findInTable(
-	tables: Tables,
-	tableName: string,
-	key: string,
-): any | undefined {
+function findInTable(tables: Tables, tableName: string, key: string): any | undefined {
 	const table = tables[tableName];
 	if (!table) return undefined;
 
@@ -95,7 +53,7 @@ function parseTimeUnit(str: string, defaultValue: number): number {
 		return Number.isNaN(parsed) ? defaultValue : parsed;
 	}
 
-	const num = parseFloat(match[1]);
+	const num = parseFloat(match[1] ?? "0");
 	const unit = match[2] || "s";
 	switch (unit) {
 		case "ms":
@@ -115,12 +73,7 @@ function parseTimeUnit(str: string, defaultValue: number): number {
 
 export function createTableModule(): TableModule {
 	return {
-		lookup: (
-			tables: Tables,
-			tableName: string,
-			key: string,
-			defaultValue: string = "",
-		): string => {
+		lookup: (tables: Tables, tableName: string, key: string, defaultValue: string = ""): string => {
 			const value = findInTable(tables, tableName, key);
 			return value === undefined ? defaultValue : String(value);
 		},
@@ -136,10 +89,8 @@ export function createTableModule(): TableModule {
 			if (typeof value === "boolean") return value;
 
 			const strValue = String(value).toLowerCase();
-			if (strValue === "true" || strValue === "1" || strValue === "yes")
-				return true;
-			if (strValue === "false" || strValue === "0" || strValue === "no")
-				return false;
+			if (strValue === "true" || strValue === "1" || strValue === "yes") return true;
+			if (strValue === "false" || strValue === "0" || strValue === "no") return false;
 			return defaultValue;
 		},
 
@@ -194,29 +145,17 @@ export function createTableModule(): TableModule {
 			return parseTimeUnit(String(value), defaultValue);
 		},
 
-		lookup_acl: (
-			tables: Tables,
-			tableName: string,
-			key: string,
-		): string | null => {
+		lookup_acl: (tables: Tables, tableName: string, key: string): string | null => {
 			const value = findInTable(tables, tableName, key);
 			return value === undefined ? null : String(value);
 		},
 
-		lookup_backend: (
-			tables: Tables,
-			tableName: string,
-			key: string,
-		): string | null => {
+		lookup_backend: (tables: Tables, tableName: string, key: string): string | null => {
 			const value = findInTable(tables, tableName, key);
 			return value === undefined ? null : String(value);
 		},
 
-		lookup_regex: (
-			tables: Tables,
-			tableName: string,
-			key: string,
-		): RegExp | null => {
+		lookup_regex: (tables: Tables, tableName: string, key: string): RegExp | null => {
 			const value = findInTable(tables, tableName, key);
 			if (value === undefined) return null;
 			try {

@@ -53,15 +53,13 @@ export class ESIParser {
 	}
 
 	private parseTag(): ESITag | null {
-		const tagNameMatch = this.content
-			.substring(this.position)
-			.match(/<esi:([a-z]+)/i);
+		const tagNameMatch = this.content.substring(this.position).match(/<esi:([a-z]+)/i);
 		if (!tagNameMatch) {
 			this.position++;
 			return null;
 		}
 
-		const tagName = tagNameMatch[1].toLowerCase();
+		const tagName = tagNameMatch[1]!.toLowerCase();
 		const tagType = this.getTagType(tagName);
 		if (!tagType) {
 			this.position++;
@@ -124,7 +122,7 @@ export class ESIParser {
 		let match;
 
 		while ((match = attrRegex.exec(tagContent)) !== null) {
-			attributes[match[1].toLowerCase()] = match[2];
+			attributes[match[1]!.toLowerCase()] = match[2]!;
 		}
 
 		return attributes;
@@ -168,7 +166,8 @@ function processIncludeTag(tag: ESITag, context: VCLContext): string {
 		const includedContent = fetchResource(tag.attributes.src, context);
 		return processESI(includedContent, context);
 	} catch (error) {
-		console.error(`Error processing ESI include: ${error.message}`);
+		const err = error as Error;
+		console.error(`Error processing ESI include: ${err.message}`);
 		return "";
 	}
 }
@@ -179,10 +178,7 @@ function processChooseTag(tag: ESITag, context: VCLContext): string {
 	}
 
 	for (const child of tag.children) {
-		if (
-			child.type === ESITagType.WHEN &&
-			evaluateCondition(child.attributes?.test, context)
-		) {
+		if (child.type === ESITagType.WHEN && evaluateCondition(child.attributes?.test, context)) {
 			return child.content || "";
 		}
 		if (child.type === ESITagType.OTHERWISE) {
@@ -193,16 +189,12 @@ function processChooseTag(tag: ESITag, context: VCLContext): string {
 	return "";
 }
 
-function evaluateCondition(
-	condition: string | undefined,
-	context: VCLContext,
-): boolean {
+function evaluateCondition(condition: string | undefined, context: VCLContext): boolean {
 	if (!condition) {
 		return false;
 	}
 
-	const cookieConditionRegex =
-		/\$\(HTTP_COOKIE{([^}]+)}\)\s*==\s*['"]([^'"]+)['"]/;
+	const cookieConditionRegex = /\$\(HTTP_COOKIE{([^}]+)}\)\s*==\s*['"]([^'"]+)['"]/;
 	const cookieMatch = condition.match(cookieConditionRegex);
 
 	if (cookieMatch) {
@@ -233,26 +225,24 @@ function processChooseTags(content: string, context: VCLContext): string {
 	const whenRegex = /<esi:when test="([^"]*)">([\s\S]*?)<\/esi:when>/g;
 	const otherwiseRegex = /<esi:otherwise>([\s\S]*?)<\/esi:otherwise>/g;
 
-	return content.replace(chooseRegex, (chooseBlock) => {
+	return content.replace(chooseRegex, (chooseBlock): string => {
 		whenRegex.lastIndex = 0;
 		let whenMatch;
 
 		while ((whenMatch = whenRegex.exec(chooseBlock)) !== null) {
 			if (evaluateCondition(whenMatch[1], context)) {
-				return whenMatch[2];
+				return whenMatch[2] ?? "";
 			}
 		}
 
 		const otherwiseMatch = otherwiseRegex.exec(chooseBlock);
-		return otherwiseMatch ? otherwiseMatch[1] : "";
+		return otherwiseMatch ? (otherwiseMatch[1] ?? "") : "";
 	});
 }
 
 function processIncludeTags(content: string, context: VCLContext): string {
 	const includeRegex = /<esi:include\s+src="([^"]*)"(?:\s+[^>]*)?\/>/g;
-	return content.replace(includeRegex, (_match, src) =>
-		fetchResource(src, context),
-	);
+	return content.replace(includeRegex, (_match, src) => fetchResource(src, context));
 }
 
 function fetchResource(url: string, _context: VCLContext): string {

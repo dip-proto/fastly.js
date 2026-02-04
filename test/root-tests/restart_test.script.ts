@@ -35,10 +35,7 @@ function testBasicRestart() {
 	console.log("X-Restart-Count:", context.req.http["X-Restart-Count"]);
 
 	// Verify the restart was triggered
-	if (
-		recvResult === "restart" &&
-		context.req.http["X-Restart-Reason"] === "test"
-	) {
+	if (recvResult === "restart" && context.req.http["X-Restart-Reason"] === "test") {
 		console.log("PASS: Restart triggered with correct reason");
 	} else {
 		console.log("FAIL: Restart not triggered or incorrect reason");
@@ -64,17 +61,14 @@ function testMaxRestarts() {
 		status: 0,
 		response: "",
 		http: {},
+		hits: 0,
 	};
 
 	// Execute vcl_recv directly with the error handling
 	console.log("Executing vcl_recv with error handling...");
 
 	// Create a custom executeVCL function that handles errors
-	const executeVCLWithErrorHandling = (
-		_subroutines: any,
-		_name: string,
-		context: any,
-	) => {
+	const executeVCLWithErrorHandling = (_subroutines: any, _name: string, context: any) => {
 		try {
 			// Skip the first if statement to test the error condition
 			if (context.req.restarts >= 3) {
@@ -90,11 +84,7 @@ function testMaxRestarts() {
 		}
 	};
 
-	const recvResult = executeVCLWithErrorHandling(
-		subroutines,
-		"vcl_recv",
-		context,
-	);
+	const recvResult = executeVCLWithErrorHandling(subroutines, "vcl_recv", context);
 
 	// Check the result
 	console.log(`vcl_recv returned: ${recvResult}`);

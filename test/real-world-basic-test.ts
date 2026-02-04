@@ -116,9 +116,9 @@ const realWorldBasicTest = {
 
 				// Set the state based on the result
 				if (result === "pass") {
-					context.fastly.state = "pass";
+					context.fastly!.state = "pass";
 				} else if (result === "lookup") {
-					context.fastly.state = "lookup";
+					context.fastly!.state = "lookup";
 				}
 			},
 			assertions: [
@@ -132,8 +132,8 @@ const realWorldBasicTest = {
 				// Check that the request is passed (not cached)
 				(context: VCLContext) => {
 					return assert(
-						context.fastly.state === "pass",
-						`Expected state to be pass, got ${context.fastly.state}`,
+						context.fastly!.state === "pass",
+						`Expected state to be pass, got ${context.fastly!.state}`,
 					);
 				},
 			],
@@ -150,16 +150,16 @@ const realWorldBasicTest = {
 
 				// Set the state based on the result
 				if (recvResult === "pass") {
-					context.fastly.state = "pass";
+					context.fastly!.state = "pass";
 				} else if (recvResult === "lookup") {
-					context.fastly.state = "lookup";
+					context.fastly!.state = "lookup";
 				}
 
 				// Save the state after vcl_recv
-				context.req.http["X-After-Recv-State"] = context.fastly.state;
+				context.req.http["X-After-Recv-State"] = context.fastly!.state!;
 
 				// Now execute vcl_fetch to test caching behavior
-				context.fastly.state = "fetch";
+				context.fastly!.state = "fetch";
 				executeSubroutine(context, subroutines, "vcl_fetch");
 			},
 			assertions: [
@@ -194,16 +194,12 @@ const realWorldBasicTest = {
 				context.req.method = "GET";
 
 				// Execute the vcl_deliver subroutine
-				context.fastly.state = "deliver";
-				const deliverResult = executeSubroutine(
-					context,
-					subroutines,
-					"vcl_deliver",
-				);
+				context.fastly!.state = "deliver";
+				const deliverResult = executeSubroutine(context, subroutines, "vcl_deliver");
 
 				// Set the state based on the result
 				if (deliverResult === "deliver") {
-					context.fastly.state = "deliver";
+					context.fastly!.state = "deliver";
 				}
 			},
 			assertions: [

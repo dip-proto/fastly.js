@@ -38,8 +38,7 @@ function testSimpleRestart() {
 	// Second pass
 	console.log("\nSecond Pass");
 	context.req.restarts = 1;
-	context.req.http["X-Custom-Header"] =
-		`${context.req.http["X-Custom-Header"]}, Second Pass`;
+	context.req.http["X-Custom-Header"] = `${context.req.http["X-Custom-Header"]}, Second Pass`;
 	context.req.http["X-Restart-Reason"] = "second_pass";
 	console.log(`X-Custom-Header: ${context.req.http["X-Custom-Header"]}`);
 	console.log(`X-Restart-Reason: ${context.req.http["X-Restart-Reason"]}`);
@@ -47,8 +46,7 @@ function testSimpleRestart() {
 	// Third pass
 	console.log("\nThird Pass");
 	context.req.restarts = 2;
-	context.req.http["X-Custom-Header"] =
-		`${context.req.http["X-Custom-Header"]}, Final Pass`;
+	context.req.http["X-Custom-Header"] = `${context.req.http["X-Custom-Header"]}, Final Pass`;
 	context.req.http["X-Restart-Reason"] = "final_pass";
 	console.log(`X-Custom-Header: ${context.req.http["X-Custom-Header"]}`);
 	console.log(`X-Restart-Reason: ${context.req.http["X-Restart-Reason"]}`);

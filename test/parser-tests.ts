@@ -1,6 +1,6 @@
-import { runTestSuite, TestSuite, assert } from "./test-framework";
-import { VCLLexer, TokenType } from "../src/vcl-parser";
+import { VCLLexer } from "../src/vcl-parser";
 import { VCLParser } from "../src/vcl-parser-impl";
+import { assert, runTestSuite, type TestSuite } from "./test-framework";
 
 const suite: TestSuite = {
 	name: "Parser Tests",
@@ -124,7 +124,10 @@ sub vcl_recv {
 					const hasBackend = program.backends.length === 1;
 					const backendName = program.backends[0]?.name === "origin_0";
 					const hasProperties = program.backends[0]?.properties.length === 3;
-					return assert(hasBackend && backendName && hasProperties, "should parse backend declaration");
+					return assert(
+						hasBackend && backendName && hasProperties,
+						"should parse backend declaration",
+					);
 				},
 			],
 		},
@@ -151,9 +154,13 @@ sub vcl_recv {
 					const hasAcl = program.acls.length === 1;
 					const aclName = program.acls[0]?.name === "internal";
 					const hasEntries = program.acls[0]?.entries.length === 2;
-					const firstEntry = program.acls[0]?.entries[0]?.ip === "192.168.1.0" &&
-					                   program.acls[0]?.entries[0]?.subnet === 24;
-					return assert(hasAcl && aclName && hasEntries && firstEntry, "should parse ACL with IPv4 CIDR");
+					const firstEntry =
+						program.acls[0]?.entries[0]?.ip === "192.168.1.0" &&
+						program.acls[0]?.entries[0]?.subnet === 24;
+					return assert(
+						hasAcl && aclName && hasEntries && firstEntry,
+						"should parse ACL with IPv4 CIDR",
+					);
 				},
 			],
 		},
@@ -179,11 +186,16 @@ sub vcl_recv {
 
 					const hasAcl = program.acls.length === 1;
 					const hasEntries = program.acls[0]?.entries.length === 2;
-					const firstEntry = program.acls[0]?.entries[0]?.ip === "192.168.0.0" &&
-					                   program.acls[0]?.entries[0]?.subnet === 16;
-					const secondEntry = program.acls[0]?.entries[1]?.ip === "10.0.0.0" &&
-					                    program.acls[0]?.entries[1]?.subnet === 8;
-					return assert(hasAcl && hasEntries && firstEntry && secondEntry, "should parse ACL with external CIDR notation");
+					const firstEntry =
+						program.acls[0]?.entries[0]?.ip === "192.168.0.0" &&
+						program.acls[0]?.entries[0]?.subnet === 16;
+					const secondEntry =
+						program.acls[0]?.entries[1]?.ip === "10.0.0.0" &&
+						program.acls[0]?.entries[1]?.subnet === 8;
+					return assert(
+						hasAcl && hasEntries && firstEntry && secondEntry,
+						"should parse ACL with external CIDR notation",
+					);
 				},
 			],
 		},
@@ -231,7 +243,7 @@ sub vcl_fetch {
 
 					return assert(
 						hasImport && hasInclude && hasTable && hasBackend && hasAcl && hasSubs,
-						"should parse multiple top-level declarations"
+						"should parse multiple top-level declarations",
 					);
 				},
 			],

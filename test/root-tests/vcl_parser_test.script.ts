@@ -27,9 +27,7 @@ function parseVCL(code: string) {
 	// Compile the AST into executable functions
 	const compiler = new VCLCompiler(ast);
 	const subroutines = compiler.compile();
-	console.log(
-		`Compiled VCL code: ${Object.keys(subroutines).length} subroutines`,
-	);
+	console.log(`Compiled VCL code: ${Object.keys(subroutines).length} subroutines`);
 
 	return subroutines;
 }
@@ -58,7 +56,7 @@ function testSimpleVCL() {
 
 	// Execute the subroutine
 	console.log("\nExecuting vcl_recv...");
-	const result = subroutines.vcl_recv(context);
+	const result = subroutines.vcl_recv!(context);
 
 	// Check the result
 	console.log(`Result: ${result}`);
@@ -105,7 +103,7 @@ function testConditionalVCL() {
 
 	// Execute the subroutine for API path
 	console.log("\nAPI Path:");
-	const apiResult = subroutines.vcl_recv(apiContext);
+	const apiResult = subroutines.vcl_recv!(apiContext);
 	console.log(`Result: ${apiResult}`);
 	console.log("Headers:");
 	console.log(apiContext.req.http);
@@ -121,7 +119,7 @@ function testConditionalVCL() {
 
 	// Execute the subroutine for static path
 	console.log("\nStatic Path:");
-	const staticResult = subroutines.vcl_recv(staticContext);
+	const staticResult = subroutines.vcl_recv!(staticContext);
 	console.log(`Result: ${staticResult}`);
 	console.log("Headers:");
 	console.log(staticContext.req.http);

@@ -6,9 +6,7 @@ import { createVCLContext, executeVCL, loadVCL } from "../../src/vcl";
 
 // Load the VCL file
 console.log("Loading backend failover VCL file...");
-const subroutines = loadVCL(
-	"./test/fixtures/restart/backend_failover_fixed.vcl",
-);
+const subroutines = loadVCL("./test/fixtures/restart/backend_failover_fixed.vcl");
 
 // Print the loaded subroutines
 console.log("Loaded subroutines:");
@@ -70,22 +68,21 @@ function runTests() {
 
 		// Set up backends
 		context.backends = {
-			primary: { name: "primary" },
-			secondary: { name: "secondary" },
-			tertiary: { name: "tertiary" },
-			backend_pool: { name: "backend_pool" },
+			primary: { name: "primary" } as any,
+			secondary: { name: "secondary" } as any,
+			tertiary: { name: "tertiary" } as any,
+			backend_pool: { name: "backend_pool" } as any,
 		};
 
 		// Get backend health from test case or use defaults
-		const backendHealth: Record<string, boolean> = (testCase as any)
-			.backendHealth || {
+		const backendHealth: Record<string, boolean> = (testCase as any).backendHealth || {
 			primary: false, // Primary is unhealthy by default
 			secondary: true, // Secondary is healthy
 			tertiary: true, // Tertiary is healthy
 		};
 
 		// Mock the backend health check function on context.std
-		context.std.backend = {
+		(context.std as any).backend = {
 			is_healthy: (backend: any) => {
 				if (typeof backend === "string") {
 					return backendHealth[backend] || false;
@@ -104,6 +101,7 @@ function runTests() {
 			status: 0,
 			response: "",
 			http: {},
+			hits: 0,
 		};
 
 		// Initialize beresp for fetch
@@ -134,14 +132,8 @@ function runTests() {
 			}
 
 			// If we have a backend status code set, simulate a backend response
-			if (
-				testCase.backendStatus &&
-				recvResult === "lookup" &&
-				restartCount === 0
-			) {
-				console.log(
-					`Simulating backend response with status ${testCase.backendStatus}`,
-				);
+			if (testCase.backendStatus && recvResult === "lookup" && restartCount === 0) {
+				console.log(`Simulating backend response with status ${testCase.backendStatus}`);
 
 				// Execute vcl_fetch
 				const fetchResult = executeVCL(subroutines, "vcl_fetch", context);
@@ -162,9 +154,7 @@ function runTests() {
 
 			// Handle error action
 			if (recvResult === "error") {
-				console.log(
-					`Error triggered: ${context.obj.status} - ${context.obj.response}`,
-				);
+				console.log(`Error triggered: ${context.obj.status} - ${context.obj.response}`);
 				finalStatus = context.obj.status;
 
 				// Execute vcl_error

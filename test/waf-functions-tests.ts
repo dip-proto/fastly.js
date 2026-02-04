@@ -51,14 +51,14 @@ const wafFunctionsTests = {
 				// Check that logs were created
 				(context: VCLContext) => {
 					return assert(
-						context.req.http["X-WAF-Logs"].includes("Test WAF log message"),
+						context.req.http["X-WAF-Logs"]!.includes("Test WAF log message"),
 						`Expected WAF logs to include "Test WAF log message", got '${context.req.http["X-WAF-Logs"]}'`,
 					);
 				},
 				// Check that client IP was logged
 				(context: VCLContext) => {
 					return assert(
-						context.req.http["X-WAF-Logs"].includes("Client IP:"),
+						context.req.http["X-WAF-Logs"]!.includes("Client IP:"),
 						`Expected WAF logs to include "Client IP:", got '${context.req.http["X-WAF-Logs"]}'`,
 					);
 				},

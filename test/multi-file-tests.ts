@@ -28,14 +28,8 @@ const multiFileTests = {
 			name: "Load and execute multiple VCL files",
 			run: async (context: VCLContext, _subroutines: VCLSubroutines) => {
 				// Load the VCL files
-				const file1Path = path.join(
-					__dirname,
-					"fixtures/vcl-files/multi_file_test_1.vcl",
-				);
-				const file2Path = path.join(
-					__dirname,
-					"fixtures/vcl-files/multi_file_test_2.vcl",
-				);
+				const file1Path = path.join(__dirname, "fixtures/vcl-files/multi_file_test_1.vcl");
+				const file2Path = path.join(__dirname, "fixtures/vcl-files/multi_file_test_2.vcl");
 
 				const content1 = fs.readFileSync(file1Path, "utf-8");
 				const content2 = fs.readFileSync(file2Path, "utf-8");
@@ -58,11 +52,7 @@ const multiFileTests = {
 				const _recvResult = executeVCL(loadedSubroutines, "vcl_recv", context);
 
 				// Execute vcl_deliver
-				const _deliverResult = executeVCL(
-					loadedSubroutines,
-					"vcl_deliver",
-					context,
-				);
+				const _deliverResult = executeVCL(loadedSubroutines, "vcl_deliver", context);
 			},
 			assertions: [
 				// Check that headers from both files are set
@@ -75,8 +65,7 @@ const multiFileTests = {
 						};
 					}
 
-					const hasFile2Header =
-						context.resp.http["X-Test-File-2"] === "File 2";
+					const hasFile2Header = context.resp.http["X-Test-File-2"] === "File 2";
 					if (!hasFile2Header) {
 						return {
 							success: false,
@@ -98,8 +87,7 @@ const multiFileTests = {
 					// that the VCL code from both files was executed.
 
 					const hasFile1Header = context.req.http["X-Test-File-1"] === "File 1";
-					const hasFile2Header =
-						context.resp.http["X-Test-File-2"] === "File 2";
+					const hasFile2Header = context.resp.http["X-Test-File-2"] === "File 2";
 
 					if (!hasFile1Header || !hasFile2Header) {
 						return {
@@ -121,14 +109,8 @@ const multiFileTests = {
 			name: "Load VCL files with loadVCLContent",
 			run: async (context: VCLContext, _subroutines: VCLSubroutines) => {
 				// Load the VCL files
-				const file1Path = path.join(
-					__dirname,
-					"fixtures/vcl-files/multi_file_test_1.vcl",
-				);
-				const file2Path = path.join(
-					__dirname,
-					"fixtures/vcl-files/multi_file_test_2.vcl",
-				);
+				const file1Path = path.join(__dirname, "fixtures/vcl-files/multi_file_test_1.vcl");
+				const file2Path = path.join(__dirname, "fixtures/vcl-files/multi_file_test_2.vcl");
 
 				const content1 = fs.readFileSync(file1Path, "utf-8");
 				const content2 = fs.readFileSync(file2Path, "utf-8");
@@ -151,11 +133,7 @@ const multiFileTests = {
 				const recvResult = executeVCL(loadedSubroutines, "vcl_recv", context);
 
 				// Execute vcl_deliver
-				const deliverResult = executeVCL(
-					loadedSubroutines,
-					"vcl_deliver",
-					context,
-				);
+				const deliverResult = executeVCL(loadedSubroutines, "vcl_deliver", context);
 
 				// Store the results for assertions
 				context.req.http["X-Recv-Result"] = recvResult;

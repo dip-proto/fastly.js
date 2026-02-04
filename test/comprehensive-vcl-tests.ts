@@ -75,10 +75,10 @@ const comprehensiveVCLTests = {
 				const browser = context.req.http["X-Browser"];
 
 				// Store results for assertions
-				context.req.http["X-API-Access"] = apiAccess;
-				context.req.http["X-Public-Access"] = publicAccess;
-				context.req.http["X-Access"] = deniedAccess;
-				context.req.http["X-Browser"] = browser;
+				context.req.http["X-API-Access"] = apiAccess!;
+				context.req.http["X-Public-Access"] = publicAccess!;
+				context.req.http["X-Access"] = deniedAccess!;
+				context.req.http["X-Browser"] = browser!;
 			},
 			assertions: [
 				// Check API access
@@ -142,24 +142,21 @@ const comprehensiveVCLTests = {
 				// Check lowercase transformation
 				(context: VCLContext) => {
 					return assert(
-						context.req.http["X-Lower"] ===
-							"  hello, world! this is a test string.  ",
+						context.req.http["X-Lower"] === "  hello, world! this is a test string.  ",
 						`Expected X-Lower to be '  hello, world! this is a test string.  ', got '${context.req.http["X-Lower"]}'`,
 					);
 				},
 				// Check special character removal
 				(context: VCLContext) => {
 					return assert(
-						context.req.http["X-NoSpecial"] ===
-							"  Hello World This is a TEST string  ",
+						context.req.http["X-NoSpecial"] === "  Hello World This is a TEST string  ",
 						`Expected X-NoSpecial to be '  Hello World This is a TEST string  ', got '${context.req.http["X-NoSpecial"]}'`,
 					);
 				},
 				// Check substring extraction
 				(context: VCLContext) => {
 					return assert(
-						context.req.http["X-Substring"] ===
-							"World! This is a TEST string.  ",
+						context.req.http["X-Substring"] === "World! This is a TEST string.  ",
 						`Expected X-Substring to be 'World! This is a TEST string.  ', got '${context.req.http["X-Substring"]}'`,
 					);
 				},

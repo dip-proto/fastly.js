@@ -22,11 +22,11 @@ const realWorldVCLTests = {
 				context.req.method = "GET";
 				context.req.http.Host = "api.example.com";
 				context.req.http["User-Agent"] = "Mozilla/5.0";
-				context.client.ip = "203.0.113.1"; // External IP
+				context.client!.ip = "203.0.113.1"; // External IP
 
 				// Initialize tables
 				if (!context.tables.feature_flags) {
-					context.tables.feature_flags = {
+					(context.tables as any).feature_flags = {
 						new_homepage: "true",
 						beta_api: "false",
 						maintenance_mode: "false",
@@ -51,8 +51,7 @@ const realWorldVCLTests = {
 				// Check that a request ID was set
 				(context: VCLContext) => {
 					return assert(
-						context.req.http["X-Request-ID"] ===
-							"12345678-1234-1234-1234-123456789012",
+						context.req.http["X-Request-ID"] === "12345678-1234-1234-1234-123456789012",
 						`Expected X-Request-ID to be '12345678-1234-1234-1234-123456789012', got '${context.req.http["X-Request-ID"]}'`,
 					);
 				},
@@ -68,11 +67,11 @@ const realWorldVCLTests = {
 				context.req.url = "/static/css/style.css?v=123";
 				context.req.method = "GET";
 				context.req.http.Host = "www.example.com";
-				context.client.ip = "203.0.113.1"; // External IP
+				context.client!.ip = "203.0.113.1"; // External IP
 
 				// Initialize tables
 				if (!context.tables.feature_flags) {
-					context.tables.feature_flags = {
+					(context.tables as any).feature_flags = {
 						new_homepage: "true",
 						beta_api: "false",
 						maintenance_mode: "false",
@@ -105,8 +104,7 @@ const realWorldVCLTests = {
 				// Check that the request ID was set correctly
 				(context: VCLContext) => {
 					return assert(
-						context.req.http["X-Request-ID"] ===
-							"12345678-1234-1234-1234-123456789012",
+						context.req.http["X-Request-ID"] === "12345678-1234-1234-1234-123456789012",
 						`Expected X-Request-ID to be '12345678-1234-1234-1234-123456789012', got '${context.req.http["X-Request-ID"]}'`,
 					);
 				},
@@ -129,11 +127,11 @@ const realWorldVCLTests = {
 				context.req.url = "/";
 				context.req.method = "GET";
 				context.req.http.Host = "www.example.com";
-				context.client.ip = "203.0.113.1"; // External IP
+				context.client!.ip = "203.0.113.1"; // External IP
 
 				// Initialize tables
 				if (!context.tables.feature_flags) {
-					context.tables.feature_flags = {
+					(context.tables as any).feature_flags = {
 						new_homepage: "true",
 						beta_api: "false",
 						maintenance_mode: "false",
@@ -165,8 +163,7 @@ const realWorldVCLTests = {
 				// Check that the request ID was set correctly
 				(context: VCLContext) => {
 					return assert(
-						context.req.http["X-Request-ID"] ===
-							"12345678-1234-1234-1234-123456789012",
+						context.req.http["X-Request-ID"] === "12345678-1234-1234-1234-123456789012",
 						`Expected X-Request-ID to be '12345678-1234-1234-1234-123456789012', got '${context.req.http["X-Request-ID"]}'`,
 					);
 				},
@@ -196,7 +193,7 @@ const realWorldVCLTests = {
 				context.req.url = "/";
 				context.req.method = "GET";
 				context.req.http.Host = "www.example.com";
-				context.client.ip = "203.0.113.1"; // External IP
+				context.client!.ip = "203.0.113.1"; // External IP
 
 				// Force an error
 				context.obj.status = 503;

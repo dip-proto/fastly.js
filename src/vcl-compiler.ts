@@ -153,11 +153,7 @@ export interface VCLContext {
 	bin?: {
 		base64_to_hex: (base64: string) => string;
 		hex_to_base64: (hex: string) => string;
-		data_convert: (
-			input: string,
-			inputEncoding: string,
-			outputEncoding: string,
-		) => string;
+		data_convert: (input: string, inputEncoding: string, outputEncoding: string) => string;
 	};
 	querystring?: {
 		get: (queryString: string, paramName: string) => string | null;
@@ -167,12 +163,13 @@ export interface VCLContext {
 		clean: (queryString: string) => string;
 		filter: (queryString: string, paramNames: string[]) => string;
 		filter_except: (queryString: string, paramNames: string[]) => string;
-		filtersep: (
-			queryString: string,
-			prefix: string,
-			separator: string,
-		) => string;
+		filtersep: (queryString: string, prefix: string, separator: string) => string;
 		sort: (queryString: string) => string;
+		globfilter: (queryString: string, pattern: string) => string;
+		globfilter_except: (queryString: string, pattern: string) => string;
+		regfilter: (queryString: string, pattern: string) => string;
+		regfilter_except: (queryString: string, pattern: string) => string;
+		[key: string]: any;
 	};
 	uuid?: {
 		version3: (namespace: string, name: string) => string;
@@ -186,20 +183,15 @@ export interface VCLContext {
 		is_version5: (uuid: string) => boolean;
 		decode: (uuid: string) => Uint8Array | null;
 		encode: (binary: Uint8Array) => string;
+		[key: string]: any;
 	};
-	waf?: {
-		allow: () => void;
-		block: (status: number, message: string) => void;
-		log: (message: string) => void;
-		rate_limit: (key: string, limit: number, window: number) => boolean;
-		rate_limit_tokens: (key: string) => number;
-		detect_attack: (requestData: string, attackType: string) => boolean;
-	};
+	waf?: Record<string, any>;
 	error?: (status: number, message: string) => string;
-	std?: {
-		log: (message: string) => void;
-		strftime: (format: string, time: number) => string;
-		time: {
+	// The std module has many dynamic properties - use a flexible type
+	std?: Record<string, any> & {
+		log?: (message: string) => void;
+		strftime?: (format: string, time: number) => string;
+		time?: {
 			now: () => number;
 			add: (time: number, offset: string | number) => number;
 			sub: (time1: number, time2: number) => number;
@@ -207,13 +199,7 @@ export interface VCLContext {
 			hex_to_time: (hex: string) => number;
 		};
 		backend?: {
-			add: (
-				name: string,
-				host: string,
-				port: number,
-				ssl?: boolean,
-				options?: any,
-			) => boolean;
+			add: (name: string, host: string, port: number, ssl?: boolean, options?: any) => boolean;
 			remove: (name: string) => boolean;
 			get: (name: string) => VCLBackend | null;
 			set_current: (name: string) => boolean;
@@ -223,11 +209,7 @@ export interface VCLContext {
 		director?: {
 			add: (name: string, type: string, options?: any) => boolean;
 			remove: (name: string) => boolean;
-			add_backend: (
-				directorName: string,
-				backendName: string,
-				weight?: number,
-			) => boolean;
+			add_backend: (directorName: string, backendName: string, weight?: number) => boolean;
 			remove_backend: (directorName: string, backendName: string) => boolean;
 			select_backend: (directorName: string) => VCLBackend | null;
 		};
@@ -280,15 +262,12 @@ export interface VCLContext {
 			base64url_decode: (str: string) => string;
 			base64url_nopad: (str: string) => string;
 			base64url_nopad_decode: (str: string) => string;
+			[key: string]: any;
 		};
 
 		header: {
 			get: (headers: Record<string, string>, name: string) => string | null;
-			set: (
-				headers: Record<string, string>,
-				name: string,
-				value: string,
-			) => void;
+			set: (headers: Record<string, string>, name: string, value: string) => void;
 			remove: (headers: Record<string, string>, name: string) => void;
 			filter: (headers: Record<string, string>, pattern: string) => void;
 			filter_except: (headers: Record<string, string>, pattern: string) => void;
@@ -302,6 +281,7 @@ export interface VCLContext {
 			remove: (url: string, name: string) => string;
 			filter: (url: string, names: string[]) => string;
 			filter_except: (url: string, names: string[]) => string;
+			[key: string]: any;
 		};
 		strrev?: (s: string) => string;
 		strrep?: (s: string, count: number) => string;
@@ -323,21 +303,61 @@ export interface VCLContext {
 		anystr2ip?: (s: string, fallback: string) => string;
 		collect?: (header: string[], separator?: string) => string;
 		count?: (header: string[]) => number;
+		// ACL functions
+		acl?: {
+			add: (name: string) => boolean;
+			remove: (name: string) => boolean;
+			add_entry: (aclName: string, ip: string, subnet?: number) => boolean;
+			remove_entry: (aclName: string, ip: string, subnet?: number) => boolean;
+			check: (ip: string, aclName: string) => boolean;
+			isIpInCidr?: (ip: string, cidrIp: string, cidrSubnet: number) => boolean;
+		};
+		// Random functions
+		random?: {
+			randombool: (probability: number) => boolean;
+			randombool_seeded: (probability: number, seed: string) => boolean;
+			randomint: (from: number, to: number) => number;
+			randomint_seeded: (from: number, to: number, seed: string) => number;
+			randomstr: (length: number, charset?: string) => string;
+			bool?: (numerator: number, denominator: number) => boolean;
+		};
+		// Table functions
+		table?: {
+			add: (name: string) => boolean;
+			remove: (name: string) => boolean;
+			add_entry: (
+				tableName: string,
+				key: string,
+				value: string | number | boolean | RegExp,
+			) => boolean;
+			remove_entry: (tableName: string, key: string) => boolean;
+			lookup: (tableName: string, key: string, defaultValue?: string) => string;
+			lookup_bool: (tableName: string, key: string, defaultValue?: boolean) => boolean;
+			lookup_integer: (tableName: string, key: string, defaultValue?: number) => number;
+			lookup_float: (tableName: string, key: string, defaultValue?: number) => number;
+			lookup_regex: (tableName: string, key: string, defaultValue?: string) => RegExp;
+			contains: (tableName: string, key: string) => boolean;
+		};
+		// Rate limit functions - flexible type to allow different implementations
+		ratelimit?: Record<string, any>;
+		// Allow additional properties
+		[key: string]: any;
 	};
-	math?: {
-		sin: (x: number) => number;
-		cos: (x: number) => number;
-		tan: (x: number) => number;
-		asin: (x: number) => number;
-		acos: (x: number) => number;
-		atan: (x: number) => number;
-		atan2: (y: number, x: number) => number;
-		sinh: (x: number) => number;
-		cosh: (x: number) => number;
-		tanh: (x: number) => number;
-		asinh: (x: number) => number;
-		acosh: (x: number) => number;
-		atanh: (x: number) => number;
+	// Math module with flexible indexing
+	math?: Record<string, any> & {
+		sin?: (x: number) => number;
+		cos?: (x: number) => number;
+		tan?: (x: number) => number;
+		asin?: (x: number) => number;
+		acos?: (x: number) => number;
+		atan?: (x: number) => number;
+		atan2?: (y: number, x: number) => number;
+		sinh?: (x: number) => number;
+		cosh?: (x: number) => number;
+		tanh?: (x: number) => number;
+		asinh?: (x: number) => number;
+		acosh?: (x: number) => number;
+		atanh?: (x: number) => number;
 		exp: (x: number) => number;
 		exp2: (x: number) => number;
 		log: (x: number) => number;
@@ -362,54 +382,17 @@ export interface VCLContext {
 		is_normal: (x: number) => boolean;
 		is_subnormal: (x: number) => boolean;
 	};
-	table?: {
-		lookup: (
-			tables: any,
-			tableName: string,
-			key: string,
-			defaultValue?: string,
-		) => string;
-		lookup_bool: (
-			tables: any,
-			tableName: string,
-			key: string,
-			defaultValue?: boolean,
-		) => boolean;
-		lookup_integer: (
-			tables: any,
-			tableName: string,
-			key: string,
-			defaultValue?: number,
-		) => number;
-		lookup_float: (
-			tables: any,
-			tableName: string,
-			key: string,
-			defaultValue?: number,
-		) => number;
-		lookup_ip: (
-			tables: any,
-			tableName: string,
-			key: string,
-			defaultValue?: string,
-		) => string;
-		lookup_rtime: (
-			tables: any,
-			tableName: string,
-			key: string,
-			defaultValue?: number,
-		) => number;
+	// Table module with flexible indexing
+	table?: Record<string, any> & {
+		lookup?: (tables: any, tableName: string, key: string, defaultValue?: string) => string;
+		lookup_bool: (tables: any, tableName: string, key: string, defaultValue?: boolean) => boolean;
+		lookup_integer: (tables: any, tableName: string, key: string, defaultValue?: number) => number;
+		lookup_float: (tables: any, tableName: string, key: string, defaultValue?: number) => number;
+		lookup_ip: (tables: any, tableName: string, key: string, defaultValue?: string) => string;
+		lookup_rtime: (tables: any, tableName: string, key: string, defaultValue?: number) => number;
 		lookup_acl: (tables: any, tableName: string, key: string) => string | null;
-		lookup_backend: (
-			tables: any,
-			tableName: string,
-			key: string,
-		) => string | null;
-		lookup_regex: (
-			tables: any,
-			tableName: string,
-			key: string,
-		) => RegExp | null;
+		lookup_backend: (tables: any, tableName: string, key: string) => string | null;
+		lookup_regex: (tables: any, tableName: string, key: string) => RegExp | null;
 		contains: (tables: any, tableName: string, key: string) => boolean;
 	};
 	time?: {
@@ -432,6 +415,13 @@ export interface VCLContext {
 	strftime?: (format: string, time: Date) => string;
 	parse_time_delta?: (delta: string) => number;
 	rateLimitModule?: any;
+	// Testing helper for tracking results
+	results?: Record<string, any>;
+	// Rate limiting state
+	ratelimit?: {
+		counters: Record<string, any>;
+		penaltyboxes: Record<string, any>;
+	};
 }
 
 export interface VCLSubroutines {
@@ -444,13 +434,15 @@ export interface VCLSubroutines {
 	vcl_deliver?: (context: VCLContext) => string;
 	vcl_error?: (context: VCLContext) => string;
 	vcl_log?: (context: VCLContext) => void;
+	// Index signature for dynamic access
+	// biome-ignore lint/suspicious/noConfusingVoidType: vcl_log returns void
+	[key: string]: ((context: VCLContext) => string | void) | undefined;
 }
 export const VCLStdLib = {
 	log: (message: string) => console.log(`[VCL] ${message}`),
 	time: {
 		parse: (timeStr: string): number => Date.parse(timeStr),
-		format: (time: number, _format: string): string =>
-			new Date(time).toISOString(),
+		format: (time: number, _format: string): string => new Date(time).toISOString(),
 	},
 	string: {
 		tolower: (str: string): string => str.toLowerCase(),
@@ -499,7 +491,7 @@ export class VCLCompiler {
 		const context = createVCLContext();
 
 		// Process ACL declarations
-		if (this.program.acls) {
+		if (this.program.acls && context.std?.acl) {
 			for (const acl of this.program.acls) {
 				// Add the ACL to the context
 				context.std.acl.add(acl.name);
@@ -537,14 +529,11 @@ export class VCLCompiler {
 			try {
 				// Execute each statement in the subroutine
 				// Handle both body and statements properties for backward compatibility
-				let statements = [];
+				let statements: VCLStatement[] = [];
 
 				if (subroutine.body && Array.isArray(subroutine.body)) {
 					statements = subroutine.body;
-				} else if (
-					subroutine.statements &&
-					Array.isArray(subroutine.statements)
-				) {
+				} else if (subroutine.statements && Array.isArray(subroutine.statements)) {
 					statements = subroutine.statements;
 
 					// Copy the statements to the body property for compatibility
@@ -564,11 +553,13 @@ export class VCLCompiler {
 
 					// Find the corresponding statement index
 					for (let i = 0; i < statements.length; i++) {
+						const stmt = statements[i];
 						if (
-							statements[i].type === "LabelStatement" &&
-							(statements[i] as VCLLabelStatement).name === labelName
+							stmt &&
+							stmt.type === "LabelStatement" &&
+							(stmt as VCLLabelStatement).name === labelName
 						) {
-							labelMap.set(labelName, i);
+							labelMap.set(labelName!, i);
 							break;
 						}
 					}
@@ -576,8 +567,9 @@ export class VCLCompiler {
 
 				// Second pass: look for label statements
 				for (let i = 0; i < statements.length; i++) {
-					if (statements[i].type === "LabelStatement") {
-						const labelName = (statements[i] as VCLLabelStatement).name;
+					const stmt = statements[i];
+					if (stmt && stmt.type === "LabelStatement") {
+						const labelName = (stmt as VCLLabelStatement).name;
 						labelMap.set(labelName, i);
 					}
 				}
@@ -586,24 +578,23 @@ export class VCLCompiler {
 				let i = 0;
 				while (i < statements.length) {
 					const statement = statements[i];
+					if (!statement) {
+						i++;
+						continue;
+					}
 
 					// Make sure the statement has a test property if it's an IfStatement
-					if (
-						statement.type === "IfStatement" &&
-						!statement.test &&
-						statement.condition
-					) {
-						statement.test = statement.condition;
+					if (statement.type === "IfStatement") {
+						const ifStmt = statement as VCLIfStatement;
+						if (!ifStmt.test && ifStmt.condition) {
+							ifStmt.test = ifStmt.condition;
+						}
 					}
 
 					let result = this.executeStatement(statement, context);
 
 					// Handle goto statements
-					if (
-						result &&
-						typeof result === "string" &&
-						result.startsWith("__goto__:")
-					) {
+					if (result && typeof result === "string" && result.startsWith("__goto__:")) {
 						const labelName = result.substring("__goto__:".length);
 						const labelIndex = labelMap.get(labelName);
 
@@ -612,11 +603,13 @@ export class VCLCompiler {
 							i = labelIndex;
 
 							// Execute the label statement itself if it's a LabelStatement
+							const labelStatement = statements[i];
 							if (
 								i < statements.length &&
-								statements[i].type === "LabelStatement"
+								labelStatement &&
+								labelStatement.type === "LabelStatement"
 							) {
-								const labelStmt = statements[i] as VCLLabelStatement;
+								const labelStmt = labelStatement as VCLLabelStatement;
 
 								// Execute the statement associated with the label, if any
 								if (labelStmt.statement) {
@@ -629,6 +622,10 @@ export class VCLCompiler {
 							// Execute all statements after the label until the next goto or return
 							while (i < statements.length) {
 								const stmt = statements[i];
+								if (!stmt) {
+									i++;
+									continue;
+								}
 
 								// Skip label statements
 								if (stmt.type === "LabelStatement") {
@@ -667,20 +664,14 @@ export class VCLCompiler {
 								i++;
 
 								// If we encounter another label, stop execution
-								if (
-									i < statements.length &&
-									statements[i].type === "LabelStatement"
-								) {
+								const nextStmt = statements[i];
+								if (i < statements.length && nextStmt && nextStmt.type === "LabelStatement") {
 									break;
 								}
 							}
 
 							// If we have another goto, continue the loop
-							if (
-								result &&
-								typeof result === "string" &&
-								result.startsWith("__goto__:")
-							) {
+							if (result && typeof result === "string" && result.startsWith("__goto__:")) {
 								continue;
 							}
 
@@ -695,11 +686,7 @@ export class VCLCompiler {
 					}
 
 					// Handle return statements
-					if (
-						result &&
-						typeof result === "string" &&
-						!result.startsWith("__goto__:")
-					) {
+					if (result && typeof result === "string" && !result.startsWith("__goto__:")) {
 						return result;
 					}
 
@@ -735,72 +722,47 @@ export class VCLCompiler {
 		};
 	}
 
-	private executeStatement(
-		statement: VCLStatement,
-		context: VCLContext,
-	): string | undefined {
+	private executeStatement(statement: VCLStatement, context: VCLContext): string | undefined {
 		switch (statement.type) {
 			case "IfStatement":
 				return this.executeIfStatement(statement as VCLIfStatement, context);
 			case "ReturnStatement":
-				return this.executeReturnStatement(
-					statement as VCLReturnStatement,
-					context,
-				);
+				return this.executeReturnStatement(statement as VCLReturnStatement, context);
 			case "ErrorStatement":
-				return this.executeErrorStatement(
-					statement as VCLErrorStatement,
-					context,
-				);
+				return this.executeErrorStatement(statement as VCLErrorStatement, context);
 			case "SetStatement":
-				return this.executeSetStatement(statement as VCLSetStatement, context);
+				this.executeSetStatement(statement as VCLSetStatement, context);
+				return undefined;
 			case "UnsetStatement":
-				return this.executeUnsetStatement(
-					statement as VCLUnsetStatement,
-					context,
-				);
+				this.executeUnsetStatement(statement as VCLUnsetStatement, context);
+				return undefined;
 			case "LogStatement":
-				return this.executeLogStatement(statement as VCLLogStatement, context);
+				this.executeLogStatement(statement as VCLLogStatement, context);
+				return undefined;
 			case "SyntheticStatement":
-				return this.executeSyntheticStatement(
-					statement as VCLSyntheticStatement,
-					context,
-				);
+				this.executeSyntheticStatement(statement as VCLSyntheticStatement, context);
+				return undefined;
 			case "HashDataStatement":
-				return this.executeHashDataStatement(
-					statement as VCLHashDataStatement,
-					context,
-				);
+				this.executeHashDataStatement(statement as VCLHashDataStatement, context);
+				return undefined;
 			case "GotoStatement":
-				return this.executeGotoStatement(
-					statement as VCLGotoStatement,
-					context,
-				);
+				return this.executeGotoStatement(statement as VCLGotoStatement, context);
 			case "RestartStatement":
-				return this.executeRestartStatement(
-					statement as VCLRestartStatement,
-					context,
-				);
+				return this.executeRestartStatement(statement as VCLRestartStatement, context);
 			case "LabelStatement": {
 				const labelStmt = statement as VCLLabelStatement;
-				if (labelStmt.statement)
-					return this.executeStatement(labelStmt.statement, context);
+				if (labelStmt.statement) return this.executeStatement(labelStmt.statement, context);
 				return;
 			}
 			case "DeclareStatement":
-				return this.executeDeclareStatement(
-					statement as VCLDeclareStatement,
-					context,
-				);
+				this.executeDeclareStatement(statement as VCLDeclareStatement, context);
+				return undefined;
 			default:
 				return;
 		}
 	}
 
-	private executeDeclareStatement(
-		statement: VCLDeclareStatement,
-		context: VCLContext,
-	): void {
+	private executeDeclareStatement(statement: VCLDeclareStatement, context: VCLContext): void {
 		const typeDefaults: Record<string, any> = {
 			STRING: "",
 			INTEGER: 0,
@@ -817,10 +779,7 @@ export class VCLCompiler {
 			typeDefaults[statement.variableType.toUpperCase()] ?? "";
 	}
 
-	private executeIfStatement(
-		statement: VCLIfStatement,
-		context: VCLContext,
-	): string | undefined {
+	private executeIfStatement(statement: VCLIfStatement, context: VCLContext): string | undefined {
 		// Make sure the statement has a test property
 		if (!statement.test && statement.condition) {
 			statement.test = statement.condition;
@@ -848,11 +807,7 @@ export class VCLCompiler {
 				// Check if the ACL exists in the context
 				if (context.acls?.[aclName]) {
 					// Use our ACL checking function
-					const isInAcl = this.isIpInAcl(
-						clientIp,
-						context.acls[aclName],
-						context,
-					);
+					const isInAcl = this.isIpInAcl(clientIp, context.acls[aclName], context);
 
 					if (isInAcl) {
 						// Execute the consequent statements
@@ -895,17 +850,11 @@ export class VCLCompiler {
 		}
 	}
 
-	private executeReturnStatement(
-		statement: VCLReturnStatement,
-		_context: VCLContext,
-	): string {
+	private executeReturnStatement(statement: VCLReturnStatement, _context: VCLContext): string {
 		return statement.argument;
 	}
 
-	private executeErrorStatement(
-		statement: VCLErrorStatement,
-		context: VCLContext,
-	): string {
+	private executeErrorStatement(statement: VCLErrorStatement, context: VCLContext): string {
 		context.obj = context.obj || {};
 		context.obj.status = statement.status;
 		context.obj.response = statement.message;
@@ -915,9 +864,7 @@ export class VCLCompiler {
 			context.error(statement.status, statement.message);
 		}
 
-		const errorSubroutine = this.program.subroutines.find(
-			(s) => s.name === "vcl_error",
-		);
+		const errorSubroutine = this.program.subroutines.find((s) => s.name === "vcl_error");
 		if (errorSubroutine) {
 			for (const stmt of errorSubroutine.body) {
 				this.executeStatement(stmt, context);
@@ -933,11 +880,7 @@ export class VCLCompiler {
 		return "error";
 	}
 
-	private applyCompoundOperator(
-		operator: string,
-		currentValue: any,
-		newValue: any,
-	): any {
+	private applyCompoundOperator(operator: string, currentValue: any, newValue: any): any {
 		const cur = Number(currentValue) || 0;
 		const val = Number(newValue) || 0;
 		switch (operator) {
@@ -979,9 +922,11 @@ export class VCLCompiler {
 
 	private getTargetValue(target: string, context: VCLContext): any {
 		const parts = target.split(".");
+		const part0 = parts[0] ?? "";
+		const part1 = parts[1] ?? "";
 
 		// Handle HTTP headers (*.http.*)
-		if (parts.length >= 3 && parts[1] === "http") {
+		if (parts.length >= 3 && part1 === "http") {
 			const headerName = parts.slice(2).join(".");
 			const httpObjects: Record<string, Record<string, string> | undefined> = {
 				req: context.req.http,
@@ -990,43 +935,42 @@ export class VCLCompiler {
 				resp: context.resp.http,
 				obj: context.obj.http,
 			};
-			return httpObjects[parts[0]]?.[headerName];
+			return httpObjects[part0]?.[headerName];
 		}
 
-		if (parts[0] === "beresp") {
+		if (part0 === "beresp") {
 			const props: Record<string, any> = {
 				ttl: context.beresp.ttl,
 				grace: context.beresp.grace,
 				stale_while_revalidate: context.beresp.stale_while_revalidate,
 			};
-			return props[parts[1]];
+			return props[part1];
 		}
-		if (parts[0] === "req") {
+		if (part0 === "req") {
 			const props: Record<string, any> = {
 				backend: context.req.backend,
 				restarts: context.req.restarts,
 			};
-			return props[parts[1]];
+			return props[part1];
 		}
 
 		return undefined;
 	}
 
-	private executeSetStatement(
-		statement: VCLSetStatement,
-		context: VCLContext,
-	): void {
+	private executeSetStatement(statement: VCLSetStatement, context: VCLContext): void {
 		const operator = statement.operator || "=";
 
 		// Parse the target path (e.g., req.http.X-Header)
 		const parts = statement.target.split(".");
+		const part0 = parts[0] ?? "";
+		const part1 = parts[1] ?? "";
 
 		// Special handling for req.backend - treat identifier values as literal backend names
 		let newValue: any;
 		if (
 			parts.length === 2 &&
-			parts[0] === "req" &&
-			parts[1] === "backend" &&
+			part0 === "req" &&
+			part1 === "backend" &&
 			statement.value &&
 			statement.value.type === "Identifier"
 		) {
@@ -1046,7 +990,7 @@ export class VCLCompiler {
 		}
 
 		// Handle HTTP headers (*.http.*)
-		if (parts.length >= 3 && parts[1] === "http") {
+		if (parts.length >= 3 && part1 === "http") {
 			const headerName = parts.slice(2).join(".");
 			const httpObjects: Record<string, Record<string, string>> = {
 				req: context.req.http,
@@ -1055,16 +999,12 @@ export class VCLCompiler {
 				resp: context.resp.http,
 				obj: context.obj.http,
 			};
-			if (httpObjects[parts[0]]) {
-				httpObjects[parts[0]][headerName] = String(value);
+			if (httpObjects[part0]) {
+				httpObjects[part0]![headerName] = String(value);
 			}
 		}
 		// Handle req.backend
-		else if (
-			parts.length === 2 &&
-			parts[0] === "req" &&
-			parts[1] === "backend"
-		) {
+		else if (parts.length === 2 && part0 === "req" && part1 === "backend") {
 			context.req.backend = String(value);
 
 			// Also update current_backend if the backend exists
@@ -1086,48 +1026,29 @@ export class VCLCompiler {
 			// Store the backend based on the URL pattern
 			if (context.req.url?.startsWith("/api/")) {
 				context.results.apiBackend = context.req.backend;
-			} else if (
-				context.req.url &&
-				/\.(jpg|jpeg|png|gif|css|js)$/.test(context.req.url)
-			) {
+			} else if (context.req.url && /\.(jpg|jpeg|png|gif|css|js)$/.test(context.req.url)) {
 				context.results.staticBackend = context.req.backend;
 			} else {
 				context.results.defaultBackend = context.req.backend;
 			}
 		}
 		// Handle beresp.ttl
-		else if (
-			parts.length === 2 &&
-			parts[0] === "beresp" &&
-			parts[1] === "ttl"
-		) {
+		else if (parts.length === 2 && part0 === "beresp" && part1 === "ttl") {
 			const ttl = parseTimeValue(String(value));
 			context.beresp.ttl = ttl;
 			if (!context.resp.http) context.resp.http = {};
 			context.resp.http["X-TTL"] = String(ttl);
-		} else if (
-			parts.length === 2 &&
-			parts[0] === "beresp" &&
-			parts[1] === "grace"
-		) {
+		} else if (parts.length === 2 && part0 === "beresp" && part1 === "grace") {
 			const grace = parseTimeValue(String(value));
 			context.beresp.grace = grace;
 			if (!context.resp.http) context.resp.http = {};
 			context.resp.http["X-Grace"] = String(grace);
-		} else if (
-			parts.length === 2 &&
-			parts[0] === "beresp" &&
-			parts[1] === "stale_while_revalidate"
-		) {
+		} else if (parts.length === 2 && part0 === "beresp" && part1 === "stale_while_revalidate") {
 			const swr = parseTimeValue(String(value));
 			context.beresp.stale_while_revalidate = swr;
 			if (!context.resp.http) context.resp.http = {};
 			context.resp.http["X-SWR"] = String(swr);
-		} else if (
-			parts.length === 2 &&
-			parts[0] === "beresp" &&
-			parts[1] === "do_esi"
-		) {
+		} else if (parts.length === 2 && part0 === "beresp" && part1 === "do_esi") {
 			// Handle ESI processing flag
 			const esiValue = this.evaluateExpression(statement.value, context);
 
@@ -1150,7 +1071,7 @@ export class VCLCompiler {
 			context.resp.http["X-ESI"] = doEsi ? "true" : "false";
 		}
 		// Handle local variables (var.*)
-		else if (parts.length >= 2 && parts[0] === "var") {
+		else if (parts.length >= 2 && part0 === "var") {
 			const varName = parts.slice(1).join(".");
 
 			// Initialize locals if not present
@@ -1161,35 +1082,23 @@ export class VCLCompiler {
 			context.locals[varName] = value;
 		}
 		// Handle req.url
-		else if (parts.length === 2 && parts[0] === "req" && parts[1] === "url") {
+		else if (parts.length === 2 && part0 === "req" && part1 === "url") {
 			context.req.url = String(value);
 		}
 		// Handle bereq.url
-		else if (parts.length === 2 && parts[0] === "bereq" && parts[1] === "url") {
+		else if (parts.length === 2 && part0 === "bereq" && part1 === "url") {
 			context.bereq.url = String(value);
 		}
 		// Handle req.method
-		else if (
-			parts.length === 2 &&
-			parts[0] === "req" &&
-			parts[1] === "method"
-		) {
+		else if (parts.length === 2 && part0 === "req" && part1 === "method") {
 			context.req.method = String(value);
 		}
 		// Handle bereq.method
-		else if (
-			parts.length === 2 &&
-			parts[0] === "bereq" &&
-			parts[1] === "method"
-		) {
+		else if (parts.length === 2 && part0 === "bereq" && part1 === "method") {
 			context.bereq.method = String(value);
 		}
 		// Handle req.restarts (read-only but allow setting for test support)
-		else if (
-			parts.length === 2 &&
-			parts[0] === "req" &&
-			parts[1] === "restarts"
-		) {
+		else if (parts.length === 2 && part0 === "req" && part1 === "restarts") {
 			context.req.restarts = Number(value);
 		} else {
 			// Unhandled property - log for debugging
@@ -1197,12 +1106,12 @@ export class VCLCompiler {
 		}
 	}
 
-	private executeUnsetStatement(
-		statement: VCLUnsetStatement,
-		context: VCLContext,
-	): void {
+	private executeUnsetStatement(statement: VCLUnsetStatement, context: VCLContext): void {
 		const parts = statement.target.split(".");
-		if (parts.length === 3 && parts[1] === "http") {
+		const part0 = parts[0] ?? "";
+		const part1 = parts[1] ?? "";
+		const part2 = parts[2] ?? "";
+		if (parts.length === 3 && part1 === "http") {
 			const httpObjects: Record<string, Record<string, string>> = {
 				req: context.req.http,
 				bereq: context.bereq.http,
@@ -1210,29 +1119,20 @@ export class VCLCompiler {
 				resp: context.resp.http,
 				obj: context.obj.http,
 			};
-			if (httpObjects[parts[0]]) delete httpObjects[parts[0]][parts[2]];
+			if (httpObjects[part0]) delete httpObjects[part0]![part2];
 		}
 	}
 
-	private executeLogStatement(
-		statement: VCLLogStatement,
-		context: VCLContext,
-	): void {
+	private executeLogStatement(statement: VCLLogStatement, context: VCLContext): void {
 		console.log(`[VCL] ${this.evaluateExpression(statement.message, context)}`);
 	}
 
-	private executeSyntheticStatement(
-		statement: VCLSyntheticStatement,
-		context: VCLContext,
-	): void {
+	private executeSyntheticStatement(statement: VCLSyntheticStatement, context: VCLContext): void {
 		context.obj.http["Content-Type"] = "text/html; charset=utf-8";
 		context.obj.response = statement.content;
 	}
 
-	private executeHashDataStatement(
-		statement: VCLHashDataStatement,
-		context: VCLContext,
-	): void {
+	private executeHashDataStatement(statement: VCLHashDataStatement, context: VCLContext): void {
 		const value = this.evaluateExpression(statement.value, context);
 		const crypto = require("node:crypto");
 		const hash = crypto.createHash("md5").update(String(value)).digest("hex");
@@ -1240,17 +1140,11 @@ export class VCLCompiler {
 		context.hashData.push(hash);
 	}
 
-	private executeGotoStatement(
-		statement: VCLGotoStatement,
-		_context: VCLContext,
-	): string {
+	private executeGotoStatement(statement: VCLGotoStatement, _context: VCLContext): string {
 		return `__goto__:${statement.label}`;
 	}
 
-	private executeRestartStatement(
-		_statement: VCLRestartStatement,
-		context: VCLContext,
-	): string {
+	private executeRestartStatement(_statement: VCLRestartStatement, context: VCLContext): string {
 		if (context.req.restarts === undefined) context.req.restarts = 0;
 		if (context.req.restarts >= MAX_RESTARTS) {
 			throw new Error(`Max restarts (${MAX_RESTARTS}) exceeded`);
@@ -1259,10 +1153,7 @@ export class VCLCompiler {
 		return "restart";
 	}
 
-	private evaluateExpression(
-		expression: VCLExpression,
-		context: VCLContext,
-	): any {
+	private evaluateExpression(expression: VCLExpression, context: VCLContext): any {
 		if (!expression || !expression.type) return null;
 
 		switch (expression.type) {
@@ -1277,56 +1168,31 @@ export class VCLCompiler {
 			case "Identifier":
 				return this.evaluateIdentifier(expression as VCLIdentifier, context);
 			case "BinaryExpression":
-				return this.evaluateBinaryExpression(
-					expression as VCLBinaryExpression,
-					context,
-				);
+				return this.evaluateBinaryExpression(expression as VCLBinaryExpression, context);
 			case "UnaryExpression":
-				return this.evaluateUnaryExpression(
-					expression as VCLUnaryExpression,
-					context,
-				);
+				return this.evaluateUnaryExpression(expression as VCLUnaryExpression, context);
 			case "TernaryExpression":
-				return this.evaluateTernaryExpression(
-					expression as VCLTernaryExpression,
-					context,
-				);
+				return this.evaluateTernaryExpression(expression as VCLTernaryExpression, context);
 			case "FunctionCall":
-				return this.evaluateFunctionCall(
-					expression as VCLFunctionCall,
-					context,
-				);
+				return this.evaluateFunctionCall(expression as VCLFunctionCall, context);
 			case "MemberAccess": {
 				const memberAccess = expression as any;
 				const object = this.evaluateExpression(memberAccess.object, context);
-				return object && typeof object === "object"
-					? object[memberAccess.property]
-					: null;
+				return object && typeof object === "object" ? object[memberAccess.property] : null;
 			}
 			default:
 				return null;
 		}
 	}
 
-	private evaluateTernaryExpression(
-		expression: VCLTernaryExpression,
-		context: VCLContext,
-	): any {
+	private evaluateTernaryExpression(expression: VCLTernaryExpression, context: VCLContext): any {
 		const condition = this.evaluateExpression(expression.condition, context);
-		return this.evaluateExpression(
-			condition ? expression.trueExpr : expression.falseExpr,
-			context,
-		);
+		return this.evaluateExpression(condition ? expression.trueExpr : expression.falseExpr, context);
 	}
 
-	private evaluateFunctionCall(
-		expression: VCLFunctionCall,
-		context: VCLContext,
-	): any {
+	private evaluateFunctionCall(expression: VCLFunctionCall, context: VCLContext): any {
 		const functionName = expression.name;
-		const args = expression.arguments.map((arg) =>
-			this.evaluateExpression(arg, context),
-		);
+		const args = expression.arguments.map((arg) => this.evaluateExpression(arg, context));
 
 		// Simple prefix-based module dispatch
 		const prefixModules: Record<string, any> = {
@@ -1352,20 +1218,21 @@ export class VCLCompiler {
 
 		if (functionName.startsWith("digest.") && context.std?.digest) {
 			const fn = functionName.substring(7);
-			if (typeof context.std.digest[fn] === "function")
-				return context.std.digest[fn](...args);
+			const digestModule = context.std.digest as Record<string, Function>;
+			if (typeof digestModule[fn] === "function") return digestModule[fn](...args);
 		}
 
 		if (functionName.startsWith("std.")) {
 			const stdFunction = functionName.substring(4);
-			if (context.std && typeof context.std[stdFunction] === "function") {
-				return context.std[stdFunction](...args);
+			const stdModule = context.std as Record<string, any> | undefined;
+			if (stdModule && typeof stdModule[stdFunction] === "function") {
+				return stdModule[stdFunction](...args);
 			}
 
-			const parts = stdFunction.split(".");
-			if (parts.length === 2 && context.std?.[parts[0]]?.[parts[1]]) {
-				if (typeof context.std[parts[0]][parts[1]] === "function") {
-					return context.std[parts[0]][parts[1]](...args);
+			const stdParts = stdFunction.split(".");
+			if (stdParts.length === 2 && stdModule?.[stdParts[0]!]?.[stdParts[1]!]) {
+				if (typeof stdModule[stdParts[0]!][stdParts[1]!] === "function") {
+					return stdModule[stdParts[0]!][stdParts[1]!](...args);
 				}
 			}
 
@@ -1379,11 +1246,7 @@ export class VCLCompiler {
 			if (mathFuncs[stdFunction]) return mathFuncs[stdFunction](args);
 
 			// Handle director.select_backend
-			if (
-				parts.length === 2 &&
-				parts[0] === "director" &&
-				parts[1] === "select_backend"
-			) {
+			if (stdParts.length === 2 && stdParts[0] === "director" && stdParts[1] === "select_backend") {
 				if (args.length === 1 && typeof args[0] === "string") {
 					const directorName = args[0];
 					if (context.directors?.[directorName]) {
@@ -1392,7 +1255,7 @@ export class VCLCompiler {
 						// For random director, just pick the first backend
 						if (director.backends && director.backends.length > 0) {
 							return {
-								name: director.backends[0].backend.name,
+								name: director.backends[0]!.backend.name,
 							};
 						}
 					}
@@ -1403,7 +1266,7 @@ export class VCLCompiler {
 					const backendNames = Object.keys(context.backends);
 					if (backendNames.length > 0) {
 						return {
-							name: backendNames[0],
+							name: backendNames[0]!,
 						};
 					}
 				}
@@ -1451,44 +1314,37 @@ export class VCLCompiler {
 			}
 		} else if (functionName.startsWith("math.")) {
 			const fn = functionName.substring(5);
-			if (context.math && typeof context.math[fn] === "function")
-				return context.math[fn](...args);
+			const mathModule = context.math as Record<string, Function> | undefined;
+			if (mathModule && typeof mathModule[fn] === "function") return mathModule[fn](...args);
 		} else if (functionName.startsWith("table.")) {
 			const fn = functionName.substring(6);
-			if (context.table && typeof context.table[fn] === "function") {
+			const tableModule = context.table as Record<string, Function> | undefined;
+			if (tableModule && typeof tableModule[fn] === "function") {
 				if (fn === "lookup" || fn === "contains" || fn.startsWith("lookup_")) {
 					const firstArg = expression.arguments[0];
 					const tableName =
-						firstArg?.type === "Identifier"
-							? (firstArg as VCLIdentifier).name
-							: args[0];
-					return context.table[fn](context.tables, tableName, ...args.slice(1));
+						firstArg?.type === "Identifier" ? (firstArg as VCLIdentifier).name : args[0];
+					return tableModule[fn](context.tables, tableName, ...args.slice(1));
 				}
-				return context.table[fn](...args);
+				return tableModule[fn](...args);
 			}
 		} else if (functionName.startsWith("time.")) {
 			const fn = functionName.substring(5);
-			if (context.time && typeof context.time[fn] === "function")
-				return context.time[fn](...args);
+			const timeModule = context.time as Record<string, Function> | undefined;
+			if (timeModule && typeof timeModule[fn] === "function") return timeModule[fn](...args);
 		} else if (functionName.startsWith("header.")) {
 			const fn = functionName.substring(7);
-			if (context.header && typeof context.header[fn] === "function")
-				return context.header[fn](...args);
+			const headerModule = context.header as Record<string, Function> | undefined;
+			if (headerModule && typeof headerModule[fn] === "function") return headerModule[fn](...args);
 		} else if (functionName.startsWith("ratelimit.")) {
 			const fn = functionName.substring(10);
-			if (
-				context.rateLimitModule &&
-				typeof context.rateLimitModule[fn] === "function"
-			) {
+			if (context.rateLimitModule && typeof context.rateLimitModule[fn] === "function") {
 				return context.rateLimitModule[fn](...args);
 			}
 		} else if (functionName === "strftime" && context.strftime) {
-			return context.strftime(...args);
-		} else if (
-			functionName === "parse_time_delta" &&
-			context.parse_time_delta
-		) {
-			return context.parse_time_delta(...args);
+			return context.strftime(args[0] as string, args[1] as Date);
+		} else if (functionName === "parse_time_delta" && context.parse_time_delta) {
+			return context.parse_time_delta(args[0] as string);
 		} else if (functionName === "urlencode") {
 			return encodeURIComponent(String(args[0]));
 		} else if (functionName === "urldecode") {
@@ -1523,9 +1379,7 @@ export class VCLCompiler {
 			const base = url.substring(0, qIdx);
 			const query = url.substring(qIdx + 1);
 			const params = query.split("&").filter((p) => p.length > 0);
-			params.sort((a, b) =>
-				(a.split("=")[0] || "").localeCompare(b.split("=")[0] || ""),
-			);
+			params.sort((a, b) => (a.split("=")[0] || "").localeCompare(b.split("=")[0] || ""));
 			return `${base}?${params.join("&")}`;
 		} else if (functionName === "subfield") {
 			// Extract subfield from structured header
@@ -1552,30 +1406,19 @@ export class VCLCompiler {
 				}
 			}
 			return "";
-		} else if (
-			functionName === "randombool" ||
-			functionName === "randombool_seeded"
-		) {
+		} else if (functionName === "randombool" || functionName === "randombool_seeded") {
 			const numerator = Number(args[0]) || 1;
 			const denominator = Number(args[1]) || 2;
-			if (context.std?.random?.bool)
-				return context.std.random.bool(numerator, denominator);
+			if (context.std?.random?.bool) return context.std.random.bool(numerator, denominator);
 			return Math.random() < numerator / denominator;
 		} else if (functionName === "randomint") {
-			const [from, to] = [
-				Math.floor(Number(args[0])),
-				Math.floor(Number(args[1])),
-			];
+			const [from, to] = [Math.floor(Number(args[0])), Math.floor(Number(args[1]))];
 			return Math.floor(Math.random() * (to - from)) + from;
 		} else if (functionName === "randomint_seeded") {
-			const [from, to] = [
-				Math.floor(Number(args[1])),
-				Math.floor(Number(args[2])),
-			];
+			const [from, to] = [Math.floor(Number(args[1])), Math.floor(Number(args[2]))];
 			return Math.floor(Math.random() * (to - from)) + from;
 		} else if (functionName === "randomstr") {
-			const chars =
-				"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+			const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 			return Array.from(
 				{ length: Math.max(0, Math.floor(Number(args[0]))) },
 				() => chars[Math.floor(Math.random() * chars.length)],
@@ -1588,11 +1431,11 @@ export class VCLCompiler {
 				const name = String(args[1]);
 				const cookies = header.split(",").map((c) => c.trim());
 				for (const cookie of cookies) {
-					const parts = cookie.split(";")[0];
-					const eqIdx = parts.indexOf("=");
+					const cookieParts = cookie.split(";")[0] ?? "";
+					const eqIdx = cookieParts.indexOf("=");
 					if (eqIdx !== -1) {
-						const key = parts.substring(0, eqIdx).trim();
-						const value = parts.substring(eqIdx + 1).trim();
+						const key = cookieParts.substring(0, eqIdx).trim();
+						const value = cookieParts.substring(eqIdx + 1).trim();
 						if (key === name) return value;
 					}
 				}
@@ -1602,10 +1445,10 @@ export class VCLCompiler {
 				const name = String(args[1]);
 				const cookies = header.split(",").map((c) => c.trim());
 				const filtered = cookies.filter((cookie) => {
-					const parts = cookie.split(";")[0];
-					const eqIdx = parts.indexOf("=");
+					const cookieParts = cookie.split(";")[0] ?? "";
+					const eqIdx = cookieParts.indexOf("=");
 					if (eqIdx !== -1) {
-						const key = parts.substring(0, eqIdx).trim();
+						const key = cookieParts.substring(0, eqIdx).trim();
 						return key !== name;
 					}
 					return true;
@@ -1618,11 +1461,7 @@ export class VCLCompiler {
 			for (let i = 1; i < args.length; i++) {
 				const pattern = String(args[i]).trim();
 				if (pattern === statusStr) return true;
-				if (
-					pattern.length === 3 &&
-					pattern.endsWith("xx") &&
-					statusStr[0] === pattern[0]
-				)
+				if (pattern.length === 3 && pattern.endsWith("xx") && statusStr[0] === pattern[0])
 					return true;
 				if (
 					pattern.length === 3 &&
@@ -1631,10 +1470,12 @@ export class VCLCompiler {
 				)
 					return true;
 				if (pattern.includes("-")) {
-					const [start, end] = pattern
-						.split("-")
-						.map((s) => parseInt(s.trim(), 10));
+					const rangeParts = pattern.split("-").map((s) => parseInt(s.trim(), 10));
+					const start = rangeParts[0];
+					const end = rangeParts[1];
 					if (
+						start !== undefined &&
+						end !== undefined &&
 						!Number.isNaN(start) &&
 						!Number.isNaN(end) &&
 						status >= start &&
@@ -1644,16 +1485,10 @@ export class VCLCompiler {
 				}
 			}
 			return false;
-		} else if (
-			functionName === "resp.tarpit" ||
-			functionName === "early_hints"
-		) {
+		} else if (functionName === "resp.tarpit" || functionName === "early_hints") {
 			return null;
 		} else if (functionName === "fastly.hash") {
-			return require("node:crypto")
-				.createHash("sha256")
-				.update(String(args[0]))
-				.digest("hex");
+			return require("node:crypto").createHash("sha256").update(String(args[0])).digest("hex");
 		} else if (functionName === "fastly.try_select_shield") {
 			return false;
 		}
@@ -1662,14 +1497,15 @@ export class VCLCompiler {
 		return null;
 	}
 
-	private evaluateIdentifier(
-		identifier: VCLIdentifier,
-		context: VCLContext,
-	): any {
+	private evaluateIdentifier(identifier: VCLIdentifier, context: VCLContext): any {
 		const parts = identifier.name.split(".");
 
+		const idPart0 = parts[0] ?? "";
+		const idPart1 = parts[1] ?? "";
+		const idPart2 = parts[2] ?? "";
+
 		// Handle HTTP headers (*.http.*)
-		if (parts.length === 3 && parts[1] === "http") {
+		if (parts.length === 3 && idPart1 === "http") {
 			const httpObjects: Record<string, Record<string, string> | undefined> = {
 				req: context.req.http,
 				bereq: context.bereq.http,
@@ -1677,7 +1513,7 @@ export class VCLCompiler {
 				resp: context.resp.http,
 				obj: context.obj.http,
 			};
-			return httpObjects[parts[0]]?.[parts[2]] || "";
+			return httpObjects[idPart0]?.[idPart2] || "";
 		}
 
 		// Handle simple property lookups
@@ -1700,31 +1536,27 @@ export class VCLCompiler {
 				obj: { status: context.obj.status, hits: context.obj.hits },
 				client: { ip: context.client?.ip || "127.0.0.1" },
 			};
-			if (props[parts[0]]?.[parts[1]] !== undefined)
-				return props[parts[0]][parts[1]];
+			if (props[idPart0]?.[idPart1] !== undefined) return props[idPart0]![idPart1];
 		}
 
 		// Handle regex capture groups (re.group.N)
-		if (parts.length === 3 && parts[0] === "re" && parts[1] === "group") {
-			const groupNumber = parseInt(parts[2], 10);
-			if (
-				!Number.isNaN(groupNumber) &&
-				context.re?.groups?.[groupNumber] !== undefined
-			) {
+		if (parts.length === 3 && idPart0 === "re" && idPart1 === "group") {
+			const groupNumber = parseInt(idPart2, 10);
+			if (!Number.isNaN(groupNumber) && context.re?.groups?.[groupNumber] !== undefined) {
 				return context.re.groups[groupNumber];
 			}
 			return "";
 		}
 
 		// Handle test variables and local variables (var.*)
-		if (parts.length >= 2 && parts[0] === "var") {
+		if (parts.length >= 2 && idPart0 === "var") {
 			const testVars: Record<string, any> = {
 				test_bool: true,
 				test_string: "test",
 				test_int: 42,
 				test_number: 42,
 			};
-			if (testVars[parts[1]] !== undefined) return testVars[parts[1]];
+			if (testVars[idPart1] !== undefined) return testVars[idPart1];
 			const varName = parts.slice(1).join(".");
 			return context.locals?.[varName] ?? "";
 		}
@@ -1732,10 +1564,7 @@ export class VCLCompiler {
 		return "";
 	}
 
-	private evaluateUnaryExpression(
-		expression: VCLUnaryExpression,
-		context: VCLContext,
-	): any {
+	private evaluateUnaryExpression(expression: VCLUnaryExpression, context: VCLContext): any {
 		if (!expression?.operand) {
 			console.error("Invalid unary expression:", expression);
 			return false;
@@ -1747,10 +1576,7 @@ export class VCLCompiler {
 		return operand;
 	}
 
-	private evaluateBinaryExpression(
-		expression: VCLBinaryExpression,
-		context: VCLContext,
-	): any {
+	private evaluateBinaryExpression(expression: VCLBinaryExpression, context: VCLContext): any {
 		if (!expression?.left || !expression?.right) {
 			console.error("Invalid binary expression:", expression);
 			return false;
@@ -1805,20 +1631,16 @@ export class VCLCompiler {
 		}
 	}
 
-	private regexMatch(
-		left: any,
-		right: any,
-		context: VCLContext,
-		negate: boolean,
-	): boolean {
+	private regexMatch(left: any, right: any, context: VCLContext, negate: boolean): boolean {
 		try {
 			const regex = right instanceof RegExp ? right : new RegExp(String(right));
 			const match = String(left).match(regex);
 			if (match) {
-				context.re = { groups: {} };
+				const groups: Record<number, string> = {};
 				match.forEach((val, i) => {
-					context.re!.groups[i] = val;
+					groups[i] = val ?? "";
 				});
+				context.re = { groups };
 				return !negate;
 			}
 			return negate;
@@ -1833,8 +1655,7 @@ export class VCLCompiler {
 
 		for (const entry of acl.entries) {
 			if (entry.subnet) {
-				const checkFn =
-					context.std?.acl?.isIpInCidr ?? this.isIpInCidr.bind(this);
+				const checkFn = context.std?.acl?.isIpInCidr ?? this.isIpInCidr.bind(this);
 				if (checkFn(ip, entry.ip, entry.subnet)) return true;
 			} else if (ip === entry.ip) {
 				return true;
@@ -1862,17 +1683,14 @@ export class VCLCompiler {
 			}
 
 			const toBinary =
-				ipType === "ipv4"
-					? this.ipv4ToBinary.bind(this)
-					: this.ipv6ToBinary.bind(this);
+				ipType === "ipv4" ? this.ipv4ToBinary.bind(this) : this.ipv6ToBinary.bind(this);
 			const ipBinary = toBinary(ip);
 			const cidrBinary = toBinary(cidrIp);
 
 			return !!(
 				ipBinary &&
 				cidrBinary &&
-				ipBinary.substring(0, cidrSubnet) ===
-					cidrBinary.substring(0, cidrSubnet)
+				ipBinary.substring(0, cidrSubnet) === cidrBinary.substring(0, cidrSubnet)
 			);
 		} catch (e) {
 			console.error(`Error checking CIDR match: ${e}`);
@@ -1897,8 +1715,7 @@ export class VCLCompiler {
 			if (doubleColonCount > 1) return null;
 			const parts = ip.split(":");
 			if (parts.length > 8) return null;
-			if (parts.every((p) => p === "" || /^[0-9A-Fa-f]{1,4}$/.test(p)))
-				return "ipv6";
+			if (parts.every((p) => p === "" || /^[0-9A-Fa-f]{1,4}$/.test(p))) return "ipv6";
 		}
 		return null;
 	}
@@ -1910,9 +1727,7 @@ export class VCLCompiler {
 			return octets
 				.map((o) => {
 					const n = parseInt(o, 10);
-					return Number.isNaN(n) || n < 0 || n > 255
-						? ""
-						: n.toString(2).padStart(8, "0");
+					return Number.isNaN(n) || n < 0 || n > 255 ? "" : n.toString(2).padStart(8, "0");
 				})
 				.join("");
 		} catch {
@@ -1928,9 +1743,7 @@ export class VCLCompiler {
 				.split(":")
 				.map((s) => {
 					const n = parseInt(s, 16);
-					return Number.isNaN(n) || n < 0 || n > 65535
-						? ""
-						: n.toString(2).padStart(16, "0");
+					return Number.isNaN(n) || n < 0 || n > 65535 ? "" : n.toString(2).padStart(16, "0");
 				})
 				.join("");
 		} catch {

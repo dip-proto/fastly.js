@@ -14,15 +14,12 @@ const ESCAPE_MAP: Record<string, string> = {
 	"\f": "\\f",
 };
 
-function escapeString(
-	s: string,
-	nonPrintableFormatter: (code: number) => string,
-): string {
+function escapeString(s: string, nonPrintableFormatter: (code: number) => string): string {
 	const str = String(s);
 	let result = "";
 
 	for (let i = 0; i < str.length; i++) {
-		const c = str[i];
+		const c = str[i] ?? "";
 		const code = str.charCodeAt(i);
 
 		if (ESCAPE_MAP[c]) {
@@ -70,7 +67,7 @@ export function jsonEscape(s: string): string {
 	let result = "";
 
 	for (let i = 0; i < str.length; i++) {
-		const c = str[i];
+		const c = str[i] ?? "";
 		const code = str.charCodeAt(i);
 
 		if (ESCAPE_MAP[c]) {
@@ -109,11 +106,7 @@ export function urldecode(s: string): string {
 
 // subfield: Extracts a subfield from a structured header value
 // Example: subfield("a=1; b=2; c=3", "b", ";") returns "2"
-export function subfield(
-	s: string,
-	name: string,
-	separator: string = ";",
-): string {
+export function subfield(s: string, name: string, separator: string = ";"): string {
 	const fieldName = String(name);
 	const parts = String(s)
 		.split(String(separator))
@@ -160,8 +153,7 @@ export const random = {
 	},
 
 	str: (length: number): string => {
-		const chars =
-			"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+		const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 		const len = Math.max(0, Math.floor(length));
 		let result = "";
 		for (let i = 0; i < len; i++) {
@@ -179,12 +171,12 @@ export const setcookie = {
 			.map((c) => c.trim());
 
 		for (const cookie of cookies) {
-			const parts = cookie.split(";")[0];
-			const eqIdx = parts.indexOf("=");
+			const cookieParts = cookie.split(";")[0] ?? "";
+			const eqIdx = cookieParts.indexOf("=");
 			if (eqIdx !== -1) {
-				const key = parts.substring(0, eqIdx).trim();
+				const key = cookieParts.substring(0, eqIdx).trim();
 				if (key === cookieName) {
-					return parts.substring(eqIdx + 1).trim();
+					return cookieParts.substring(eqIdx + 1).trim();
 				}
 			}
 		}
@@ -200,10 +192,10 @@ export const setcookie = {
 
 		return cookies
 			.filter((cookie) => {
-				const parts = cookie.split(";")[0];
-				const eqIdx = parts.indexOf("=");
+				const cookieParts = cookie.split(";")[0] ?? "";
+				const eqIdx = cookieParts.indexOf("=");
 				if (eqIdx !== -1) {
-					return parts.substring(0, eqIdx).trim() !== cookieName;
+					return cookieParts.substring(0, eqIdx).trim() !== cookieName;
 				}
 				return true;
 			})

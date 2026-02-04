@@ -6,9 +6,7 @@ import { createVCLContext, executeVCL, loadVCL } from "../../src/vcl";
 
 // Load the VCL file
 console.log("Loading URL normalization VCL file...");
-const subroutines = loadVCL(
-	"./test/fixtures/restart/url_normalization_fixed51.vcl",
-);
+const subroutines = loadVCL("./test/fixtures/restart/url_normalization_fixed51.vcl");
 
 // Print the loaded subroutines
 console.log("Loaded subroutines:");
@@ -23,11 +21,7 @@ const testCases = [
 		// 2 restarts: double slash removal triggers restart, trailing slash triggers restart
 		// index.html is added without restart
 		expectedRestarts: 2,
-		expectedReasons: [
-			"double_slash_removal",
-			"add_trailing_slash",
-			"add_index_html",
-		],
+		expectedReasons: ["double_slash_removal", "add_trailing_slash", "add_index_html"],
 	},
 	{
 		name: "Add trailing slash and index.html",
@@ -75,9 +69,7 @@ function runTests() {
 		const processRequest = async () => {
 			// Check if we've exceeded the maximum number of restarts
 			if (restartCount > maxRestarts) {
-				console.log(
-					`⚠️ Exceeded maximum number of restarts (${maxRestarts}). Aborting.`,
-				);
+				console.log(`⚠️ Exceeded maximum number of restarts (${maxRestarts}). Aborting.`);
 				return "error";
 			}
 
@@ -122,15 +114,11 @@ function runTests() {
 
 			// Check if we exceeded the maximum number of restarts
 			if (result === "error") {
-				console.log(
-					`❌ Test failed due to exceeding maximum number of restarts`,
-				);
+				console.log(`❌ Test failed due to exceeding maximum number of restarts`);
 				passed = false;
 			} else {
 				if (context.req.url !== testCase.expectedUrl) {
-					console.log(
-						`❌ URL mismatch: expected ${testCase.expectedUrl}, got ${context.req.url}`,
-					);
+					console.log(`❌ URL mismatch: expected ${testCase.expectedUrl}, got ${context.req.url}`);
 					passed = false;
 				}
 

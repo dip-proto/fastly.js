@@ -75,28 +75,16 @@ const basicVCLTests = {
 
 				// Test static path
 				context.req.url = "/static/css/style.css";
-				const staticResult = executeSubroutine(
-					context,
-					subroutines,
-					"vcl_recv",
-				);
+				const staticResult = executeSubroutine(context, subroutines, "vcl_recv");
 				if (staticResult !== "lookup") {
-					throw new Error(
-						`Expected 'lookup' for static path, got '${staticResult}'`,
-					);
+					throw new Error(`Expected 'lookup' for static path, got '${staticResult}'`);
 				}
 
 				// Test default path
 				context.req.url = "/home";
-				const defaultResult = executeSubroutine(
-					context,
-					subroutines,
-					"vcl_recv",
-				);
+				const defaultResult = executeSubroutine(context, subroutines, "vcl_recv");
 				if (defaultResult !== "lookup") {
-					throw new Error(
-						`Expected 'lookup' for default path, got '${defaultResult}'`,
-					);
+					throw new Error(`Expected 'lookup' for default path, got '${defaultResult}'`);
 				}
 			},
 			assertions: [

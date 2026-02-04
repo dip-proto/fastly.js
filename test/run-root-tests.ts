@@ -17,9 +17,7 @@ function runTestFile(file: string): Promise<boolean> {
 		const proc = spawn("bun", ["run", file], { stdio: "inherit" });
 		proc.on("close", (code) => {
 			const success = code === 0;
-			console.log(
-				`Test ${path.basename(file)} ${success ? "passed" : "failed"}\n`,
-			);
+			console.log(`Test ${path.basename(file)} ${success ? "passed" : "failed"}\n`);
 			resolve(success);
 		});
 	});
@@ -38,9 +36,7 @@ async function runAllTests(): Promise<void> {
 	}
 
 	console.log("Root Tests Complete");
-	console.log(
-		`Total: ${testFiles.length}, Passed: ${passed}, Failed: ${failed}`,
-	);
+	console.log(`Total: ${testFiles.length}, Passed: ${passed}, Failed: ${failed}`);
 
 	if (failed > 0) {
 		console.log("Some root tests failed.");

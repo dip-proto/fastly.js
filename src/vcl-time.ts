@@ -14,6 +14,7 @@ export interface TimeModule {
 	units: (duration: string) => number;
 	runits: (seconds: number) => string;
 	interval_elapsed_ratio: (start: Date, interval: number) => number;
+	hex?: string; // Current time as hex string (for compatibility)
 }
 
 export type StrftimeFunction = (format: string, time: Date) => string;
@@ -82,9 +83,7 @@ function getAmPm(hour: number): string {
 }
 
 function getISOWeek(date: Date): number {
-	const d = new Date(
-		Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()),
-	);
+	const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
 	const dayNum = d.getUTCDay() || 7;
 	d.setUTCDate(d.getUTCDate() + 4 - dayNum);
 	const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
@@ -99,7 +98,7 @@ function getDayOfYear(date: Date): number {
 function parseTimeValue(str: string): number {
 	const match = str.match(/^(-?\d+(?:\.\d+)?)(ms|s|m|h|d|w|y)?$/);
 	if (!match) return 0;
-	const num = parseFloat(match[1]);
+	const num = parseFloat(match[1] ?? "0");
 	const unit = match[2] || "s";
 	return num * (TIME_UNITS[unit] || 1);
 }
@@ -108,14 +107,11 @@ export function createTimeModule(): TimeModule {
 	return {
 		now: (): Date => new Date(),
 
-		add: (time: Date, duration: number): Date =>
-			new Date(time.getTime() + duration),
+		add: (time: Date, duration: number): Date => new Date(time.getTime() + duration),
 
-		sub: (time1: Date, time2: Date): number =>
-			time1.getTime() - time2.getTime(),
+		sub: (time1: Date, time2: Date): number => time1.getTime() - time2.getTime(),
 
-		is_after: (time1: Date, time2: Date): boolean =>
-			time1.getTime() > time2.getTime(),
+		is_after: (time1: Date, time2: Date): boolean => time1.getTime() > time2.getTime(),
 
 		hex_to_time: (hex: string): Date => {
 			const trimmed = String(hex).trim();
@@ -124,8 +120,7 @@ export function createTimeModule(): TimeModule {
 			return Number.isNaN(timestamp) ? new Date(0) : new Date(timestamp * 1000);
 		},
 
-		units: (duration: string): number =>
-			parseTimeValue(String(duration).trim()),
+		units: (duration: string): number => parseTimeValue(String(duration).trim()),
 
 		runits: (seconds: number): string => {
 			const sec = Math.abs(seconds);
@@ -165,12 +160,14 @@ export function createStrftime(): StrftimeFunction {
 
 			// Handle modifiers
 			let modifier = "";
-			if ("-_0EO".includes(formatStr[i])) {
-				modifier = formatStr[i++];
+			const currentChar = formatStr[i] ?? "";
+			if ("-_0EO".includes(currentChar)) {
+				modifier = currentChar;
+				i++;
 				if (i >= formatStr.length) break;
 			}
 
-			const spec = formatStr[i++];
+			const spec = formatStr[i++] ?? "";
 			const hour12 = t.getHours() % 12 || 12;
 
 			switch (spec) {
@@ -208,12 +205,7 @@ export function createStrftime(): StrftimeFunction {
 					result += modifier === "-" ? t.getDate() : padSpace(t.getDate(), 2);
 					break;
 				case "F":
-					result +=
-						t.getFullYear() +
-						"-" +
-						pad(t.getMonth() + 1, 2) +
-						"-" +
-						pad(t.getDate(), 2);
+					result += `${t.getFullYear()}-${pad(t.getMonth() + 1, 2)}-${pad(t.getDate(), 2)}`;
 					break;
 				case "g":
 					result += pad(t.getFullYear() % 100, 2);
@@ -237,8 +229,7 @@ export function createStrftime(): StrftimeFunction {
 					result += padSpace(hour12, 2);
 					break;
 				case "m":
-					result +=
-						modifier === "-" ? t.getMonth() + 1 : pad(t.getMonth() + 1, 2);
+					result += modifier === "-" ? t.getMonth() + 1 : pad(t.getMonth() + 1, 2);
 					break;
 				case "M":
 					result += pad(t.getMinutes(), 2);
@@ -275,12 +266,7 @@ export function createStrftime(): StrftimeFunction {
 					result += "\t";
 					break;
 				case "T":
-					result +=
-						pad(t.getHours(), 2) +
-						":" +
-						pad(t.getMinutes(), 2) +
-						":" +
-						pad(t.getSeconds(), 2);
+					result += `${pad(t.getHours(), 2)}:${pad(t.getMinutes(), 2)}:${pad(t.getSeconds(), 2)}`;
 					break;
 				case "u":
 					result += t.getDay() || 7;
@@ -302,12 +288,7 @@ export function createStrftime(): StrftimeFunction {
 						pad(t.getFullYear() % 100, 2);
 					break;
 				case "X":
-					result +=
-						pad(t.getHours(), 2) +
-						":" +
-						pad(t.getMinutes(), 2) +
-						":" +
-						pad(t.getSeconds(), 2);
+					result += `${pad(t.getHours(), 2)}:${pad(t.getMinutes(), 2)}:${pad(t.getSeconds(), 2)}`;
 					break;
 				case "y":
 					result += pad(t.getFullYear() % 100, 2);
@@ -319,8 +300,7 @@ export function createStrftime(): StrftimeFunction {
 					const offset = -t.getTimezoneOffset();
 					const sign = offset >= 0 ? "+" : "-";
 					const absOffset = Math.abs(offset);
-					result +=
-						sign + pad(Math.floor(absOffset / 60), 2) + pad(absOffset % 60, 2);
+					result += sign + pad(Math.floor(absOffset / 60), 2) + pad(absOffset % 60, 2);
 					break;
 				}
 				case "Z":

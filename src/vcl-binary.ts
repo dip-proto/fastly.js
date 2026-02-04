@@ -45,7 +45,7 @@ function asciiToBuffer(text: string): Uint8Array | null {
 function bufferToBase64(buffer: Uint8Array): string {
 	let binaryString = "";
 	for (let i = 0; i < buffer.length; i++) {
-		binaryString += String.fromCharCode(buffer[i]);
+		binaryString += String.fromCharCode(buffer[i]!);
 	}
 	return btoa(binaryString);
 }
@@ -53,7 +53,7 @@ function bufferToBase64(buffer: Uint8Array): string {
 function bufferToHex(buffer: Uint8Array): string {
 	let hexString = "";
 	for (let i = 0; i < buffer.length; i++) {
-		hexString += buffer[i].toString(16).padStart(2, "0");
+		hexString += buffer[i]!.toString(16).padStart(2, "0");
 	}
 	return hexString;
 }
@@ -65,10 +65,10 @@ function bufferToUtf8(buffer: Uint8Array): string {
 function bufferToAscii(buffer: Uint8Array): string | null {
 	let asciiString = "";
 	for (let i = 0; i < buffer.length; i++) {
-		if (buffer[i] > 127) {
+		if (buffer[i]! > 127) {
 			return null;
 		}
-		asciiString += String.fromCharCode(buffer[i]);
+		asciiString += String.fromCharCode(buffer[i]!);
 	}
 	return asciiString;
 }
@@ -90,12 +90,7 @@ const fromBuffer: Record<Encoding, (buffer: Uint8Array) => string | null> = {
 };
 
 function isValidEncoding(encoding: string): encoding is Encoding {
-	return (
-		encoding === "base64" ||
-		encoding === "hex" ||
-		encoding === "utf8" ||
-		encoding === "ascii"
-	);
+	return encoding === "base64" || encoding === "hex" || encoding === "utf8" || encoding === "ascii";
 }
 
 export const BinaryModule = {
@@ -109,11 +104,7 @@ export const BinaryModule = {
 		return buffer ? bufferToBase64(buffer) : "";
 	},
 
-	data_convert: (
-		input: string,
-		inputEncoding: string,
-		outputEncoding: string,
-	): string => {
+	data_convert: (input: string, inputEncoding: string, outputEncoding: string): string => {
 		if (!isValidEncoding(inputEncoding) || !isValidEncoding(outputEncoding)) {
 			return "";
 		}

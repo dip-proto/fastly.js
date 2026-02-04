@@ -61,7 +61,7 @@ describe("Complex ACL Tests", () => {
 		// Parse and compile the VCL
 		const lexer = new VCLLexer(vclCode);
 		const tokens = lexer.tokenize();
-		const parser = new VCLParser(tokens);
+		const parser = new VCLParser(tokens, vclCode);
 		const parsedVCL = parser.parse();
 		const compiler = new VCLCompiler(parsedVCL);
 		const compiledVCL = compiler.compile();
@@ -96,7 +96,7 @@ describe("Complex ACL Tests", () => {
 			},
 		};
 		internalContext.client = { ip: "10.1.2.3" };
-		compiledVCL.vcl_recv(internalContext);
+		compiledVCL.vcl_recv!(internalContext);
 		expect(internalContext.req.http["X-Client-Type"]).toBe("internal");
 
 		// Test with a blocked IP
@@ -116,7 +116,7 @@ describe("Complex ACL Tests", () => {
 			return "error";
 		};
 
-		compiledVCL.vcl_recv(blockedContext);
+		compiledVCL.vcl_recv!(blockedContext);
 
 		// Check that the error was triggered
 		expect(errorCaught).toBe(true);
@@ -127,21 +127,21 @@ describe("Complex ACL Tests", () => {
 		const trustedContext = createVCLContext();
 		trustedContext.acls = internalContext.acls;
 		trustedContext.client = { ip: "203.0.113.45" };
-		compiledVCL.vcl_recv(trustedContext);
+		compiledVCL.vcl_recv!(trustedContext);
 		expect(trustedContext.req.http["X-Client-Type"]).toBe("trusted");
 
 		// Test with a public IP
 		const publicContext = createVCLContext();
 		publicContext.acls = internalContext.acls;
 		publicContext.client = { ip: "8.8.8.8" };
-		compiledVCL.vcl_recv(publicContext);
+		compiledVCL.vcl_recv!(publicContext);
 		expect(publicContext.req.http["X-Client-Type"]).toBe("public");
 
 		// Test with an IPv6 trusted partner
 		const ipv6Context = createVCLContext();
 		ipv6Context.acls = internalContext.acls;
 		ipv6Context.client = { ip: "2001:db8::1234" };
-		compiledVCL.vcl_recv(ipv6Context);
+		compiledVCL.vcl_recv!(ipv6Context);
 		expect(ipv6Context.req.http["X-Client-Type"]).toBe("trusted");
 	});
 
@@ -168,7 +168,7 @@ describe("Complex ACL Tests", () => {
 		// Parse and compile the VCL
 		const lexer = new VCLLexer(vclCode);
 		const tokens = lexer.tokenize();
-		const parser = new VCLParser(tokens);
+		const parser = new VCLParser(tokens, vclCode);
 		const parsedVCL = parser.parse();
 		const compiler = new VCLCompiler(parsedVCL);
 		const compiledVCL = compiler.compile();
@@ -191,35 +191,35 @@ describe("Complex ACL Tests", () => {
 		const ipv4Context = createVCLContext();
 		ipv4Context.acls = mixedContext.acls;
 		ipv4Context.client = { ip: "192.168.0.123" };
-		compiledVCL.vcl_recv(ipv4Context);
+		compiledVCL.vcl_recv!(ipv4Context);
 		expect(ipv4Context.req.http["X-In-ACL"]).toBe("true");
 
 		// Test with an IPv6 address in the ACL
 		const ipv6Context = createVCLContext();
 		ipv6Context.acls = mixedContext.acls;
 		ipv6Context.client = { ip: "2001:db8::5678" };
-		compiledVCL.vcl_recv(ipv6Context);
+		compiledVCL.vcl_recv!(ipv6Context);
 		expect(ipv6Context.req.http["X-In-ACL"]).toBe("true");
 
 		// Test with an IPv4-mapped IPv6 address
 		const mappedContext = createVCLContext();
 		mappedContext.acls = mixedContext.acls;
 		mappedContext.client = { ip: "::ffff:10.0.0.123" };
-		compiledVCL.vcl_recv(mappedContext);
+		compiledVCL.vcl_recv!(mappedContext);
 		expect(mappedContext.req.http["X-In-ACL"]).toBe("true");
 
 		// Test with localhost
 		const localhostContext = createVCLContext();
 		localhostContext.acls = mixedContext.acls;
 		localhostContext.client = { ip: "127.0.0.1" };
-		compiledVCL.vcl_recv(localhostContext);
+		compiledVCL.vcl_recv!(localhostContext);
 		expect(localhostContext.req.http["X-In-ACL"]).toBe("true");
 
 		// Test with an IP not in the ACL
 		const outsideContext = createVCLContext();
 		outsideContext.acls = mixedContext.acls;
 		outsideContext.client = { ip: "8.8.8.8" };
-		compiledVCL.vcl_recv(outsideContext);
+		compiledVCL.vcl_recv!(outsideContext);
 		expect(outsideContext.req.http["X-In-ACL"]).toBe("false");
 	});
 });

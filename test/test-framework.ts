@@ -3,7 +3,7 @@ import * as path from "node:path";
 import { createVCLContext, executeVCL, loadVCL } from "../src/vcl";
 import type { VCLContext, VCLSubroutines } from "../src/vcl-compiler";
 
-interface TestResult {
+export interface TestResult {
 	name: string;
 	success: boolean;
 	message?: string;
@@ -11,22 +11,24 @@ interface TestResult {
 	duration: number;
 }
 
-interface TestSuite {
+export interface TestSuite {
 	name: string;
 	tests: Test[];
 	setup?: () => Promise<void>;
 	teardown?: () => Promise<void>;
 }
 
-interface Test {
+export interface Test {
 	name: string;
 	vclFile?: string;
 	vclSnippet?: string;
 	run: (context: VCLContext, subroutines: VCLSubroutines) => Promise<void>;
-	assertions: Array<
-		(context: VCLContext) => boolean | { success: boolean; message: string }
-	>;
+	assertions: Array<(context: VCLContext) => boolean | { success: boolean; message: string }>;
 }
+
+export type TestAssertion = (
+	context: VCLContext,
+) => boolean | { success: boolean; message: string };
 
 export async function runTestSuite(suite: TestSuite): Promise<TestResult[]> {
 	console.log(`\nRunning Test Suite: ${suite.name}\n`);
@@ -37,13 +39,14 @@ export async function runTestSuite(suite: TestSuite): Promise<TestResult[]> {
 		try {
 			await suite.setup();
 		} catch (error) {
-			console.error(`Error in setup: ${error.message}`);
+			const err = error instanceof Error ? error : new Error(String(error));
+			console.error(`Error in setup: ${err.message}`);
 			return [
 				{
 					name: "Setup",
 					success: false,
-					message: `Setup failed: ${error.message}`,
-					error,
+					message: `Setup failed: ${err.message}`,
+					error: err,
 					duration: 0,
 				},
 			];
@@ -66,12 +69,13 @@ export async function runTestSuite(suite: TestSuite): Promise<TestResult[]> {
 		try {
 			await suite.teardown();
 		} catch (error) {
-			console.error(`Error in teardown: ${error.message}`);
+			const err = error instanceof Error ? error : new Error(String(error));
+			console.error(`Error in teardown: ${err.message}`);
 			results.push({
 				name: "Teardown",
 				success: false,
-				message: `Teardown failed: ${error.message}`,
-				error,
+				message: `Teardown failed: ${err.message}`,
+				error: err,
 				duration: 0,
 			});
 		}
@@ -114,8 +118,7 @@ async function runTest(test: Test): Promise<TestResult> {
 		for (const assertion of test.assertions) {
 			const result = assertion(context);
 			const success = typeof result === "boolean" ? result : result.success;
-			const message =
-				typeof result === "boolean" ? "Assertion failed" : result.message;
+			const message = typeof result === "boolean" ? "Assertion failed" : result.message;
 
 			if (!success) {
 				return {
@@ -133,11 +136,12 @@ async function runTest(test: Test): Promise<TestResult> {
 			duration: Date.now() - startTime,
 		};
 	} catch (error) {
+		const err = error instanceof Error ? error : new Error(String(error));
 		return {
 			name: test.name,
 			success: false,
-			message: error.message,
-			error,
+			message: err.message,
+			error: err,
 			duration: Date.now() - startTime,
 		};
 	}
@@ -168,9 +172,7 @@ export function executeSubroutine(
 	subroutineName: string,
 ): string {
 	if (!subroutines[subroutineName]) {
-		console.log(
-			`Subroutine ${subroutineName} not found, using default behavior`,
-		);
+		console.log(`Subroutine ${subroutineName} not found, using default behavior`);
 		const defaultReturn = DEFAULT_SUBROUTINE_RETURNS[subroutineName];
 		if (defaultReturn) {
 			subroutines[subroutineName] = () => defaultReturn;
@@ -179,10 +181,7 @@ export function executeSubroutine(
 	return executeVCL(subroutines, subroutineName, context);
 }
 
-export function assert(
-	condition: boolean,
-	message: string,
-): { success: boolean; message: string } {
+export function assert(condition: boolean, message: string): { success: boolean; message: string } {
 	return { success: condition, message: condition ? "Success" : message };
 }
 
@@ -200,7 +199,8 @@ function cleanupTempFiles(): void {
 			}
 		}
 	} catch (error) {
-		console.error(`Error cleaning up temporary files: ${error.message}`);
+		const err = error instanceof Error ? error : new Error(String(error));
+		console.error(`Error cleaning up temporary files: ${err.message}`);
 	}
 }
 
@@ -222,9 +222,7 @@ export async function runAllTests(suites: TestSuite[]): Promise<void> {
 	}
 
 	console.log("\nAll Tests Complete");
-	console.log(
-		`Total: ${totalTests}, Passed: ${passedTests}, Failed: ${totalTests - passedTests}`,
-	);
+	console.log(`Total: ${totalTests}, Passed: ${passedTests}, Failed: ${totalTests - passedTests}`);
 
 	if (totalTests === passedTests) {
 		console.log("All tests passed!");

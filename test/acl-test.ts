@@ -1,10 +1,10 @@
 import { describe, expect, it } from "bun:test";
-import type { VCLProgram } from "../src/vcl-ast";
-import { VCLCompiler } from "../src/vcl-compiler";
+import { VCLCompiler, type VCLContext } from "../src/vcl-compiler";
 
 describe("ACL Tests", () => {
 	it("should compile a VCL program with ACL declarations", () => {
-		const program: VCLProgram = {
+		// Using 'as any' because we're constructing a simplified AST for testing
+		const program = {
 			acls: [
 				{
 					name: "trusted_ips",
@@ -48,7 +48,7 @@ describe("ACL Tests", () => {
 					],
 				},
 			],
-		};
+		} as any;
 
 		const compiler = new VCLCompiler(program);
 		const subroutines = compiler.compile();
@@ -59,7 +59,8 @@ describe("ACL Tests", () => {
 	});
 
 	it("should correctly evaluate ACL membership", () => {
-		const program: VCLProgram = {
+		// Using 'as any' because we're constructing a simplified AST for testing
+		const program = {
 			acls: [
 				{
 					name: "trusted_ips",
@@ -103,25 +104,25 @@ describe("ACL Tests", () => {
 					],
 				},
 			],
-		};
+		} as any;
 
 		const compiler = new VCLCompiler(program);
 		const subroutines = compiler.compile();
 
 		// Test with an IP in the ACL
 		const context1 = {
-			req: { http: {} },
+			req: { http: {} as Record<string, string> },
 			client: { ip: "192.168.0.10" },
-		};
-		subroutines.vcl_recv(context1);
+		} as VCLContext;
+		subroutines.vcl_recv!(context1);
 		expect(context1.req.http["X-Trusted"]).toBe("true");
 
 		// Test with an IP not in the ACL
 		const context2 = {
-			req: { http: {} },
+			req: { http: {} as Record<string, string> },
 			client: { ip: "172.16.0.1" },
-		};
-		subroutines.vcl_recv(context2);
+		} as VCLContext;
+		subroutines.vcl_recv!(context2);
 		expect(context2.req.http["X-Trusted"]).toBe("false");
 	});
 });

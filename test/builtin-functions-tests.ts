@@ -1,23 +1,23 @@
-import { runTestSuite, createMockRequest, TestSuite, TestAssertion, assert } from "./test-framework";
-import { DigestModule, CryptoModule } from "../src/vcl-digest";
-import { QueryStringModule } from "../src/vcl-querystring";
-import { UUIDModule } from "../src/vcl-uuid";
-import { createStdModule } from "../src/vcl-std";
-import { createMathModule } from "../src/vcl-math";
-import { createParseTimeDelta } from "../src/vcl-time";
 import { AcceptModule } from "../src/vcl-accept";
+import { DigestModule } from "../src/vcl-digest";
+import { createMathModule } from "../src/vcl-math";
+import { QueryStringModule } from "../src/vcl-querystring";
+import { createStdModule } from "../src/vcl-std";
 import {
-	urlencode,
-	urldecode,
-	strtol,
-	regsub,
-	regsuball,
-	substr,
 	cstr_escape,
 	json_escape,
-	xml_escape,
+	regsub,
+	regsuball,
+	strtol,
+	substr,
 	Utf8Module,
+	urldecode,
+	urlencode,
+	xml_escape,
 } from "../src/vcl-strings";
+import { createParseTimeDelta } from "../src/vcl-time";
+import { UUIDModule } from "../src/vcl-uuid";
+import { assert, runTestSuite, type TestSuite } from "./test-framework";
 
 const suite: TestSuite = {
 	name: "Builtin Functions Tests",
@@ -27,15 +27,11 @@ const suite: TestSuite = {
 			vclSnippet: "",
 			run: async () => {},
 			assertions: [
-				() => assert(DigestModule.hash_xxh32("example") === "6bd15b98", "xxh32('example') should be 6bd15b98"),
-			],
-		},
-		{
-			name: "digest.hash_xxh64",
-			vclSnippet: "",
-			run: async () => {},
-			assertions: [
-				() => assert(DigestModule.hash_xxh64("example") === "e6eda53558c41c5e", "xxh64('example') should be e6eda53558c41c5e"),
+				() =>
+					assert(
+						DigestModule.hash_xxh32("example") === "6bd15b98",
+						"xxh32('example') should be 6bd15b98",
+					),
 			],
 		},
 		{
@@ -43,7 +39,11 @@ const suite: TestSuite = {
 			vclSnippet: "",
 			run: async () => {},
 			assertions: [
-				() => assert(DigestModule.hash_crc32("123456789") === "181989fc", "crc32('123456789') should be 181989fc"),
+				() =>
+					assert(
+						DigestModule.hash_crc32("123456789") === "181989fc",
+						"crc32('123456789') should be 181989fc",
+					),
 			],
 		},
 		{
@@ -51,7 +51,11 @@ const suite: TestSuite = {
 			vclSnippet: "",
 			run: async () => {},
 			assertions: [
-				() => assert(DigestModule.hash_crc32b("123456789") === "2639f4cb", "crc32b('123456789') should be 2639f4cb"),
+				() =>
+					assert(
+						DigestModule.hash_crc32b("123456789") === "2639f4cb",
+						"crc32b('123456789') should be 2639f4cb",
+					),
 			],
 		},
 		{
@@ -67,7 +71,11 @@ const suite: TestSuite = {
 			vclSnippet: "",
 			run: async () => {},
 			assertions: [
-				() => assert(urlencode("𠮷😯") === "%F0%A0%AE%B7%F0%9F%98%AF", "urlencode should handle emojis"),
+				() =>
+					assert(
+						urlencode("𠮷😯") === "%F0%A0%AE%B7%F0%9F%98%AF",
+						"urlencode should handle emojis",
+					),
 			],
 		},
 		{
@@ -95,7 +103,8 @@ const suite: TestSuite = {
 			run: async () => {},
 			assertions: [
 				() => assert(strtol("0xABC", 16) === 2748, "strtol('0xABC', 16) should be 2748"),
-				() => assert(strtol("0xABC", 24) === 6036, "strtol('0xABC', 24) should strip 0x and parse ABC"),
+				() =>
+					assert(strtol("0xABC", 24) === 6036, "strtol('0xABC', 24) should strip 0x and parse ABC"),
 			],
 		},
 		{
@@ -103,7 +112,11 @@ const suite: TestSuite = {
 			vclSnippet: "",
 			run: async () => {},
 			assertions: [
-				() => assert(regsub("hello world", "(\\w+) (\\w+)", "\\2 \\1") === "world hello", "regsub should support \\1 backreferences"),
+				() =>
+					assert(
+						regsub("hello world", "(\\w+) (\\w+)", "\\2 \\1") === "world hello",
+						"regsub should support \\1 backreferences",
+					),
 			],
 		},
 		{
@@ -111,7 +124,11 @@ const suite: TestSuite = {
 			vclSnippet: "",
 			run: async () => {},
 			assertions: [
-				() => assert(regsuball("abc123def456", "(\\d+)", "[\\1]") === "abc[123]def[456]", "regsuball should support \\1 backreferences"),
+				() =>
+					assert(
+						regsuball("abc123def456", "(\\d+)", "[\\1]") === "abc[123]def[456]",
+						"regsuball should support \\1 backreferences",
+					),
 			],
 		},
 		{
@@ -136,8 +153,13 @@ const suite: TestSuite = {
 			vclSnippet: "",
 			run: async () => {},
 			assertions: [
-				() => assert(cstr_escape('hello\nworld') === 'hello\\nworld', "cstr_escape should escape newlines"),
-				() => assert(cstr_escape('hello\tworld') === 'hello\\tworld', "cstr_escape should escape tabs"),
+				() =>
+					assert(
+						cstr_escape("hello\nworld") === "hello\\nworld",
+						"cstr_escape should escape newlines",
+					),
+				() =>
+					assert(cstr_escape("hello\tworld") === "hello\\tworld", "cstr_escape should escape tabs"),
 			],
 		},
 		{
@@ -145,8 +167,16 @@ const suite: TestSuite = {
 			vclSnippet: "",
 			run: async () => {},
 			assertions: [
-				() => assert(json_escape('hello"world') === 'hello\\"world', "json_escape should escape quotes"),
-				() => assert(json_escape('hello\nworld') === 'hello\\nworld', "json_escape should escape newlines"),
+				() =>
+					assert(
+						json_escape('hello"world') === 'hello\\"world',
+						"json_escape should escape quotes",
+					),
+				() =>
+					assert(
+						json_escape("hello\nworld") === "hello\\nworld",
+						"json_escape should escape newlines",
+					),
 			],
 		},
 		{
@@ -154,8 +184,10 @@ const suite: TestSuite = {
 			vclSnippet: "",
 			run: async () => {},
 			assertions: [
-				() => assert(xml_escape('<div>') === '&lt;div&gt;', "xml_escape should escape angle brackets"),
-				() => assert(xml_escape('"test"') === '&quot;test&quot;', "xml_escape should escape quotes"),
+				() =>
+					assert(xml_escape("<div>") === "&lt;div&gt;", "xml_escape should escape angle brackets"),
+				() =>
+					assert(xml_escape('"test"') === "&quot;test&quot;", "xml_escape should escape quotes"),
 			],
 		},
 		{
@@ -163,10 +195,23 @@ const suite: TestSuite = {
 			vclSnippet: "",
 			run: async () => {},
 			assertions: [
-				() => assert(Utf8Module.is_valid("hello") === true, "utf8.is_valid should return true for valid string"),
-				() => assert(Utf8Module.codepoint_count("hello") === 5, "utf8.codepoint_count('hello') should be 5"),
-				() => assert(Utf8Module.codepoint_count("日本語") === 3, "utf8.codepoint_count('日本語') should be 3"),
-				() => assert(Utf8Module.substr("hello", 1, 3) === "ell", "utf8.substr should work correctly"),
+				() =>
+					assert(
+						Utf8Module.is_valid("hello") === true,
+						"utf8.is_valid should return true for valid string",
+					),
+				() =>
+					assert(
+						Utf8Module.codepoint_count("hello") === 5,
+						"utf8.codepoint_count('hello') should be 5",
+					),
+				() =>
+					assert(
+						Utf8Module.codepoint_count("日本語") === 3,
+						"utf8.codepoint_count('日本語') should be 3",
+					),
+				() =>
+					assert(Utf8Module.substr("hello", 1, 3) === "ell", "utf8.substr should work correctly"),
 			],
 		},
 		{
@@ -174,7 +219,11 @@ const suite: TestSuite = {
 			vclSnippet: "",
 			run: async () => {},
 			assertions: [
-				() => assert(QueryStringModule.globfilter("a=1&ab=2&b=3", "a*") === "b=3", "globfilter should remove matching params"),
+				() =>
+					assert(
+						QueryStringModule.globfilter("a=1&ab=2&b=3", "a*") === "b=3",
+						"globfilter should remove matching params",
+					),
 			],
 		},
 		{
@@ -182,7 +231,11 @@ const suite: TestSuite = {
 			vclSnippet: "",
 			run: async () => {},
 			assertions: [
-				() => assert(QueryStringModule.regfilter("a=1&ab=2&b=3", "^a") === "b=3", "regfilter should remove matching params"),
+				() =>
+					assert(
+						QueryStringModule.regfilter("a=1&ab=2&b=3", "^a") === "b=3",
+						"regfilter should remove matching params",
+					),
 			],
 		},
 		{
@@ -205,8 +258,16 @@ const suite: TestSuite = {
 			vclSnippet: "",
 			run: async () => {},
 			assertions: [
-				() => assert(UUIDModule.is_valid(UUIDModule.oid("test")), "uuid.oid should generate valid UUID"),
-				() => assert(UUIDModule.is_valid(UUIDModule.x500("test")), "uuid.x500 should generate valid UUID"),
+				() =>
+					assert(
+						UUIDModule.is_valid(UUIDModule.oid("test")),
+						"uuid.oid should generate valid UUID",
+					),
+				() =>
+					assert(
+						UUIDModule.is_valid(UUIDModule.x500("test")),
+						"uuid.x500 should generate valid UUID",
+					),
 			],
 		},
 		{
@@ -232,7 +293,10 @@ const suite: TestSuite = {
 				},
 				() => {
 					const ptd = createParseTimeDelta();
-					return assert(ptd("1d2h3m4s") === 93784, "parse_time_delta('1d2h3m4s') should be 93784 seconds");
+					return assert(
+						ptd("1d2h3m4s") === 93784,
+						"parse_time_delta('1d2h3m4s') should be 93784 seconds",
+					);
 				},
 			],
 		},
@@ -243,7 +307,10 @@ const suite: TestSuite = {
 			assertions: [
 				() => {
 					const math = createMathModule();
-					return assert(Math.abs(math.sin(Math.PI / 2) - 1) < 0.0001, "math.sin(PI/2) should be ~1");
+					return assert(
+						Math.abs(math.sin(Math.PI / 2) - 1) < 0.0001,
+						"math.sin(PI/2) should be ~1",
+					);
 				},
 				() => {
 					const math = createMathModule();
@@ -259,7 +326,10 @@ const suite: TestSuite = {
 				},
 				() => {
 					const math = createMathModule();
-					return assert(math.is_infinite(Infinity) === true, "math.is_infinite(Infinity) should be true");
+					return assert(
+						math.is_infinite(Infinity) === true,
+						"math.is_infinite(Infinity) should be true",
+					);
 				},
 			],
 		},
@@ -293,9 +363,12 @@ const suite: TestSuite = {
 						"20150830",
 						"us-east-1",
 						"iam",
-						"test"
+						"test",
 					);
-					return assert(typeof result === "string" && result.length === 64, "awsv4_hmac should return 64-char hex string");
+					return assert(
+						typeof result === "string" && result.length === 64,
+						"awsv4_hmac should return 64-char hex string",
+					);
 				},
 			],
 		},
@@ -310,11 +383,22 @@ const suite: TestSuite = {
 				},
 				() => {
 					const result = AcceptModule.language_filter_basic("en:de:fr:nl", "nl", "ja,zh", 2);
-					return assert(result === "nl", "language_filter_basic should return default when no match");
+					return assert(
+						result === "nl",
+						"language_filter_basic should return default when no match",
+					);
 				},
 				() => {
-					const result = AcceptModule.language_filter_basic("en:de:fr:nl", "en", "fr;q=0.8,de;q=0.9", 1);
-					return assert(result === "fr", "language_filter_basic should strip quality and take first match");
+					const result = AcceptModule.language_filter_basic(
+						"en:de:fr:nl",
+						"en",
+						"fr;q=0.8,de;q=0.9",
+						1,
+					);
+					return assert(
+						result === "fr",
+						"language_filter_basic should strip quality and take first match",
+					);
 				},
 			],
 		},

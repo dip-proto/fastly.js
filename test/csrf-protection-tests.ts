@@ -34,7 +34,7 @@ const csrfProtectionTests = {
 				// Set up the context
 				context.client = { ip: "192.168.1.1" };
 				context.req.http["User-Agent"] = "Mozilla/5.0";
-				context.time = { hex: "000000000000000060000000" };
+				(context as any).time = { hex: "000000000000000060000000" };
 
 				// Execute the subroutine
 				executeSubroutine(context, subroutines, "vcl_recv");
@@ -82,7 +82,7 @@ const csrfProtectionTests = {
 				context.req.method = "POST";
 				context.req.http["User-Agent"] = "Mozilla/5.0";
 				context.req.http["X-CSRF-Token"] = "invalid-token";
-				context.time = { hex: "000000000000000060000000" };
+				(context as any).time = { hex: "000000000000000060000000" };
 
 				// We expect an error to be thrown
 				let _errorThrown = false;
@@ -155,7 +155,7 @@ const csrfProtectionTests = {
 				context.client = { ip: "192.168.1.1" };
 				context.req.method = "GET";
 				context.req.http["User-Agent"] = "Mozilla/5.0";
-				context.time = { hex: "000000000000000060000000" };
+				(context as any).time = { hex: "000000000000000060000000" };
 
 				// Execute the recv subroutine to generate the token
 				executeSubroutine(context, subroutines, "vcl_recv");

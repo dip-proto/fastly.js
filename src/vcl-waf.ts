@@ -77,10 +77,7 @@ export const WAFModule = {
 		const now = Date.now();
 		const timeElapsed = now - bucket.lastRefill;
 		const tokensToAdd = timeElapsed * bucket.refillRate;
-		const currentTokens = Math.min(
-			bucket.maxTokens,
-			bucket.tokens + tokensToAdd,
-		);
+		const currentTokens = Math.min(bucket.maxTokens, bucket.tokens + tokensToAdd);
 
 		return Math.floor(currentTokens);
 	},
@@ -91,7 +88,7 @@ export const WAFModule = {
 		}
 
 		if (attackType in ATTACK_PATTERNS) {
-			return ATTACK_PATTERNS[attackType].test(requestData);
+			return ATTACK_PATTERNS[attackType as keyof typeof ATTACK_PATTERNS]!.test(requestData);
 		}
 
 		if (attackType === "any") {

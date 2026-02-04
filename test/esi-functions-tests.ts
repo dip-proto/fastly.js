@@ -132,12 +132,8 @@ const esiFunctionsTests = {
 				(context: VCLContext) => {
 					return assert(
 						context.obj.response.includes("<h1>Welcome</h1>") &&
-							context.obj.response.includes(
-								"<p>This content should remain.</p>",
-							) &&
-							!context.obj.response.includes(
-								"Debug information that should be removed",
-							),
+							context.obj.response.includes("<p>This content should remain.</p>") &&
+							!context.obj.response.includes("Debug information that should be removed"),
 						"ESI remove tags were not properly processed",
 					);
 				},
@@ -185,12 +181,8 @@ const esiFunctionsTests = {
 				(context: VCLContext) => {
 					return assert(
 						context.obj.response.includes("<h1>Welcome</h1>") &&
-							context.obj.response.includes(
-								"<p>This content should remain.</p>",
-							) &&
-							!context.obj.response.includes(
-								"This is a comment that should be removed",
-							),
+							context.obj.response.includes("<p>This content should remain.</p>") &&
+							!context.obj.response.includes("This is a comment that should be removed"),
 						"ESI comment tags were not properly processed",
 					);
 				},
@@ -282,9 +274,7 @@ const esiFunctionsTests = {
 					return assert(
 						context.obj.response.includes('<div class="premium-content">') &&
 							context.obj.response.includes("Premium content here") &&
-							!context.obj.response.includes(
-								'<div class="standard-content">',
-							) &&
+							!context.obj.response.includes('<div class="standard-content">') &&
 							!context.obj.response.includes("Standard content here"),
 						"ESI choose/when/otherwise tags were not properly processed for premium user",
 					);
@@ -292,18 +282,10 @@ const esiFunctionsTests = {
 				// Check that the correct branch was chosen for standard user
 				(context: VCLContext) => {
 					return assert(
-						context.req.http["X-Standard-Result"].includes(
-							'<div class="standard-content">',
-						) &&
-							context.req.http["X-Standard-Result"].includes(
-								"Standard content here",
-							) &&
-							!context.req.http["X-Standard-Result"].includes(
-								'<div class="premium-content">',
-							) &&
-							!context.req.http["X-Standard-Result"].includes(
-								"Premium content here",
-							),
+						context.req.http["X-Standard-Result"]!.includes('<div class="standard-content">') &&
+							context.req.http["X-Standard-Result"]!.includes("Standard content here") &&
+							!context.req.http["X-Standard-Result"]!.includes('<div class="premium-content">') &&
+							!context.req.http["X-Standard-Result"]!.includes("Premium content here"),
 						"ESI choose/when/otherwise tags were not properly processed for standard user",
 					);
 				},

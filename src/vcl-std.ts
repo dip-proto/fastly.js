@@ -1,19 +1,15 @@
 import * as path from "node:path";
 import {
-	strtol as strtolImpl,
-	regsub as regsubImpl,
-	regsuball as regsuballImpl,
-	substr as substrImpl,
-	urlencode,
-	urldecode,
 	cstr_escape,
 	json_escape,
-	xml_escape,
-	boltsort_sort,
-	setcookie_get_value_by_name,
-	setcookie_delete_by_name,
+	regsuball as regsuballImpl,
+	regsub as regsubImpl,
+	strtol as strtolImpl,
 	subfield,
-	Utf8Module,
+	substr as substrImpl,
+	urldecode,
+	urlencode,
+	xml_escape,
 } from "./vcl-strings";
 
 export interface StdModule {
@@ -117,11 +113,9 @@ export function createStdModule(): StdModule {
 			return 0;
 		},
 
-		prefixof: (s: string, prefix: string): boolean =>
-			String(s).startsWith(String(prefix)),
+		prefixof: (s: string, prefix: string): boolean => String(s).startsWith(String(prefix)),
 
-		suffixof: (s: string, suffix: string): boolean =>
-			String(s).endsWith(String(suffix)),
+		suffixof: (s: string, suffix: string): boolean => String(s).endsWith(String(suffix)),
 
 		replace: (s: string, target: string, replacement: string): string => {
 			return String(s).replace(String(target), String(replacement));
@@ -131,23 +125,13 @@ export function createStdModule(): StdModule {
 			return String(s).split(String(target)).join(String(replacement));
 		},
 
-		replace_prefix: (
-			s: string,
-			prefix: string,
-			replacement: string,
-		): string => {
+		replace_prefix: (s: string, prefix: string, replacement: string): string => {
 			const str = String(s);
 			const pre = String(prefix);
-			return str.startsWith(pre)
-				? String(replacement) + str.substring(pre.length)
-				: str;
+			return str.startsWith(pre) ? String(replacement) + str.substring(pre.length) : str;
 		},
 
-		replace_suffix: (
-			s: string,
-			suffix: string,
-			replacement: string,
-		): string => {
+		replace_suffix: (s: string, suffix: string, replacement: string): string => {
 			const str = String(s);
 			const suf = String(suffix);
 			return str.endsWith(suf)
@@ -205,11 +189,11 @@ export function createStdModule(): StdModule {
 			const base = cs.length;
 			const negative = n < 0;
 
-			if (num === 0) return cs[0];
+			if (num === 0) return cs[0] ?? "";
 
 			let result = "";
 			while (num > 0) {
-				result = cs[num % base] + result;
+				result = (cs[num % base] ?? "") + result;
 				num = Math.floor(num / base);
 			}
 
@@ -218,8 +202,7 @@ export function createStdModule(): StdModule {
 
 		ip: (s: string, fallback: string): string => {
 			const str = String(s).trim();
-			if (isValidIPv4(str) || IPV6_REGEX.test(str) || str.includes("::"))
-				return str;
+			if (isValidIPv4(str) || IPV6_REGEX.test(str) || str.includes("::")) return str;
 			return String(fallback);
 		},
 

@@ -23,9 +23,7 @@ function normalizeHeaderName(name: string): string {
 
 function findHeaderKey(headers: Headers, name: string): string | undefined {
 	const normalized = normalizeHeaderName(name);
-	return Object.keys(headers).find(
-		(key) => normalizeHeaderName(key) === normalized,
-	);
+	return Object.keys(headers).find((key) => normalizeHeaderName(key) === normalized);
 }
 
 export function createHeaderModule(): HeaderModule {
@@ -73,10 +71,7 @@ export function createHeaderModule(): HeaderModule {
 	};
 }
 
-export function httpStatusMatches(
-	status: number,
-	...patterns: string[]
-): boolean {
+export function httpStatusMatches(status: number, ...patterns: string[]): boolean {
 	const statusStr = String(status);
 
 	for (const pattern of patterns) {
@@ -86,21 +81,19 @@ export function httpStatusMatches(
 		if (p === statusStr) return true;
 
 		// Range match (e.g., "4xx", "5xx")
-		if (p.length === 3 && p.endsWith("xx") && statusStr[0] === p[0])
-			return true;
+		if (p.length === 3 && p.endsWith("xx") && statusStr[0] === p[0]) return true;
 
 		// More specific range (e.g., "40x")
-		if (
-			p.length === 3 &&
-			p.endsWith("x") &&
-			statusStr.startsWith(p.substring(0, 2))
-		)
-			return true;
+		if (p.length === 3 && p.endsWith("x") && statusStr.startsWith(p.substring(0, 2))) return true;
 
 		// Range with hyphen (e.g., "400-499")
 		if (p.includes("-")) {
-			const [start, end] = p.split("-").map((s) => parseInt(s.trim(), 10));
+			const rangeParts = p.split("-").map((s) => parseInt(s.trim(), 10));
+			const start = rangeParts[0];
+			const end = rangeParts[1];
 			if (
+				start !== undefined &&
+				end !== undefined &&
 				!Number.isNaN(start) &&
 				!Number.isNaN(end) &&
 				status >= start &&

@@ -57,10 +57,8 @@ const acceptHeaderFunctionsTests = {
 			run: async (context: VCLContext, subroutines: VCLSubroutines) => {
 				// Set up the context with different Accept-Language headers
 				context.req.http["Accept-Language-Simple"] = "fr";
-				context.req.http["Accept-Language-Complex"] =
-					"fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7";
-				context.req.http["Accept-Language-Quality"] =
-					"es;q=0.5,ja;q=0.8,de;q=0.9";
+				context.req.http["Accept-Language-Complex"] = "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7";
+				context.req.http["Accept-Language-Quality"] = "es;q=0.5,ja;q=0.8,de;q=0.9";
 				context.req.http["Accept-Language-NoMatch"] = "zh-CN,zh;q=0.9";
 				// Missing header is intentionally not set
 
@@ -144,8 +142,7 @@ const acceptHeaderFunctionsTests = {
 			run: async (context: VCLContext, subroutines: VCLSubroutines) => {
 				// Set up the context with different Accept-Charset headers
 				context.req.http["Accept-Charset-Simple"] = "iso-8859-1";
-				context.req.http["Accept-Charset-Complex"] =
-					"iso-8859-1;q=0.8,utf-8;q=0.9,*;q=0.1";
+				context.req.http["Accept-Charset-Complex"] = "iso-8859-1;q=0.8,utf-8;q=0.9,*;q=0.1";
 				// Missing header is intentionally not set
 
 				// Execute the subroutine
@@ -212,8 +209,7 @@ const acceptHeaderFunctionsTests = {
 			run: async (context: VCLContext, subroutines: VCLSubroutines) => {
 				// Set up the context with different Accept-Encoding headers
 				context.req.http["Accept-Encoding-Simple"] = "gzip";
-				context.req.http["Accept-Encoding-Complex"] =
-					"br;q=0.9,gzip;q=0.8,*;q=0.1";
+				context.req.http["Accept-Encoding-Complex"] = "br;q=0.9,gzip;q=0.8,*;q=0.1";
 				// Missing header is intentionally not set
 
 				// Execute the subroutine

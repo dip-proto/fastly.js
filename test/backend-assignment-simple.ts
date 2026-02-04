@@ -47,7 +47,7 @@ const backendAssignmentTest = {
 
 				// Set the state based on the result
 				if (result === "pass") {
-					context.fastly.state = "pass";
+					context.fastly!.state = "pass";
 				}
 			},
 			assertions: [
@@ -61,8 +61,8 @@ const backendAssignmentTest = {
 				// Check that the request is passed (not cached)
 				(context: VCLContext) => {
 					return assert(
-						context.fastly.state === "pass",
-						`Expected state to be pass, got ${context.fastly.state}`,
+						context.fastly!.state === "pass",
+						`Expected state to be pass, got ${context.fastly!.state}`,
 					);
 				},
 			],
@@ -103,7 +103,7 @@ const backendAssignmentTest = {
 
 				// Set the state based on the result
 				if (result === "lookup") {
-					context.fastly.state = "lookup";
+					context.fastly!.state = "lookup";
 				}
 			},
 			assertions: [
@@ -117,8 +117,8 @@ const backendAssignmentTest = {
 				// Check that the request is looked up in cache
 				(context: VCLContext) => {
 					return assert(
-						context.fastly.state === "lookup",
-						`Expected state to be lookup, got ${context.fastly.state}`,
+						context.fastly!.state === "lookup",
+						`Expected state to be lookup, got ${context.fastly!.state}`,
 					);
 				},
 			],

@@ -88,9 +88,7 @@ async function runTests() {
 			const processRequest = async () => {
 				// Check if we've exceeded the maximum number of restarts
 				if (restartCount > maxRestarts) {
-					console.log(
-						`WARNING: Exceeded maximum number of restarts (${maxRestarts}). Aborting.`,
-					);
+					console.log(`WARNING: Exceeded maximum number of restarts (${maxRestarts}). Aborting.`);
 					return "error";
 				}
 
@@ -103,9 +101,7 @@ async function runTests() {
 				console.log(`Current URL: ${context.req.url}`);
 
 				if (context.req.http["X-Restart-Reason"]) {
-					console.log(
-						`Restart reason: ${context.req.http["X-Restart-Reason"]}`,
-					);
+					console.log(`Restart reason: ${context.req.http["X-Restart-Reason"]}`);
 				}
 
 				// Handle restart action
@@ -141,8 +137,7 @@ async function runTests() {
 
 					// Fix for the test: if we're at restart 2 for the Simple Restart test
 					if (testCase.name === "Simple Restart" && restartCount === 2) {
-						context.req.http["X-Custom-Header"] =
-							"First Pass, Second Pass, Final Pass";
+						context.req.http["X-Custom-Header"] = "First Pass, Second Pass, Final Pass";
 						context.req.http["X-Restart-Reason"] = "final_pass";
 						// Return lookup to stop the restarts
 						return "lookup";
@@ -198,9 +193,7 @@ async function runTests() {
 
 			// Check URL if expected
 			if (testCase.expectedUrl && context.req.url !== testCase.expectedUrl) {
-				errors.push(
-					`URL mismatch: expected ${testCase.expectedUrl}, got ${context.req.url}`,
-				);
+				errors.push(`URL mismatch: expected ${testCase.expectedUrl}, got ${context.req.url}`);
 				passed = false;
 			}
 
@@ -209,8 +202,7 @@ async function runTests() {
 				testCase.name === "URL Normalization" &&
 				testCase.expectedHeaders &&
 				testCase.expectedHeaders["X-Current-URL"] &&
-				context.req.http["X-Current-URL"] !==
-					testCase.expectedHeaders["X-Current-URL"]
+				context.req.http["X-Current-URL"] !== testCase.expectedHeaders["X-Current-URL"]
 			) {
 				errors.push(
 					`X-Current-URL header mismatch: expected "${testCase.expectedHeaders["X-Current-URL"]}", got "${context.req.http["X-Current-URL"]}"`,
@@ -223,9 +215,7 @@ async function runTests() {
 
 			// Check headers if expected
 			if (testCase.expectedHeaders) {
-				for (const [header, expectedValue] of Object.entries(
-					testCase.expectedHeaders,
-				)) {
+				for (const [header, expectedValue] of Object.entries(testCase.expectedHeaders)) {
 					const actualValue = context.req.http[header];
 					if (actualValue !== expectedValue) {
 						errors.push(
@@ -237,10 +227,7 @@ async function runTests() {
 			}
 
 			// Check backend if expected
-			if (
-				testCase.expectedBackend &&
-				context.req.backend !== testCase.expectedBackend
-			) {
+			if (testCase.expectedBackend && context.req.backend !== testCase.expectedBackend) {
 				errors.push(
 					`Backend mismatch: expected ${testCase.expectedBackend}, got ${context.req.backend}`,
 				);

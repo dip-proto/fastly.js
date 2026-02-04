@@ -165,53 +165,47 @@ console.log("Error Handling and Synthetic Responses Test\n");
 // Test 1: Error function with status code and message
 console.log("Test 1: Error function with status code and message");
 context.req.url = "/forbidden";
-context.std.error(403, "Access Denied");
+context.std!.error(403, "Access Denied");
 console.log(`Error status: ${context.obj.status}`);
 console.log(`Error message: ${context.obj.response}`);
-console.log(`Fastly error: ${context.fastly.error}`);
-console.log(`Fastly state: ${context.fastly.state}`);
+console.log(`Fastly error: ${context.fastly!.error}`);
+console.log(`Fastly state: ${context.fastly!.state}`);
 
 // Execute vcl_error
 const errorAction1 = executeVCL(testSubroutines, "vcl_error", context);
 console.log(`vcl_error action: ${errorAction1}`);
-console.log(
-	`Synthetic response length: ${context.obj.response.length} characters`,
-);
+console.log(`Synthetic response length: ${context.obj.response.length} characters`);
 console.log(`Content-Type: ${context.obj.http["content-type"]}`);
 
 // Test 2: Error function with only status code
 console.log("\nTest 2: Error function with only status code");
 context.req.url = "/not-found";
-context.std.error(404);
+context.std!.error(404);
 console.log(`Error status: ${context.obj.status}`);
 console.log(`Error message: ${context.obj.response}`);
 
 // Execute vcl_error
 const errorAction2 = executeVCL(testSubroutines, "vcl_error", context);
 console.log(`vcl_error action: ${errorAction2}`);
-console.log(
-	`Synthetic response length: ${context.obj.response.length} characters`,
-);
+console.log(`Synthetic response length: ${context.obj.response.length} characters`);
 
 // Test 3: Error function with server error
 console.log("\nTest 3: Error function with server error");
 context.req.url = "/server-error";
-context.std.error(500, "Internal Server Error");
+context.std!.error(500, "Internal Server Error");
 console.log(`Error status: ${context.obj.status}`);
 console.log(`Error message: ${context.obj.response}`);
 
 // Execute vcl_error
 const errorAction3 = executeVCL(testSubroutines, "vcl_error", context);
 console.log(`vcl_error action: ${errorAction3}`);
-console.log(
-	`Synthetic response length: ${context.obj.response.length} characters`,
-);
+console.log(`Synthetic response length: ${context.obj.response.length} characters`);
 
 // Test 4: Synthetic function
 console.log("\nTest 4: Synthetic function");
 context.obj.status = 200;
 context.obj.http["content-type"] = "text/html; charset=utf-8";
-context.std.synthetic("<h1>Hello, World!</h1>");
+context.std!.synthetic("<h1>Hello, World!</h1>");
 console.log(`Synthetic response: ${context.obj.response}`);
 console.log(`Content-Type: ${context.obj.http["content-type"]}`);
 

@@ -9,14 +9,8 @@ import * as path from "node:path";
 import { createVCLContext, executeVCL, loadVCLContent } from "../../src/vcl";
 
 // Load the VCL files
-const file1Path = path.join(
-	__dirname,
-	"../fixtures/vcl-files/multi_file_test_1.vcl",
-);
-const file2Path = path.join(
-	__dirname,
-	"../fixtures/vcl-files/multi_file_test_2.vcl",
-);
+const file1Path = path.join(__dirname, "../fixtures/vcl-files/multi_file_test_1.vcl");
+const file2Path = path.join(__dirname, "../fixtures/vcl-files/multi_file_test_2.vcl");
 
 // Read the file contents
 console.log("Reading VCL files...");

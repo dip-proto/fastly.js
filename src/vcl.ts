@@ -2,12 +2,12 @@ import { existsSync, readFileSync } from "node:fs";
 import { AcceptModule } from "./vcl-accept";
 import { AddressModule } from "./vcl-address";
 import { BinaryModule } from "./vcl-binary";
-import {
-	VCLCompiler,
-	type VCLContext,
-	type VCLSubroutines,
-} from "./vcl-compiler";
-import { DigestModule, CryptoModule } from "./vcl-digest";
+import { VCLCompiler, type VCLContext, type VCLSubroutines } from "./vcl-compiler";
+
+// Re-export types
+export type { VCLContext, VCLSubroutines };
+
+import { CryptoModule, DigestModule } from "./vcl-digest";
 import { processESI } from "./vcl-esi";
 import { createHeaderModule } from "./vcl-header";
 import { createMathModule } from "./vcl-math";
@@ -17,11 +17,7 @@ import { QueryStringModule } from "./vcl-querystring";
 import { RateLimitModule } from "./vcl-ratelimit";
 import { createStdModule } from "./vcl-std";
 import { createTableModule } from "./vcl-table";
-import {
-	createParseTimeDelta,
-	createStrftime,
-	createTimeModule,
-} from "./vcl-time";
+import { createParseTimeDelta, createStrftime, createTimeModule } from "./vcl-time";
 import { UUIDModule } from "./vcl-uuid";
 import { WAFModule } from "./vcl-waf";
 
@@ -34,8 +30,9 @@ export function loadVCLContent(content: string): VCLSubroutines {
 		const compiler = new VCLCompiler(ast);
 		return compiler.compile();
 	} catch (error) {
-		console.error(`Error loading VCL content: ${error.message}`);
-		console.error(error.stack);
+		const err = error as Error;
+		console.error(`Error loading VCL content: ${err.message}`);
+		console.error(err.stack);
 		throw error;
 	}
 }
@@ -58,13 +55,9 @@ export function executeVCLByName(
 	}
 
 	try {
-		const result = subroutines[name](context) || "";
+		const result = subroutines[name]!(context) || "";
 
-		if (
-			name === "vcl_deliver" &&
-			context.beresp.do_esi &&
-			context.obj.response
-		) {
+		if (name === "vcl_deliver" && context.beresp.do_esi && context.obj.response) {
 			const contentType = context.resp.http["Content-Type"] || "";
 			if (contentType.includes("text/html")) {
 				context.obj.response = processESI(context.obj.response, context);
@@ -73,7 +66,8 @@ export function executeVCLByName(
 
 		return result;
 	} catch (error) {
-		console.error(`Error executing subroutine ${name}: ${error.message}`);
+		const err = error as Error;
+		console.error(`Error executing subroutine ${name}: ${err.message}`);
 		return "";
 	}
 }
@@ -170,8 +164,8 @@ export function createVCLContext(): VCLContext {
 		const match = offset.match(/^(\d+)([smhd])$/);
 		let offsetMs: number;
 		if (match) {
-			const value = parseInt(match[1], 10);
-			const unit = match[2];
+			const value = parseInt(match[1] ?? "0", 10);
+			const unit = match[2] ?? "s";
 			offsetMs = value * (TIME_UNITS[unit] || 0);
 		} else {
 			offsetMs = parseInt(offset, 10);
@@ -195,9 +189,7 @@ export function createVCLContext(): VCLContext {
 			now: () => Date.now(),
 			add: (time: number, offset: string | number): number => {
 				const offsetMs = parseTimeOffset(offset);
-				return offsetMs === 0 && typeof offset === "string"
-					? time
-					: time + offsetMs;
+				return offsetMs === 0 && typeof offset === "string" ? time : time + offsetMs;
 			},
 			sub: (time1: number, time2: number): number => time1 - time2,
 			is_after: (time1: number, time2: number): boolean => time1 > time2,
@@ -224,14 +216,10 @@ export function createVCLContext(): VCLContext {
 		},
 		substr: (str: string, offset: number, length?: number) => {
 			const s = String(str);
-			return length !== undefined
-				? s.substring(offset, offset + length)
-				: s.substring(offset);
+			return length !== undefined ? s.substring(offset, offset + length) : s.substring(offset);
 		},
-		prefixof: (str: string, prefix: string) =>
-			String(str).startsWith(String(prefix)),
-		suffixof: (str: string, suffix: string) =>
-			String(str).endsWith(String(suffix)),
+		prefixof: (str: string, prefix: string) => String(str).startsWith(String(prefix)),
+		suffixof: (str: string, suffix: string) => String(str).endsWith(String(suffix)),
 		replace: (str: string, search: string, replacement: string) =>
 			String(str).replace(String(search), String(replacement)),
 		replaceall: (str: string, search: string, replacement: string) =>
@@ -364,26 +352,18 @@ export function createVCLContext(): VCLContext {
 						if (regex.test(key)) delete headers[key];
 					}
 				} catch (e) {
-					console.error(
-						`Invalid regex pattern for header.filter: ${pattern}`,
-						e,
-					);
+					console.error(`Invalid regex pattern for header.filter: ${pattern}`, e);
 				}
 			},
 			filter_except: (headers: Record<string, string>, pattern: string) => {
 				try {
 					const regex = new RegExp(String(pattern));
-					const keysToKeep = new Set(
-						Object.keys(headers).filter((key) => regex.test(key)),
-					);
+					const keysToKeep = new Set(Object.keys(headers).filter((key) => regex.test(key)));
 					for (const key of Object.keys(headers)) {
 						if (!keysToKeep.has(key)) delete headers[key];
 					}
 				} catch (e) {
-					console.error(
-						`Invalid regex pattern for header.filter_except: ${pattern}`,
-						e,
-					);
+					console.error(`Invalid regex pattern for header.filter_except: ${pattern}`, e);
 				}
 			},
 		},
@@ -403,8 +383,7 @@ export function createVCLContext(): VCLContext {
 				};
 				const range = statusPatterns[pattern];
 				if (range) return status >= range[0] && status < range[1];
-				if (pattern.endsWith("xx"))
-					return String(status).startsWith(pattern[0]);
+				if (pattern.endsWith("xx")) return String(status).startsWith(pattern[0] ?? "");
 				return String(status) === pattern;
 			},
 		},
@@ -429,11 +408,9 @@ export function createVCLContext(): VCLContext {
 				504: "Gateway Timeout",
 			};
 			context.obj.status = status;
-			context.obj.response = message
-				? String(message)
-				: defaultMessages[status] || "Error";
-			context.fastly.error = context.obj.response;
-			context.fastly.state = "error";
+			context.obj.response = message ? String(message) : defaultMessages[status] || "Error";
+			context.fastly!.error = context.obj.response;
+			context.fastly!.state = "error";
 			return "error";
 		},
 
@@ -443,9 +420,7 @@ export function createVCLContext(): VCLContext {
 					return new URL(String(url)).searchParams.get(String(name));
 				} catch {
 					try {
-						return new URLSearchParams(String(url).split("?")[1] || "").get(
-							String(name),
-						);
+						return new URLSearchParams(String(url).split("?")[1] || "").get(String(name));
 					} catch {
 						return null;
 					}
@@ -463,7 +438,7 @@ export function createVCLContext(): VCLContext {
 					return `${base}?${params.toString()}`;
 				}
 			},
-			remove: (url: string, name: string) => {
+			remove: (url: string, name: string): string => {
 				try {
 					const urlObj = new URL(String(url));
 					urlObj.searchParams.delete(String(name));
@@ -473,10 +448,10 @@ export function createVCLContext(): VCLContext {
 					const params = new URLSearchParams(qs || "");
 					params.delete(String(name));
 					const newQs = params.toString();
-					return newQs ? `${base}?${newQs}` : base;
+					return newQs ? `${base}?${newQs}` : (base ?? "");
 				}
 			},
-			filter: (url: string, names: string[]) => {
+			filter: (url: string, names: string[]): string => {
 				const filterParams = (params: URLSearchParams) => {
 					const filtered = new URLSearchParams();
 					for (const name of names) {
@@ -493,10 +468,10 @@ export function createVCLContext(): VCLContext {
 				} catch {
 					const [base, qs] = String(url).split("?");
 					const newQs = filterParams(new URLSearchParams(qs || "")).toString();
-					return newQs ? `${base}?${newQs}` : base;
+					return newQs ? `${base}?${newQs}` : (base ?? "");
 				}
 			},
-			filter_except: (url: string, names: string[]) => {
+			filter_except: (url: string, names: string[]): string => {
 				const filterParams = (params: URLSearchParams) => {
 					const filtered = new URLSearchParams();
 					for (const [name, value] of params.entries()) {
@@ -511,20 +486,14 @@ export function createVCLContext(): VCLContext {
 				} catch {
 					const [base, qs] = String(url).split("?");
 					const newQs = filterParams(new URLSearchParams(qs || "")).toString();
-					return newQs ? `${base}?${newQs}` : base;
+					return newQs ? `${base}?${newQs}` : (base ?? "");
 				}
 			},
 		},
 	};
 
-	context.std.backend = {
-		add: (
-			name: string,
-			host: string,
-			port: number,
-			ssl: boolean = false,
-			options: any = {},
-		) => {
+	context.std!.backend = {
+		add: (name: string, host: string, port: number, ssl: boolean = false, options: any = {}) => {
 			context.backends[name] = {
 				name,
 				host,
@@ -536,8 +505,7 @@ export function createVCLContext(): VCLContext {
 				max_connections: options.max_connections || 200,
 				ssl_cert_hostname: options.ssl_cert_hostname || host,
 				ssl_sni_hostname: options.ssl_sni_hostname || host,
-				ssl_check_cert:
-					options.ssl_check_cert !== undefined ? options.ssl_check_cert : true,
+				ssl_check_cert: options.ssl_check_cert !== undefined ? options.ssl_check_cert : true,
 				probe: options.probe,
 				is_healthy: true,
 			};
@@ -577,21 +545,17 @@ export function createVCLContext(): VCLContext {
 	context.std.random = {
 		randombool: (probability: number): boolean => {
 			if (probability < 0 || probability > 1) {
-				console.error(
-					`Invalid probability: ${probability}. Must be between 0 and 1.`,
-				);
+				console.error(`Invalid probability: ${probability}. Must be between 0 and 1.`);
 				return false;
 			}
 			return Math.random() < probability;
 		},
 		randombool_seeded: (probability: number, seed: string): boolean => {
 			if (probability < 0 || probability > 1) {
-				console.error(
-					`Invalid probability: ${probability}. Must be between 0 and 1.`,
-				);
+				console.error(`Invalid probability: ${probability}. Must be between 0 and 1.`);
 				return false;
 			}
-			const hash = context.std.digest.hash_sha256(String(seed));
+			const hash = context.std!.digest.hash_sha256(String(seed));
 			return parseInt(hash.substring(0, 8), 16) / 0xffffffff < probability;
 		},
 		randomint: (from: number, to: number): number => {
@@ -610,21 +574,15 @@ export function createVCLContext(): VCLContext {
 				);
 				return from;
 			}
-			const hash = context.std.digest.hash_sha256(String(seed));
-			return (
-				Math.floor(
-					(parseInt(hash.substring(0, 8), 16) / 0xffffffff) * (to - from + 1),
-				) + from
-			);
+			const hash = context.std!.digest.hash_sha256(String(seed));
+			return Math.floor((parseInt(hash.substring(0, 8), 16) / 0xffffffff) * (to - from + 1)) + from;
 		},
 		randomstr: (length: number, charset?: string): string => {
 			if (length <= 0) {
 				console.error(`Invalid length: ${length}. Must be greater than 0.`);
 				return "";
 			}
-			const chars =
-				charset ||
-				"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+			const chars = charset || "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 			let result = "";
 			for (let i = 0; i < length; i++) {
 				result += chars.charAt(Math.floor(Math.random() * chars.length));
@@ -652,9 +610,7 @@ export function createVCLContext(): VCLContext {
 		remove_entry: (aclName: string, ip: string, subnet?: number) => {
 			const acl = context.acls[aclName];
 			if (!acl) return false;
-			const index = acl.entries.findIndex(
-				(e) => e.ip === ip && e.subnet === subnet,
-			);
+			const index = acl.entries.findIndex((e) => e.ip === ip && e.subnet === subnet);
 			if (index === -1) return false;
 			acl.entries.splice(index, 1);
 			return true;
@@ -678,11 +634,7 @@ export function createVCLContext(): VCLContext {
 			delete context.tables[name];
 			return true;
 		},
-		add_entry: (
-			tableName: string,
-			key: string,
-			value: string | number | boolean | RegExp,
-		) => {
+		add_entry: (tableName: string, key: string, value: string | number | boolean | RegExp) => {
 			const table = context.tables[tableName];
 			if (!table) return false;
 			table.entries[key] = value;
@@ -699,11 +651,7 @@ export function createVCLContext(): VCLContext {
 			if (!table || !(key in table.entries)) return defaultValue;
 			return String(table.entries[key]);
 		},
-		lookup_bool: (
-			tableName: string,
-			key: string,
-			defaultValue: boolean = false,
-		) => {
+		lookup_bool: (tableName: string, key: string, defaultValue: boolean = false) => {
 			const table = context.tables[tableName];
 			if (!table || !(key in table.entries)) return defaultValue;
 			const value = table.entries[key];
@@ -712,11 +660,7 @@ export function createVCLContext(): VCLContext {
 			if (typeof value === "number") return value !== 0;
 			return defaultValue;
 		},
-		lookup_integer: (
-			tableName: string,
-			key: string,
-			defaultValue: number = 0,
-		) => {
+		lookup_integer: (tableName: string, key: string, defaultValue: number = 0) => {
 			const table = context.tables[tableName];
 			if (!table || !(key in table.entries)) return defaultValue;
 			const value = table.entries[key];
@@ -728,11 +672,7 @@ export function createVCLContext(): VCLContext {
 			if (typeof value === "boolean") return value ? 1 : 0;
 			return defaultValue;
 		},
-		lookup_float: (
-			tableName: string,
-			key: string,
-			defaultValue: number = 0.0,
-		) => {
+		lookup_float: (tableName: string, key: string, defaultValue: number = 0.0) => {
 			const table = context.tables[tableName];
 			if (!table || !(key in table.entries)) return defaultValue;
 			const value = table.entries[key];
@@ -744,14 +684,9 @@ export function createVCLContext(): VCLContext {
 			if (typeof value === "boolean") return value ? 1.0 : 0.0;
 			return defaultValue;
 		},
-		lookup_regex: (
-			tableName: string,
-			key: string,
-			defaultValue: string = "",
-		) => {
+		lookup_regex: (tableName: string, key: string, defaultValue: string = "") => {
 			const table = context.tables[tableName];
-			const defaultRegex = () =>
-				defaultValue ? new RegExp(defaultValue) : /(?:)/;
+			const defaultRegex = () => (defaultValue ? new RegExp(defaultValue) : /(?:)/);
 			if (!table || !(key in table.entries)) return defaultRegex();
 			const value = table.entries[key];
 			if (value instanceof RegExp) return value;
@@ -873,11 +808,7 @@ export function createVCLContext(): VCLContext {
 			delete context.directors[name];
 			return true;
 		},
-		add_backend: (
-			directorName: string,
-			backendName: string,
-			weight: number = 1,
-		) => {
+		add_backend: (directorName: string, backendName: string, weight: number = 1) => {
 			const director = context.directors[directorName];
 			const backend = context.backends[backendName];
 			if (!director || !backend) return false;
@@ -887,9 +818,7 @@ export function createVCLContext(): VCLContext {
 		remove_backend: (directorName: string, backendName: string) => {
 			const director = context.directors[directorName];
 			if (!director) return false;
-			const index = director.backends.findIndex(
-				(b) => b.backend.name === backendName,
-			);
+			const index = director.backends.findIndex((b) => b.backend.name === backendName);
 			if (index === -1) return false;
 			director.backends.splice(index, 1);
 			return true;
@@ -898,48 +827,37 @@ export function createVCLContext(): VCLContext {
 			const director = context.directors[directorName];
 			if (!director || director.backends.length === 0) return null;
 
-			const healthyBackends = director.backends.filter(
-				(b) => b.backend.is_healthy,
-			);
+			const healthyBackends = director.backends.filter((b) => b.backend.is_healthy);
 			const quorumPercentage = director.quorum / 100;
-			const requiredHealthyBackends = Math.ceil(
-				director.backends.length * quorumPercentage,
-			);
+			const requiredHealthyBackends = Math.ceil(director.backends.length * quorumPercentage);
 			if (healthyBackends.length < requiredHealthyBackends) return null;
 
 			if (director.type === "random") {
-				const totalWeight = healthyBackends.reduce(
-					(sum, b) => sum + b.weight,
-					0,
-				);
+				const totalWeight = healthyBackends.reduce((sum, b) => sum + b.weight, 0);
 				let random = Math.random() * totalWeight;
 				for (const b of healthyBackends) {
 					random -= b.weight;
 					if (random <= 0) return b.backend;
 				}
-				return healthyBackends[0].backend;
+				return healthyBackends[0]!.backend;
 			}
 
 			if (director.type === "fallback") {
-				return healthyBackends[0].backend;
+				return healthyBackends[0]!.backend;
 			}
 
 			// hash, client, and chash all use hash-based selection
 			let hashStr = "";
 			if (director.type === "client") {
-				hashStr =
-					context.req.http["X-Client-Identity"] ||
-					context.req.http.Cookie ||
-					"";
+				hashStr = context.req.http["X-Client-Identity"] || context.req.http.Cookie || "";
 			} else if (context.hashData && context.hashData.length > 0) {
 				hashStr = context.hashData.join(":");
 			}
 
 			if (hashStr) {
-				return healthyBackends[simpleHash(hashStr) % healthyBackends.length]
-					.backend;
+				return healthyBackends[simpleHash(hashStr) % healthyBackends.length]!.backend;
 			}
-			return healthyBackends[0].backend;
+			return healthyBackends[0]!.backend;
 		},
 	};
 
@@ -1022,11 +940,11 @@ function normalizeIPv6(ip: string): string {
 				const octets = ipv4Part.split(".");
 				if (octets.length === 4) {
 					const hex1 =
-						parseInt(octets[0], 10).toString(16).padStart(2, "0") +
-						parseInt(octets[1], 10).toString(16).padStart(2, "0");
+						parseInt(octets[0]!, 10).toString(16).padStart(2, "0") +
+						parseInt(octets[1]!, 10).toString(16).padStart(2, "0");
 					const hex2 =
-						parseInt(octets[2], 10).toString(16).padStart(2, "0") +
-						parseInt(octets[3], 10).toString(16).padStart(2, "0");
+						parseInt(octets[2]!, 10).toString(16).padStart(2, "0") +
+						parseInt(octets[3]!, 10).toString(16).padStart(2, "0");
 					ip = `${ip.substring(0, lastColon + 1) + hex1}:${hex2}`;
 				}
 			}
@@ -1040,11 +958,7 @@ function normalizeIPv6(ip: string): string {
 			const rightParts = parts[1] ? parts[1].split(":") : [];
 			const missingBlocks = 8 - (leftParts.length + rightParts.length);
 			if (missingBlocks < 0) return "";
-			ip = [
-				...leftParts,
-				...Array(missingBlocks).fill("0"),
-				...rightParts,
-			].join(":");
+			ip = [...leftParts, ...Array(missingBlocks).fill("0"), ...rightParts].join(":");
 		}
 
 		const segments = ip.split(":");
@@ -1099,9 +1013,7 @@ function getIPType(ip: string): "ipv4" | "ipv6" | null {
 		if (ip.includes(".") && ip.toLowerCase().includes("::ffff:")) {
 			const ipv4Part = ip.substring(ip.lastIndexOf(":") + 1);
 			const ipv4Parts = ipv4Part.split(".");
-			return ipv4Parts.length === 4 && ipv4Parts.every(isValidOctet)
-				? "ipv6"
-				: null;
+			return ipv4Parts.length === 4 && ipv4Parts.every(isValidOctet) ? "ipv6" : null;
 		}
 
 		const parts = ip.split(":");
@@ -1119,10 +1031,7 @@ function getIPType(ip: string): "ipv4" | "ipv6" | null {
 function isIpInCidr(ip: string, cidrIp: string, cidrSubnet: number): boolean {
 	try {
 		// Invalid IPv6 patterns
-		if (
-			ip.includes(":") &&
-			((ip.match(/::/g) || []).length > 1 || ip.includes("gggg"))
-		) {
+		if (ip.includes(":") && ((ip.match(/::/g) || []).length > 1 || ip.includes("gggg"))) {
 			return false;
 		}
 
@@ -1135,10 +1044,7 @@ function isIpInCidr(ip: string, cidrIp: string, cidrSubnet: number): boolean {
 			const ipBinary = ipv4ToBinary(ip);
 			const cidrBinary = ipv4ToBinary(cidrIp);
 			if (!ipBinary || !cidrBinary) return false;
-			return (
-				ipBinary.substring(0, cidrSubnet) ===
-				cidrBinary.substring(0, cidrSubnet)
-			);
+			return ipBinary.substring(0, cidrSubnet) === cidrBinary.substring(0, cidrSubnet);
 		}
 
 		if (ipType === "ipv6") {
@@ -1160,10 +1066,7 @@ function isIpInCidr(ip: string, cidrIp: string, cidrSubnet: number): boolean {
 			const ipBinary = ipv6ToBinary(ip);
 			const cidrBinary = ipv6ToBinary(cidrIp);
 			if (!ipBinary || !cidrBinary) return false;
-			return (
-				ipBinary.substring(0, cidrSubnet) ===
-				cidrBinary.substring(0, cidrSubnet)
-			);
+			return ipBinary.substring(0, cidrSubnet) === cidrBinary.substring(0, cidrSubnet);
 		}
 
 		return false;
@@ -1180,7 +1083,8 @@ export function executeVCL(
 	const subroutine = subroutines[subroutineName];
 	if (!subroutine) return "";
 	try {
-		return subroutine(context);
+		const result = subroutine(context);
+		return result ?? "";
 	} catch (error) {
 		console.error(`Error executing subroutine ${subroutineName}:`, error);
 		return "error";

@@ -82,8 +82,7 @@ const randomFunctionsTests = {
 				// Check consistency with the same seed
 				(context: VCLContext) => {
 					return assert(
-						context.req.http["X-Seed1-Result"] ===
-							context.req.http["X-Seed1-Again"],
+						context.req.http["X-Seed1-Result"] === context.req.http["X-Seed1-Again"],
 						`Expected X-Seed1-Result to equal X-Seed1-Again, got '${context.req.http["X-Seed1-Result"]}' and '${context.req.http["X-Seed1-Again"]}'`,
 					);
 				},
@@ -110,7 +109,7 @@ const randomFunctionsTests = {
 			assertions: [
 				// Check range 1-10
 				(context: VCLContext) => {
-					const value = parseInt(context.req.http["X-Random-1-10"], 10);
+					const value = parseInt(context.req.http["X-Random-1-10"]!, 10);
 					return assert(
 						value >= 1 && value <= 10,
 						`Expected X-Random-1-10 to be between 1 and 10, got '${value}'`,
@@ -125,7 +124,7 @@ const randomFunctionsTests = {
 				},
 				// Check negative range
 				(context: VCLContext) => {
-					const value = parseInt(context.req.http["X-Random-Negative"], 10);
+					const value = parseInt(context.req.http["X-Random-Negative"]!, 10);
 					return assert(
 						value >= -10 && value <= -1,
 						`Expected X-Random-Negative to be between -10 and -1, got '${value}'`,
@@ -157,8 +156,7 @@ const randomFunctionsTests = {
 				// Check consistency with the same seed
 				(context: VCLContext) => {
 					return assert(
-						context.req.http["X-Seed1-Int"] ===
-							context.req.http["X-Seed1-Int-Again"],
+						context.req.http["X-Seed1-Int"] === context.req.http["X-Seed1-Int-Again"],
 						`Expected X-Seed1-Int to equal X-Seed1-Int-Again, got '${context.req.http["X-Seed1-Int"]}' and '${context.req.http["X-Seed1-Int-Again"]}'`,
 					);
 				},
@@ -189,28 +187,28 @@ const randomFunctionsTests = {
 				// Check string length 10
 				(context: VCLContext) => {
 					return assert(
-						context.req.http["X-Random-Str-10"].length === 10,
-						`Expected X-Random-Str-10 to have length 10, got '${context.req.http["X-Random-Str-10"].length}'`,
+						context.req.http["X-Random-Str-10"]!.length === 10,
+						`Expected X-Random-Str-10 to have length 10, got '${context.req.http["X-Random-Str-10"]!.length}'`,
 					);
 				},
 				// Check string length 5
 				(context: VCLContext) => {
 					return assert(
-						context.req.http["X-Random-Str-5"].length === 5,
-						`Expected X-Random-Str-5 to have length 5, got '${context.req.http["X-Random-Str-5"].length}'`,
+						context.req.http["X-Random-Str-5"]!.length === 5,
+						`Expected X-Random-Str-5 to have length 5, got '${context.req.http["X-Random-Str-5"]!.length}'`,
 					);
 				},
 				// Check hex charset
 				(context: VCLContext) => {
 					return assert(
-						/^[0-9A-F]{8}$/.test(context.req.http["X-Random-Hex"]),
+						/^[0-9A-F]{8}$/.test(context.req.http["X-Random-Hex"]!),
 						`Expected X-Random-Hex to be 8 hex characters, got '${context.req.http["X-Random-Hex"]}'`,
 					);
 				},
 				// Check digits charset
 				(context: VCLContext) => {
 					return assert(
-						/^[0-9]{6}$/.test(context.req.http["X-Random-Digits"]),
+						/^[0-9]{6}$/.test(context.req.http["X-Random-Digits"]!),
 						`Expected X-Random-Digits to be 6 digits, got '${context.req.http["X-Random-Digits"]}'`,
 					);
 				},

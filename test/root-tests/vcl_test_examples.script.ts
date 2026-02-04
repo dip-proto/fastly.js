@@ -94,7 +94,7 @@ function example3() {
 		vcl_recv: (ctx: VCLContext) => {
 			const matches = ctx.req.url.match(/^\/users\/(\d+)$/);
 			if (matches && matches.length > 1) {
-				ctx.req.http["X-User-ID"] = matches[1];
+				ctx.req.http["X-User-ID"] = matches[1]!;
 			}
 			return "lookup";
 		},
@@ -126,7 +126,7 @@ function example4() {
 	const subroutines: VCLSubroutines = {
 		vcl_recv: (ctx: VCLContext) => {
 			if (ctx.req.url === "/forbidden") {
-				ctx.std.error(403, "Forbidden");
+				ctx.std!.error(403, "Forbidden");
 				return "error";
 			}
 			return "lookup";

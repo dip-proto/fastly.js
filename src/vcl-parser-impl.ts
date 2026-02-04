@@ -92,9 +92,7 @@ export class VCLParser {
 		if (parts.length !== 4) return false;
 		return parts.every((part) => {
 			const num = parseInt(part, 10);
-			return (
-				!Number.isNaN(num) && num >= 0 && num <= 255 && part === num.toString()
-			);
+			return !Number.isNaN(num) && num >= 0 && num <= 255 && part === num.toString();
 		});
 	}
 
@@ -111,9 +109,7 @@ export class VCLParser {
 	}
 
 	private isValidCIDR(subnet: number, isIPv6: boolean): boolean {
-		return (
-			Number.isInteger(subnet) && subnet >= 0 && subnet <= (isIPv6 ? 128 : 32)
-		);
+		return Number.isInteger(subnet) && subnet >= 0 && subnet <= (isIPv6 ? 128 : 32);
 	}
 
 	private parseACL(): VCLACL {
@@ -149,9 +145,9 @@ export class VCLParser {
 
 				// Check for CIDR notation inside the string
 				if (ip.includes("/")) {
-					const parts = ip.split("/");
-					ip = parts[0];
-					subnet = parseInt(parts[1], 10);
+					const cidrParts = ip.split("/");
+					ip = cidrParts[0] ?? "";
+					subnet = parseInt(cidrParts[1] ?? "0", 10);
 				}
 
 				// Check for CIDR notation outside the string: "192.168.0.0"/16
@@ -222,8 +218,10 @@ export class VCLParser {
 		const token = this.previous();
 		const moduleToken = this.consume(TokenType.STRING, "Expected module name after 'include'");
 		let module = moduleToken.value;
-		if ((module.startsWith('"') && module.endsWith('"')) ||
-			(module.startsWith("'") && module.endsWith("'"))) {
+		if (
+			(module.startsWith('"') && module.endsWith('"')) ||
+			(module.startsWith("'") && module.endsWith("'"))
+		) {
 			module = module.slice(1, -1);
 		}
 		if (this.check(TokenType.PUNCTUATION, ";")) {
@@ -263,16 +261,20 @@ export class VCLParser {
 			if (this.match(TokenType.STRING)) {
 				const keyToken = this.previous();
 				let key = keyToken.value;
-				if ((key.startsWith('"') && key.endsWith('"')) ||
-					(key.startsWith("'") && key.endsWith("'"))) {
+				if (
+					(key.startsWith('"') && key.endsWith('"')) ||
+					(key.startsWith("'") && key.endsWith("'"))
+				) {
 					key = key.slice(1, -1);
 				}
 				this.consume(TokenType.PUNCTUATION, "Expected ':' after table key");
 				let value = "";
 				if (this.match(TokenType.STRING)) {
 					value = this.previous().value;
-					if ((value.startsWith('"') && value.endsWith('"')) ||
-						(value.startsWith("'") && value.endsWith("'"))) {
+					if (
+						(value.startsWith('"') && value.endsWith('"')) ||
+						(value.startsWith("'") && value.endsWith("'"))
+					) {
 						value = value.slice(1, -1);
 					}
 				} else if (this.match(TokenType.NUMBER)) {
@@ -312,8 +314,10 @@ export class VCLParser {
 				let value: string | number = "";
 				if (this.match(TokenType.STRING)) {
 					value = this.previous().value;
-					if ((value.startsWith('"') && value.endsWith('"')) ||
-						(value.startsWith("'") && value.endsWith("'"))) {
+					if (
+						(value.startsWith('"') && value.endsWith('"')) ||
+						(value.startsWith("'") && value.endsWith("'"))
+					) {
 						value = (value as string).slice(1, -1);
 					}
 				} else if (this.match(TokenType.NUMBER)) {
@@ -350,24 +354,20 @@ export class VCLParser {
 	}
 
 	private parseSubroutine(): VCLSubroutine {
-		const nameToken = this.consume(
-			TokenType.IDENTIFIER,
-			"Expected subroutine name",
-		);
+		const nameToken = this.consume(TokenType.IDENTIFIER, "Expected subroutine name");
 		let returnType: string | undefined;
-		if (
-			this.check(TokenType.IDENTIFIER) &&
-			!this.check(TokenType.PUNCTUATION, "{")
-		) {
+		if (this.check(TokenType.IDENTIFIER) && !this.check(TokenType.PUNCTUATION, "{")) {
 			returnType = this.advance().value;
 		}
 		this.consume(TokenType.PUNCTUATION, "Expected '{' after subroutine name");
-		const startPos = this.tokens[this.current - 1].position + 1;
+		const startToken = this.tokens[this.current - 1];
+		const startPos = startToken?.position !== undefined ? startToken.position + 1 : 0;
 		const body: VCLStatement[] = [];
 		while (!this.check(TokenType.PUNCTUATION, "}") && !this.isAtEnd()) {
 			body.push(this.parseStatement());
 		}
-		const endPos = this.tokens[this.current].position;
+		const currentToken = this.tokens[this.current];
+		const endPos = currentToken ? currentToken.position : this.source.length;
 		const rawVCL = this.source.substring(startPos, endPos);
 		this.consume(TokenType.PUNCTUATION, "Expected '}' after subroutine body");
 		return {
@@ -384,10 +384,7 @@ export class VCLParser {
 		// Check for label (identifier followed by colon)
 		if (this.check(TokenType.IDENTIFIER)) {
 			const nextToken = this.peek(1);
-			if (
-				nextToken?.type === TokenType.PUNCTUATION &&
-				nextToken.value === ":"
-			) {
+			if (nextToken?.type === TokenType.PUNCTUATION && nextToken.value === ":") {
 				const labelName = this.advance().value;
 				const labelToken = this.previous();
 				this.advance();
@@ -449,25 +446,21 @@ export class VCLParser {
 				if (this.check(TokenType.PUNCTUATION, "(")) {
 					return this.parseLogStatement();
 				}
-				const message = {
+				const message: VCLStringLiteral = {
 					type: "StringLiteral",
 					value: "Log message",
 					location: { line: token.line, column: token.column },
 				};
-				while (!this.check(TokenType.PUNCTUATION, ";") && !this.isAtEnd())
-					this.advance();
+				while (!this.check(TokenType.PUNCTUATION, ";") && !this.isAtEnd()) this.advance();
 				this.consume(TokenType.PUNCTUATION, "Expected ';' after log statement");
 				return {
-					type: "LogStatement",
+					type: "LogStatement" as const,
 					message,
 					location: { line: token.line, column: token.column },
 				};
 			} else if (identifier === "hash_data") {
 				return this.parseHashDataStatement();
-			} else if (
-				identifier.includes(".") &&
-				this.check(TokenType.OPERATOR, "=")
-			) {
+			} else if (identifier.includes(".") && this.check(TokenType.OPERATOR, "=")) {
 				this.consume(TokenType.OPERATOR, "Expected '=' after identifier");
 				const value = this.parseExpression();
 				this.consume(TokenType.PUNCTUATION, "Expected ';' after set statement");
@@ -483,8 +476,7 @@ export class VCLParser {
 			}
 		}
 
-		while (!this.check(TokenType.PUNCTUATION, ";") && !this.isAtEnd())
-			this.advance();
+		while (!this.check(TokenType.PUNCTUATION, ";") && !this.isAtEnd()) this.advance();
 		if (!this.isAtEnd()) this.advance();
 		return {
 			type: "Statement",
@@ -506,8 +498,7 @@ export class VCLParser {
 		}
 
 		const variableName = this.previous().value;
-		if (!this.match(TokenType.IDENTIFIER))
-			this.error("Expected variable type after variable name");
+		if (!this.match(TokenType.IDENTIFIER)) this.error("Expected variable type after variable name");
 		const variableType = this.previous().value;
 		this.consume(TokenType.PUNCTUATION, "Expected ';' after declare statement");
 		return {
@@ -521,8 +512,7 @@ export class VCLParser {
 	private parseStatementBlock(requireBraces: boolean = false): VCLStatement[] {
 		const statements: VCLStatement[] = [];
 		const hasBraces = this.match(TokenType.PUNCTUATION, "{");
-		if (requireBraces && !hasBraces)
-			this.consume(TokenType.PUNCTUATION, "Expected '{'");
+		if (requireBraces && !hasBraces) this.consume(TokenType.PUNCTUATION, "Expected '{'");
 		while (
 			(!hasBraces || !this.check(TokenType.PUNCTUATION, "}")) &&
 			!this.check(TokenType.KEYWORD, "else") &&
@@ -530,15 +520,13 @@ export class VCLParser {
 		) {
 			statements.push(this.parseStatement());
 		}
-		if (hasBraces)
-			this.consume(TokenType.PUNCTUATION, "Expected '}' after block");
+		if (hasBraces) this.consume(TokenType.PUNCTUATION, "Expected '}' after block");
 		return statements;
 	}
 
 	private parseElseClause(): VCLStatement[] | undefined {
 		while (this.check(TokenType.COMMENT)) this.advance();
-		if (!this.check(TokenType.KEYWORD) || this.peek().value !== "else")
-			return undefined;
+		if (!this.check(TokenType.KEYWORD) || this.peek().value !== "else") return undefined;
 		this.advance();
 		if (this.check(TokenType.KEYWORD) && this.peek().value === "if") {
 			this.advance();
@@ -577,10 +565,7 @@ export class VCLParser {
 				);
 			}
 			this.consume(TokenType.PUNCTUATION, "Expected ')' after return argument");
-			this.consume(
-				TokenType.PUNCTUATION,
-				"Expected ';' after return statement",
-			);
+			this.consume(TokenType.PUNCTUATION, "Expected ';' after return statement");
 			return {
 				type: "ReturnStatement",
 				argument,
@@ -629,10 +614,7 @@ export class VCLParser {
 		const token = this.previous();
 
 		// Parse the error status code
-		const status = parseInt(
-			this.consume(TokenType.NUMBER, "Expected error status code").value,
-			10,
-		);
+		const status = parseInt(this.consume(TokenType.NUMBER, "Expected error status code").value, 10);
 
 		// Parse the optional error message
 		let message = "";
@@ -678,10 +660,7 @@ export class VCLParser {
 		};
 
 		// Handle property access (e.g., req.http.X-Header)
-		while (
-			this.check(TokenType.IDENTIFIER) &&
-			this.peek().value.startsWith(".")
-		) {
+		while (this.check(TokenType.IDENTIFIER) && this.peek().value.startsWith(".")) {
 			// Consume the property token
 			const propertyToken = this.advance();
 			const propertyName = propertyToken.value.substring(1); // Remove the leading dot
@@ -773,10 +752,7 @@ export class VCLParser {
 		const token = this.previous();
 
 		// Parse the target
-		const target = this.consume(
-			TokenType.IDENTIFIER,
-			"Expected unset target",
-		).value;
+		const target = this.consume(TokenType.IDENTIFIER, "Expected unset target").value;
 
 		this.consume(TokenType.PUNCTUATION, "Expected ';' after unset statement");
 
@@ -867,10 +843,7 @@ export class VCLParser {
 		}
 
 		// Consume the semicolon
-		this.consume(
-			TokenType.PUNCTUATION,
-			"Expected ';' after synthetic statement",
-		);
+		this.consume(TokenType.PUNCTUATION, "Expected ';' after synthetic statement");
 
 		return {
 			type: "SyntheticStatement",
@@ -896,10 +869,7 @@ export class VCLParser {
 		const value = this.parseExpression();
 
 		this.consume(TokenType.PUNCTUATION, "Expected ')' after hash_data value");
-		this.consume(
-			TokenType.PUNCTUATION,
-			"Expected ';' after hash_data statement",
-		);
+		this.consume(TokenType.PUNCTUATION, "Expected ';' after hash_data statement");
 
 		return {
 			type: "HashDataStatement",
@@ -920,10 +890,7 @@ export class VCLParser {
 		const token = this.previous();
 
 		// Parse the label name
-		const labelToken = this.consume(
-			TokenType.IDENTIFIER,
-			"Expected label name after 'goto'",
-		);
+		const labelToken = this.consume(TokenType.IDENTIFIER, "Expected label name after 'goto'");
 		const label = labelToken.value;
 
 		// Consume the semicolon
@@ -1000,10 +967,7 @@ export class VCLParser {
 					const falseExpr = this.parseExpression();
 
 					// Check for closing parenthesis
-					this.consume(
-						TokenType.PUNCTUATION,
-						"Expected ')' after ternary expression",
-					);
+					this.consume(TokenType.PUNCTUATION, "Expected ')' after ternary expression");
 
 					// Create a ternary expression
 					return {
@@ -1070,10 +1034,7 @@ export class VCLParser {
 	private parseEquality(): VCLExpression {
 		let expr = this.parseComparison();
 
-		while (
-			this.match(TokenType.OPERATOR, "==") ||
-			this.match(TokenType.OPERATOR, "!=")
-		) {
+		while (this.match(TokenType.OPERATOR, "==") || this.match(TokenType.OPERATOR, "!=")) {
 			const operator = this.previous().value;
 			const right = this.parseComparison();
 
@@ -1122,10 +1083,7 @@ export class VCLParser {
 	private parseRegex(): VCLExpression {
 		let expr = this.parseTerm();
 
-		while (
-			this.match(TokenType.OPERATOR, "~") ||
-			this.match(TokenType.OPERATOR, "!~")
-		) {
+		while (this.match(TokenType.OPERATOR, "~") || this.match(TokenType.OPERATOR, "!~")) {
 			const operator = this.previous().value;
 			const right = this.parseTerm();
 
@@ -1147,10 +1105,7 @@ export class VCLParser {
 	private parseTerm(): VCLExpression {
 		let expr = this.parseFactor();
 
-		while (
-			this.match(TokenType.OPERATOR, "+") ||
-			this.match(TokenType.OPERATOR, "-")
-		) {
+		while (this.match(TokenType.OPERATOR, "+") || this.match(TokenType.OPERATOR, "-")) {
 			const operator = this.previous().value;
 			const right = this.parseFactor();
 
@@ -1268,11 +1223,7 @@ export class VCLParser {
 		// Allow if() function calls in implicit concatenation
 		if (token.type === TokenType.KEYWORD && token.value === "if") {
 			const nextToken = this.peek(1);
-			if (
-				nextToken &&
-				nextToken.type === TokenType.PUNCTUATION &&
-				nextToken.value === "("
-			) {
+			if (nextToken && nextToken.type === TokenType.PUNCTUATION && nextToken.value === "(") {
 				return true;
 			}
 		}
@@ -1372,10 +1323,7 @@ export class VCLParser {
 			};
 
 			// Handle property access (e.g., req.url)
-			while (
-				this.check(TokenType.IDENTIFIER) &&
-				this.peek().value.startsWith(".")
-			) {
+			while (this.check(TokenType.IDENTIFIER) && this.peek().value.startsWith(".")) {
 				// Consume the property token
 				const propertyToken = this.advance();
 				const propertyName = propertyToken.value.substring(1); // Remove the leading dot
@@ -1428,19 +1376,13 @@ export class VCLParser {
 			const condition = this.parseExpression();
 
 			// Consume comma
-			this.consume(
-				TokenType.PUNCTUATION,
-				"Expected ',' after condition in if()",
-			);
+			this.consume(TokenType.PUNCTUATION, "Expected ',' after condition in if()");
 
 			// Parse true expression
 			const trueExpr = this.parseExpression();
 
 			// Consume comma
-			this.consume(
-				TokenType.PUNCTUATION,
-				"Expected ',' after true expression in if()",
-			);
+			this.consume(TokenType.PUNCTUATION, "Expected ',' after true expression in if()");
 
 			// Parse false expression
 			const falseExpr = this.parseExpression();
@@ -1461,10 +1403,7 @@ export class VCLParser {
 		}
 
 		// Handle unary operators
-		if (
-			this.match(TokenType.OPERATOR, "!") ||
-			this.match(TokenType.OPERATOR, "-")
-		) {
+		if (this.match(TokenType.OPERATOR, "!") || this.match(TokenType.OPERATOR, "-")) {
 			const token = this.previous();
 			const operator = token.value;
 			const operand = this.parsePrimary();
@@ -1504,9 +1443,7 @@ export class VCLParser {
 	private consume(type: TokenType, message: string): Token {
 		if (this.check(type)) return this.advance();
 
-		throw new Error(
-			`${message} at line ${this.peek().line}, column ${this.peek().column}`,
-		);
+		throw new Error(`${message} at line ${this.peek().line}, column ${this.peek().column}`);
 	}
 
 	private check(type: TokenType, value?: string): boolean {
@@ -1528,21 +1465,21 @@ export class VCLParser {
 
 	private peek(offset?: number): Token {
 		if (offset === undefined) {
-			return this.tokens[this.current];
+			return this.tokens[this.current]!;
 		}
 
 		const index = this.current + offset;
 		if (index < 0) {
-			return this.tokens[0];
+			return this.tokens[0]!;
 		}
 		if (index >= this.tokens.length) {
-			return this.tokens[this.tokens.length - 1];
+			return this.tokens[this.tokens.length - 1]!;
 		}
-		return this.tokens[index];
+		return this.tokens[index]!;
 	}
 
 	private previous(): Token {
-		return this.tokens[this.current - 1];
+		return this.tokens[this.current - 1]!;
 	}
 
 	private error(message: string): never {
@@ -1565,10 +1502,7 @@ export class VCLParser {
 		}
 
 		// Consume the closing parenthesis
-		this.consume(
-			TokenType.PUNCTUATION,
-			"Expected ')' after function arguments",
-		);
+		this.consume(TokenType.PUNCTUATION, "Expected ')' after function arguments");
 
 		// Create the function call expression
 		let result: VCLExpression = {
@@ -1588,10 +1522,7 @@ export class VCLParser {
 			this.advance();
 
 			// Parse the property name
-			const propertyToken = this.consume(
-				TokenType.IDENTIFIER,
-				"Expected property name after '.'",
-			);
+			const propertyToken = this.consume(TokenType.IDENTIFIER, "Expected property name after '.'");
 
 			result = {
 				type: "MemberAccess",

@@ -25,21 +25,15 @@ const securityFeaturesTests = {
 				// Set up the context
 				context.req.url = "/?q=SELECT%20*%20FROM%20users";
 				context.req.method = "GET";
-				context.client.ip = "203.0.113.1"; // Non-trusted IP
+				context.client!.ip = "203.0.113.1"; // Non-trusted IP
 
 				// Execute the subroutine
 				try {
 					executeSubroutine(context, subroutines, "vcl_recv");
 				} catch (error) {
 					// Expected to throw an error due to security block
-					if (
-						!error.message.includes(
-							"Forbidden: Suspicious SQL patterns detected",
-						)
-					) {
-						throw new Error(
-							`Expected SQL injection error, got: ${error.message}`,
-						);
+					if (!(error as Error).message.includes("Forbidden: Suspicious SQL patterns detected")) {
+						throw new Error(`Expected SQL injection error, got: ${(error as Error).message}`);
 					}
 				}
 			},
@@ -54,10 +48,8 @@ const securityFeaturesTests = {
 				// Check if the error was set
 				(context: VCLContext) => {
 					return assert(
-						context.fastly.error.includes(
-							"Forbidden: Suspicious SQL patterns detected",
-						),
-						`Expected error to contain 'Forbidden: Suspicious SQL patterns detected', got '${context.fastly.error}'`,
+						context.fastly!.error!.includes("Forbidden: Suspicious SQL patterns detected"),
+						`Expected error to contain 'Forbidden: Suspicious SQL patterns detected', got '${context.fastly!.error}'`,
 					);
 				},
 			],
@@ -71,19 +63,15 @@ const securityFeaturesTests = {
 				// Set up the context
 				context.req.url = '/?q=<script>alert("XSS")</script>';
 				context.req.method = "GET";
-				context.client.ip = "203.0.113.1"; // Non-trusted IP
+				context.client!.ip = "203.0.113.1"; // Non-trusted IP
 
 				// Execute the subroutine
 				try {
 					executeSubroutine(context, subroutines, "vcl_recv");
 				} catch (error) {
 					// Expected to throw an error due to security block
-					if (
-						!error.message.includes(
-							"Forbidden: Suspicious XSS patterns detected",
-						)
-					) {
-						throw new Error(`Expected XSS error, got: ${error.message}`);
+					if (!(error as Error).message.includes("Forbidden: Suspicious XSS patterns detected")) {
+						throw new Error(`Expected XSS error, got: ${(error as Error).message}`);
 					}
 				}
 			},
@@ -98,10 +86,8 @@ const securityFeaturesTests = {
 				// Check if the error was set
 				(context: VCLContext) => {
 					return assert(
-						context.fastly.error.includes(
-							"Forbidden: Suspicious XSS patterns detected",
-						),
-						`Expected error to contain 'Forbidden: Suspicious XSS patterns detected', got '${context.fastly.error}'`,
+						context.fastly!.error!.includes("Forbidden: Suspicious XSS patterns detected"),
+						`Expected error to contain 'Forbidden: Suspicious XSS patterns detected', got '${context.fastly!.error}'`,
 					);
 				},
 			],
@@ -115,21 +101,15 @@ const securityFeaturesTests = {
 				// Set up the context
 				context.req.url = "/%2e%2e/%2e%2e/etc/passwd";
 				context.req.method = "GET";
-				context.client.ip = "203.0.113.1"; // Non-trusted IP
+				context.client!.ip = "203.0.113.1"; // Non-trusted IP
 
 				// Execute the subroutine
 				try {
 					executeSubroutine(context, subroutines, "vcl_recv");
 				} catch (error) {
 					// Expected to throw an error due to security block
-					if (
-						!error.message.includes(
-							"Forbidden: Path traversal attempt detected",
-						)
-					) {
-						throw new Error(
-							`Expected path traversal error, got: ${error.message}`,
-						);
+					if (!(error as Error).message.includes("Forbidden: Path traversal attempt detected")) {
+						throw new Error(`Expected path traversal error, got: ${(error as Error).message}`);
 					}
 				}
 			},
@@ -144,10 +124,8 @@ const securityFeaturesTests = {
 				// Check if the error was set
 				(context: VCLContext) => {
 					return assert(
-						context.fastly.error.includes(
-							"Forbidden: Path traversal attempt detected",
-						),
-						`Expected error to contain 'Forbidden: Path traversal attempt detected', got '${context.fastly.error}'`,
+						context.fastly!.error!.includes("Forbidden: Path traversal attempt detected"),
+						`Expected error to contain 'Forbidden: Path traversal attempt detected', got '${context.fastly!.error}'`,
 					);
 				},
 			],
@@ -194,8 +172,7 @@ const securityFeaturesTests = {
 				},
 				(context: VCLContext) => {
 					return assert(
-						context.resp.http["Content-Security-Policy"] ===
-							"default-src 'self'",
+						context.resp.http["Content-Security-Policy"] === "default-src 'self'",
 						`Expected Content-Security-Policy header to be "default-src 'self'", got '${context.resp.http["Content-Security-Policy"]}'`,
 					);
 				},
@@ -210,7 +187,7 @@ const securityFeaturesTests = {
 				// Set up the context
 				context.req.url = "/safe-path";
 				context.req.method = "GET";
-				context.client.ip = "127.0.0.1"; // Trusted IP
+				context.client!.ip = "127.0.0.1"; // Trusted IP
 
 				// Set up the ACL in the context
 				if (!context.acls) {
@@ -220,10 +197,7 @@ const securityFeaturesTests = {
 				// Add the trusted_ips ACL with the correct format
 				context.acls.trusted_ips = {
 					name: "trusted_ips",
-					entries: [
-						{ ip: "127.0.0.1", negated: false },
-						{ ip: "192.168.0.0/16", negated: false },
-					],
+					entries: [{ ip: "127.0.0.1" }, { ip: "192.168.0.0", subnet: 16 }],
 				};
 
 				// Execute the subroutine

@@ -42,8 +42,7 @@ const stdlibTests = {
       `,
 			run: async (context: VCLContext, subroutines: VCLSubroutines) => {
 				// Set up the context
-				context.req.http["User-Agent"] =
-					"Mozilla/5.0 (Windows NT 10.0; Win64; x64)";
+				context.req.http["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64)";
 				context.req.http.Name = "John";
 
 				// Execute the subroutine
@@ -74,8 +73,7 @@ const stdlibTests = {
 				// Check regex replace
 				(context: VCLContext) => {
 					return assert(
-						context.req.http["X-Replaced"] ===
-							"Chrome/5.0 (Windows NT 10.0; Win64; x64)",
+						context.req.http["X-Replaced"] === "Chrome/5.0 (Windows NT 10.0; Win64; x64)",
 						`Expected X-Replaced to be 'Chrome/5.0 (Windows NT 10.0; Win64; x64)', got '${context.req.http["X-Replaced"]}'`,
 					);
 				},
@@ -119,30 +117,28 @@ const stdlibTests = {
 				// Check if current time is a number
 				(context: VCLContext) => {
 					return assert(
-						!Number.isNaN(parseInt(context.req.http["X-Now"], 10)),
+						!Number.isNaN(parseInt(context.req.http["X-Now"]!, 10)),
 						`Expected X-Now to be a number, got '${context.req.http["X-Now"]}'`,
 					);
 				},
 				// Check time formatting (should be in YYYY-MM-DD format)
 				(context: VCLContext) => {
 					return assert(
-						/^\d{4}-\d{2}-\d{2}$/.test(context.req.http["X-Formatted"]),
+						/^\d{4}-\d{2}-\d{2}$/.test(context.req.http["X-Formatted"]!),
 						`Expected X-Formatted to be in YYYY-MM-DD format, got '${context.req.http["X-Formatted"]}'`,
 					);
 				},
 				// Check if future time is after now
 				(context: VCLContext) => {
 					return assert(
-						parseInt(context.req.http["X-Future"], 10) >
-							parseInt(context.req.http["X-Now"], 10),
+						parseInt(context.req.http["X-Future"]!, 10) > parseInt(context.req.http["X-Now"]!, 10),
 						`Expected X-Future to be greater than X-Now`,
 					);
 				},
 				// Check if past time is before now
 				(context: VCLContext) => {
 					return assert(
-						parseInt(context.req.http["X-Past"], 10) <
-							parseInt(context.req.http["X-Now"], 10),
+						parseInt(context.req.http["X-Past"]!, 10) < parseInt(context.req.http["X-Now"]!, 10),
 						`Expected X-Past to be less than X-Now`,
 					);
 				},

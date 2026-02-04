@@ -18,10 +18,7 @@ const penaltyBoxes = new Map<string, Map<string, PenaltyBoxEntry>>();
 
 const DEFAULT_WINDOW_MS = 60000;
 
-function getOrCreateCounter(
-	name: string,
-	windowMs: number = DEFAULT_WINDOW_MS,
-): RateCounter {
+function getOrCreateCounter(name: string, windowMs: number = DEFAULT_WINDOW_MS): RateCounter {
 	const now = Date.now();
 	let counter = rateCounters.get(name);
 
@@ -130,11 +127,7 @@ export const RateLimitModule = {
 		return exceeded;
 	},
 
-	penaltybox_add(
-		penaltyboxName: string,
-		identifier: string,
-		duration: number,
-	): void {
+	penaltybox_add(penaltyboxName: string, identifier: string, duration: number): void {
 		let penaltyBox = penaltyBoxes.get(penaltyboxName);
 		if (!penaltyBox) {
 			penaltyBox = new Map<string, PenaltyBoxEntry>();

@@ -50,12 +50,7 @@ export const SecurityModule = {
 			console.log(`[WAF] ${message}`);
 		},
 
-		rate_limit: (
-			_context: any,
-			key: string,
-			limit: number,
-			window: number,
-		): boolean => {
+		rate_limit: (_context: any, key: string, limit: number, window: number): boolean => {
 			const windowMs = window * 1000;
 			const now = Date.now();
 			const bucketKey = `rate_${key}`;
@@ -75,11 +70,7 @@ export const SecurityModule = {
 			return counter.count <= limit;
 		},
 
-		detect_attack: (
-			_context: any,
-			requestData: string,
-			attackType: string,
-		): boolean => {
+		detect_attack: (_context: any, requestData: string, attackType: string): boolean => {
 			if (!requestData) {
 				return false;
 			}
@@ -92,13 +83,11 @@ export const SecurityModule = {
 			};
 
 			if (attackType in patterns) {
-				return patterns[attackType].test(requestData);
+				return patterns[attackType as keyof typeof patterns]!.test(requestData);
 			}
 
 			if (attackType === "any") {
-				return Object.values(patterns).some((pattern) =>
-					pattern.test(requestData),
-				);
+				return Object.values(patterns).some((pattern) => pattern.test(requestData));
 			}
 
 			return false;
@@ -135,11 +124,7 @@ export const SecurityModule = {
 			return windowId;
 		},
 
-		ratecounter_increment: (
-			_context: any,
-			counterName: string,
-			incrementBy: number = 1,
-		): void => {
+		ratecounter_increment: (_context: any, counterName: string, incrementBy: number = 1): void => {
 			const now = Date.now();
 			const counter = rateCounters.get(counterName) || {
 				count: 0,
@@ -151,11 +136,7 @@ export const SecurityModule = {
 			rateCounters.set(counterName, counter);
 		},
 
-		check_rate: (
-			_context: any,
-			counterName: string,
-			ratePerSecond: number,
-		): boolean => {
+		check_rate: (_context: any, counterName: string, ratePerSecond: number): boolean => {
 			const now = Date.now();
 			const counter = rateCounters.get(counterName);
 
@@ -168,22 +149,18 @@ export const SecurityModule = {
 			return currentRate > ratePerSecond;
 		},
 
-		check_rates: (
-			_context: any,
-			counterName: string,
-			rates: string,
-		): boolean => {
+		check_rates: (_context: any, counterName: string, rates: string): boolean => {
 			const rateSpecs = rates.split(",").map((spec) => {
 				const [count, seconds] = spec.split(":").map(Number);
 				return { count, seconds };
 			});
 
 			for (const spec of rateSpecs) {
-				const windowKey = `${counterName}_${spec.seconds}s`;
+				const windowKey = `${counterName}_${spec.seconds ?? 0}s`;
 				const counter = rateCounters.get(windowKey) || {
 					count: 0,
 					lastReset: Date.now(),
-					window: spec.seconds * 1000,
+					window: (spec.seconds ?? 0) * 1000,
 				};
 
 				const now = Date.now();
@@ -193,7 +170,7 @@ export const SecurityModule = {
 					rateCounters.set(windowKey, counter);
 				}
 
-				if (counter.count >= spec.count) {
+				if (counter.count >= (spec.count ?? 0)) {
 					return true;
 				}
 			}
@@ -217,11 +194,7 @@ export const SecurityModule = {
 			penaltyBox.set(identifier, { identifier, expiresAt });
 		},
 
-		penaltybox_has: (
-			_context: any,
-			penaltyboxName: string,
-			identifier: string,
-		): boolean => {
+		penaltybox_has: (_context: any, penaltyboxName: string, identifier: string): boolean => {
 			const penaltyBox = penaltyBoxes.get(penaltyboxName);
 			if (!penaltyBox) {
 				return false;

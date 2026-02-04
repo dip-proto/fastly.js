@@ -76,19 +76,19 @@ console.log("Backend Error Handling Test\n");
 
 // Set up test backends
 console.log("Setting up test backends");
-context.std.backend.add("main", "neverssl.com", 80, false);
-context.std.backend.add("api", "httpbin.org", 80, false);
-context.std.backend.add("static", "example.com", 80, false);
+context.std!.backend!.add("main", "neverssl.com", 80, false);
+context.std!.backend!.add("api", "httpbin.org", 80, false);
+context.std!.backend!.add("static", "example.com", 80, false);
 
 // Create directors
-context.std.director.add("main_director", "random");
-context.std.director.add("fallback_director", "fallback");
+context.std!.director!.add("main_director", "random");
+context.std!.director!.add("fallback_director", "fallback");
 
 // Add backends to directors
-context.std.director.add_backend("main_director", "main", 2);
-context.std.director.add_backend("main_director", "static", 1);
-context.std.director.add_backend("fallback_director", "main", 1);
-context.std.director.add_backend("fallback_director", "api", 1);
+context.std!.director!.add_backend("main_director", "main", 2);
+context.std!.director!.add_backend("main_director", "static", 1);
+context.std!.director!.add_backend("fallback_director", "main", 1);
+context.std!.director!.add_backend("fallback_director", "api", 1);
 
 console.log(`Backends: ${Object.keys(context.backends).join(", ")}`);
 console.log(`Directors: ${Object.keys(context.directors).join(", ")}`);
@@ -100,22 +100,18 @@ context.req.method = "GET";
 
 try {
 	// Try to set a non-existent backend
-	if (!context.std.backend.set_current("non_existent_backend")) {
-		throw new Error(
-			`Backend 'non_existent_backend' not found or not available`,
-		);
+	if (!context.std!.backend!.set_current("non_existent_backend")) {
+		throw new Error(`Backend 'non_existent_backend' not found or not available`);
 	}
 } catch (error) {
-	console.log(`Error: ${error.message}`);
-	context.std.error(503, `Service Unavailable: ${error.message}`);
+	console.log(`Error: ${(error as Error).message}`);
+	context.std!.error(503, `Service Unavailable: ${(error as Error).message}`);
 
 	// Execute vcl_error
 	const errorAction = executeVCL(testSubroutines, "vcl_error", context);
 	console.log(`vcl_error action: ${errorAction}`);
 	console.log(`Response status: ${context.obj.status}`);
-	console.log(
-		`Synthetic response length: ${context.obj.response.length} characters`,
-	);
+	console.log(`Synthetic response length: ${context.obj.response.length} characters`);
 }
 
 // Test 2: Unhealthy backend
@@ -124,31 +120,29 @@ context.req.url = "/unhealthy-backend";
 context.req.method = "GET";
 
 // Mark the API backend as unhealthy
-context.backends.api.is_healthy = false;
+context.backends.api!.is_healthy = false;
 
 try {
 	// Try to set an unhealthy backend
-	if (!context.std.backend.set_current("api")) {
+	if (!context.std!.backend!.set_current("api")) {
 		console.log("Backend set successfully, checking health...");
 
 		// Check if the backend is healthy
-		if (!context.std.backend.is_healthy("api")) {
+		if (!context.std!.backend!.is_healthy("api")) {
 			throw new Error(`Backend 'api' is not healthy`);
 		}
 	} else {
 		throw new Error(`Backend 'api' not found or not available`);
 	}
 } catch (error) {
-	console.log(`Error: ${error.message}`);
-	context.std.error(503, `Service Unavailable: ${error.message}`);
+	console.log(`Error: ${(error as Error).message}`);
+	context.std!.error(503, `Service Unavailable: ${(error as Error).message}`);
 
 	// Execute vcl_error
 	const errorAction = executeVCL(testSubroutines, "vcl_error", context);
 	console.log(`vcl_error action: ${errorAction}`);
 	console.log(`Response status: ${context.obj.status}`);
-	console.log(
-		`Synthetic response length: ${context.obj.response.length} characters`,
-	);
+	console.log(`Synthetic response length: ${context.obj.response.length} characters`);
 }
 
 // Test 3: Fallback director
@@ -157,24 +151,21 @@ context.req.url = "/fallback-test";
 context.req.method = "GET";
 
 // Mark the main backend as unhealthy
-context.backends.main.is_healthy = false;
+context.backends.main!.is_healthy = false;
 
 try {
 	// Try to use the main director
-	const selectedBackend = context.std.director.select_backend("main_director");
+	const selectedBackend = context.std!.director!.select_backend("main_director");
 
 	if (selectedBackend) {
 		console.log(`Selected backend: ${selectedBackend.name}`);
 		context.req.backend = selectedBackend.name;
 		context.current_backend = selectedBackend;
 	} else {
-		console.log(
-			"No healthy backend in main_director, trying fallback_director",
-		);
+		console.log("No healthy backend in main_director, trying fallback_director");
 
 		// Try fallback director
-		const fallbackBackend =
-			context.std.director.select_backend("fallback_director");
+		const fallbackBackend = context.std!.director!.select_backend("fallback_director");
 
 		if (fallbackBackend) {
 			console.log(`Selected fallback backend: ${fallbackBackend.name}`);
@@ -186,25 +177,20 @@ try {
 	}
 
 	// Check if the selected backend is healthy
-	if (
-		context.current_backend &&
-		!context.std.backend.is_healthy(context.current_backend.name)
-	) {
+	if (context.current_backend && !context.std!.backend!.is_healthy(context.current_backend.name)) {
 		throw new Error(`Backend '${context.current_backend.name}' is not healthy`);
 	}
 
 	console.log(`Using backend: ${context.current_backend.name}`);
 } catch (error) {
-	console.log(`Error: ${error.message}`);
-	context.std.error(503, `Service Unavailable: ${error.message}`);
+	console.log(`Error: ${(error as Error).message}`);
+	context.std!.error(503, `Service Unavailable: ${(error as Error).message}`);
 
 	// Execute vcl_error
 	const errorAction = executeVCL(testSubroutines, "vcl_error", context);
 	console.log(`vcl_error action: ${errorAction}`);
 	console.log(`Response status: ${context.obj.status}`);
-	console.log(
-		`Synthetic response length: ${context.obj.response.length} characters`,
-	);
+	console.log(`Synthetic response length: ${context.obj.response.length} characters`);
 }
 
 console.log("\nAll backend error handling tests completed!");

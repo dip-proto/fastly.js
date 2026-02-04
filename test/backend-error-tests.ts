@@ -90,7 +90,7 @@ const backendErrorTests = {
 				const defaultBackend = context.req.http["X-Backend"];
 
 				// Store results for assertions
-				context.results = {
+				(context as any).results = {
 					apiBackend,
 					staticBackend,
 					defaultBackend,
@@ -100,22 +100,22 @@ const backendErrorTests = {
 				// Check API backend
 				(context: VCLContext) => {
 					return assert(
-						context.results.apiBackend === "api",
-						`Expected API backend to be 'api', got '${context.results.apiBackend}'`,
+						(context as any).results.apiBackend === "api",
+						`Expected API backend to be 'api', got '${(context as any).results.apiBackend}'`,
 					);
 				},
 				// Check static backend
 				(context: VCLContext) => {
 					return assert(
-						context.results.staticBackend === "static",
-						`Expected static backend to be 'static', got '${context.results.staticBackend}'`,
+						(context as any).results.staticBackend === "static",
+						`Expected static backend to be 'static', got '${(context as any).results.staticBackend}'`,
 					);
 				},
 				// Check default backend
 				(context: VCLContext) => {
 					return assert(
-						context.results.defaultBackend === "default",
-						`Expected default backend to be 'default', got '${context.results.defaultBackend}'`,
+						(context as any).results.defaultBackend === "default",
+						`Expected default backend to be 'default', got '${(context as any).results.defaultBackend}'`,
 					);
 				},
 			],
@@ -168,8 +168,8 @@ const backendErrorTests = {
 						name: "main_director",
 						type: "random",
 						backends: [
-							{ backend: context.backends.backend1, weight: 1 },
-							{ backend: context.backends.backend2, weight: 1 },
+							{ backend: context.backends.backend1!, weight: 1 },
+							{ backend: context.backends.backend2!, weight: 1 },
 						],
 						quorum: 50,
 						retries: 3,
@@ -180,15 +180,15 @@ const backendErrorTests = {
 				executeSubroutine(context, subroutines, "vcl_recv");
 
 				// Store the selected backend
-				context.selectedBackend = context.req.http["X-Backend"];
+				(context as any).selectedBackend = context.req.http["X-Backend"];
 			},
 			assertions: [
 				// Check if a backend was selected
 				(context: VCLContext) => {
 					return assert(
-						context.selectedBackend === "backend1" ||
-							context.selectedBackend === "backend2",
-						`Expected backend to be 'backend1' or 'backend2', got '${context.selectedBackend}'`,
+						(context as any).selectedBackend === "backend1" ||
+							(context as any).selectedBackend === "backend2",
+						`Expected backend to be 'backend1' or 'backend2', got '${(context as any).selectedBackend}'`,
 					);
 				},
 			],
