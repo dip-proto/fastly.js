@@ -11,6 +11,7 @@ import {
 	urlencode,
 	xml_escape,
 } from "./vcl-strings";
+import { toRawString } from "./vcl-value";
 
 export interface StdModule {
 	strlen: (s: string) => number;
@@ -70,7 +71,7 @@ function isValidIP(str: string): boolean {
 export function createStdModule(): StdModule {
 	return {
 		// Fastly does not consider multibyte, so "日本語" is treated as 9 bytes
-		strlen: (s: string): number => Buffer.byteLength(String(s), "utf8"),
+		strlen: (s: any): number => Buffer.byteLength(toRawString(s), "utf8"),
 
 		tolower: (s: string): string => String(s).toLowerCase(),
 

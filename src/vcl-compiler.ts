@@ -1,4 +1,5 @@
 import { createVCLContext } from "./vcl";
+import { VCLString, VCLConcatResult, isNotSet, toRawString, toDisplayString, toConcatPart } from "./vcl-value";
 import type {
 	VCLAddStatement,
 	VCLBinaryExpression,
@@ -814,7 +815,7 @@ export class VCLCompiler {
 
 	private executeDeclareStatement(statement: VCLDeclareStatement, context: VCLContext): void {
 		const typeDefaults: Record<string, any> = {
-			STRING: "",
+			STRING: VCLString.notset(),
 			INTEGER: 0,
 			INT: 0,
 			FLOAT: 0.0,
@@ -822,7 +823,7 @@ export class VCLCompiler {
 			BOOLEAN: false,
 			TIME: 0,
 			RTIME: 0,
-			IP: "0.0.0.0",
+			IP: VCLString.notset(),
 		};
 		if (!context.locals) context.locals = {};
 		// Strip "var." prefix to match how evaluateIdentifier and executeSetStatement resolve var.* names
@@ -901,7 +902,11 @@ export class VCLCompiler {
 			}
 		}
 
-		const condition = this.evaluateExpression(statement.test, context);
+		const conditionRaw = this.evaluateExpression(statement.test, context);
+		// VCLString NOTSET is falsy, non-NOTSET VCLString (even empty) is truthy
+		const condition = conditionRaw instanceof VCLString
+			? !conditionRaw.isNotSet
+			: Boolean(conditionRaw);
 		const stmts = condition ? statement.consequent : statement.alternate;
 		if (stmts) {
 			for (const stmt of stmts) {
@@ -986,7 +991,6 @@ export class VCLCompiler {
 		const part0 = parts[0] ?? "";
 		const part1 = parts[1] ?? "";
 
-		// Handle HTTP headers (*.http.*)
 		if (parts.length >= 3 && part1 === "http") {
 			const headerName = parts.slice(2).join(".");
 			const httpObjects: Record<string, Record<string, string> | undefined> = {
@@ -996,6 +1000,11 @@ export class VCLCompiler {
 				resp: context.resp.http,
 				obj: context.obj.http,
 			};
+			const [baseHeader, subfieldKey] = this.parseSubfield(headerName);
+			if (subfieldKey !== null) {
+				const headerValue = httpObjects[part0]?.[baseHeader] ?? "";
+				return this.dictGet(String(headerValue), subfieldKey) ?? "";
+			}
 			return httpObjects[part0]?.[headerName];
 		}
 
@@ -1050,6 +1059,18 @@ export class VCLCompiler {
 			value = newValue;
 		}
 
+		// For targets other than headers and local vars, resolve NOTSET/concat to plain strings
+		const isHeaderTarget = parts.length >= 3 && part1 === "http";
+		const isVarTarget = parts.length >= 2 && part0 === "var";
+		if (!isHeaderTarget && !isVarTarget) {
+			if (value instanceof VCLConcatResult) {
+				value = value.forLocal();
+			}
+			if (value instanceof VCLString) {
+				value = value.value;
+			}
+		}
+
 		if (parts.length >= 3 && part1 === "http") {
 			const headerName = parts.slice(2).join(".");
 			const httpObjects: Record<string, Record<string, string>> = {
@@ -1060,7 +1081,25 @@ export class VCLCompiler {
 				obj: context.obj.http,
 			};
 			if (httpObjects[part0]) {
-				httpObjects[part0]![headerName] = String(value);
+				let resolved = value;
+				if (resolved instanceof VCLConcatResult) {
+					resolved = resolved.forHeader();
+				}
+
+				const [baseHeader, subfieldKey] = this.parseSubfield(headerName);
+				if (subfieldKey !== null) {
+					const strVal = isNotSet(resolved) ? ""
+						: resolved instanceof VCLString ? resolved.value
+						: String(resolved);
+					const currentVal = httpObjects[part0]![baseHeader] ?? "";
+					httpObjects[part0]![baseHeader] = this.dictSet(currentVal, subfieldKey, strVal);
+				} else if (isNotSet(resolved)) {
+					delete httpObjects[part0]![headerName];
+				} else {
+					httpObjects[part0]![headerName] = resolved instanceof VCLString
+						? resolved.value
+						: String(resolved);
+				}
 			}
 		}
 		else if (parts.length === 2 && part0 === "req" && part1 === "backend") {
@@ -1131,7 +1170,18 @@ export class VCLCompiler {
 				context.locals = {};
 			}
 
-			context.locals[varName] = value;
+			let resolved = value;
+			if (resolved instanceof VCLConcatResult) {
+				resolved = resolved.forLocal();
+			}
+			if (isNotSet(resolved)) {
+				resolved = VCLString.from("");
+			} else if (resolved instanceof VCLString) {
+				// keep as-is
+			} else if (typeof resolved === "string") {
+				resolved = VCLString.from(resolved);
+			}
+			context.locals[varName] = resolved;
 		}
 		else if (parts.length === 2 && part0 === "req" && part1 === "url") {
 			context.req.url = String(value);
@@ -1250,8 +1300,16 @@ export class VCLCompiler {
 			};
 			const headers = httpObjects[part0];
 			if (headers) {
-				// Wildcard support: unset req.http.X-*
-				if (headerName.includes("*")) {
+				const [baseHeader, subfieldKey] = this.parseSubfield(headerName);
+				if (subfieldKey !== null) {
+					const currentVal = headers[baseHeader] ?? "";
+					const newVal = this.dictUnset(currentVal, subfieldKey);
+					if (!newVal) {
+						delete headers[baseHeader];
+					} else {
+						headers[baseHeader] = newVal;
+					}
+				} else if (headerName.includes("*")) {
 					const pattern = new RegExp(
 						"^" + headerName.replace(/[.*+?^${}()|[\]\\]/g, (m) => (m === "*" ? ".*" : `\\${m}`)) + "$",
 						"i",
@@ -1315,13 +1373,12 @@ export class VCLCompiler {
 			const headers = httpObjects[part0];
 			if (headers) {
 				const existing = headers[headerName];
+				const strVal = toRawString(value);
 				if (existing) {
-					// Append with comma separation (standard HTTP multi-value)
-					// For Set-Cookie, use newline separation
 					const separator = headerName.toLowerCase() === "set-cookie" ? "\n" : ", ";
-					headers[headerName] = existing + separator + String(value);
+					headers[headerName] = existing + separator + strVal;
 				} else {
-					headers[headerName] = String(value);
+					headers[headerName] = strVal;
 				}
 			}
 		}
@@ -1788,7 +1845,14 @@ export class VCLCompiler {
 				resp: context.resp.http,
 				obj: context.obj.http,
 			};
-			return httpObjects[idPart0]?.[headerName] ?? "";
+			const [baseHeader, subfieldKey] = this.parseSubfield(headerName);
+			if (subfieldKey !== null) {
+				const headerValue = httpObjects[idPart0]?.[baseHeader] ?? "";
+				if (!headerValue) return VCLString.notset();
+				const val = this.dictGet(String(headerValue), subfieldKey);
+				return val !== undefined ? val : VCLString.notset();
+			}
+			return httpObjects[idPart0]?.[headerName] ?? VCLString.notset();
 		}
 
 		if (parts.length === 3 && idPart0 === "re" && idPart1 === "group") {
@@ -1801,7 +1865,7 @@ export class VCLCompiler {
 
 		if (parts.length >= 2 && idPart0 === "var") {
 			const varName = parts.slice(1).join(".");
-			return context.locals?.[varName] ?? "";
+			return context.locals?.[varName] ?? VCLString.notset();
 		}
 
 		if (context.locals && name in context.locals) {
@@ -2135,7 +2199,13 @@ export class VCLCompiler {
 			return false;
 		}
 		const operand = this.evaluateExpression(expression.operand, context);
-		if (expression.operator === "!") return !operand;
+		if (expression.operator === "!") {
+			// NOTSET values are falsy (! returns true)
+			if (isNotSet(operand)) return true;
+			// Non-NOTSET VCLStrings are truthy (even empty string)
+			if (operand instanceof VCLString) return false;
+			return !operand;
+		}
 		if (expression.operator === "-") return -operand;
 		console.error(`Unknown unary operator: ${expression.operator}`);
 		return operand;
@@ -2151,8 +2221,16 @@ export class VCLCompiler {
 		const right = this.evaluateExpression(expression.right, context);
 
 		switch (expression.operator) {
-			case " ":
-				return String(left) + String(right);
+			case " ": {
+				// String concatenation with NOTSET tracking
+				const leftPart = left instanceof VCLConcatResult
+					? left.parts
+					: [toConcatPart(left)];
+				const rightPart = right instanceof VCLConcatResult
+					? right.parts
+					: [toConcatPart(right)];
+				return new VCLConcatResult([...leftPart, ...rightPart]);
+			}
 			case "+":
 				return left + right;
 			case "-":
@@ -2163,10 +2241,23 @@ export class VCLCompiler {
 				return left / right;
 			case "%":
 				return left % right;
-			case "==":
-				return left === right;
-			case "!=":
-				return left !== right;
+			case "==": {
+				// NOTSET values compare using their display string "(null)"
+				if (isNotSet(left) || isNotSet(right)) {
+					return toDisplayString(left) === toDisplayString(right);
+				}
+				const l = left instanceof VCLString ? left.value : left;
+				const r = right instanceof VCLString ? right.value : right;
+				return l === r;
+			}
+			case "!=": {
+				if (isNotSet(left) || isNotSet(right)) {
+					return toDisplayString(left) !== toDisplayString(right);
+				}
+				const l = left instanceof VCLString ? left.value : left;
+				const r = right instanceof VCLString ? right.value : right;
+				return l !== r;
+			}
 			case ">":
 				return left > right;
 			case ">=":
@@ -2175,17 +2266,20 @@ export class VCLCompiler {
 				return left < right;
 			case "<=":
 				return left <= right;
-			case "~":
-				if (typeof right === "string" && context.acls?.[right]) {
-					return this.isIpInAcl(String(left), context.acls[right], context);
+			case "~": {
+				const rVal = right instanceof VCLString ? right.value : right;
+				if (typeof rVal === "string" && context.acls?.[rVal]) {
+					return this.isIpInAcl(toRawString(left), context.acls[rVal], context);
 				}
-
-				return this.regexMatch(left, right, context, false);
-			case "!~":
-				if (typeof right === "string" && context.acls?.[right]) {
-					return !this.isIpInAcl(String(left), context.acls[right], context);
+				return this.regexMatch(toRawString(left), rVal, context, false);
+			}
+			case "!~": {
+				const rVal = right instanceof VCLString ? right.value : right;
+				if (typeof rVal === "string" && context.acls?.[rVal]) {
+					return !this.isIpInAcl(toRawString(left), context.acls[rVal], context);
 				}
-				return this.regexMatch(left, right, context, true);
+				return this.regexMatch(toRawString(left), rVal, context, true);
+			}
 			case "&&":
 				return left && right;
 			case "||":
@@ -2333,5 +2427,65 @@ export class VCLCompiler {
 		} catch {
 			return "";
 		}
+	}
+
+	/** Parse header name with optional subfield: "VARS:VALUE" → ["VARS", "VALUE"] */
+	private parseSubfield(headerName: string): [string, string | null] {
+		const colonIdx = headerName.indexOf(":");
+		if (colonIdx === -1) return [headerName, null];
+		return [headerName.substring(0, colonIdx), headerName.substring(colonIdx + 1)];
+	}
+
+	/** Get a subfield value from a comma-separated key=value dictionary */
+	private dictGet(headerValue: string, key: string): string | undefined {
+		if (!headerValue) return undefined;
+		for (const entry of headerValue.split(",")) {
+			const eqIdx = entry.indexOf("=");
+			const entryKey = eqIdx === -1 ? entry.trim() : entry.substring(0, eqIdx).trim();
+			if (entryKey === key) {
+				return eqIdx === -1 ? "" : entry.substring(eqIdx + 1).trim();
+			}
+		}
+		return undefined;
+	}
+
+	/** Set a subfield in a comma-separated key=value dictionary */
+	private dictSet(headerValue: string, key: string, value: string): string {
+		const entries: Array<{ key: string; val: string | null }> = [];
+		let found = false;
+
+		if (headerValue) {
+			for (const entry of headerValue.split(",")) {
+				const eqIdx = entry.indexOf("=");
+				const entryKey = eqIdx === -1 ? entry.trim() : entry.substring(0, eqIdx).trim();
+				const entryVal = eqIdx === -1 ? null : entry.substring(eqIdx + 1).trim();
+				if (entryKey === key) {
+					found = true;
+					// Remove old entry, will re-add at end
+				} else if (entryKey) {
+					entries.push({ key: entryKey, val: entryVal });
+				}
+			}
+		}
+
+		// Add/re-add the key at the end
+		if (value === "") {
+			entries.push({ key, val: null });
+		} else {
+			entries.push({ key, val: value });
+		}
+
+		return entries.map((e) => (e.val === null ? e.key : `${e.key}=${e.val}`)).join(",");
+	}
+
+	/** Remove a subfield from a comma-separated key=value dictionary */
+	private dictUnset(headerValue: string, key: string): string {
+		if (!headerValue) return "";
+		const entries = headerValue.split(",").filter((entry) => {
+			const eqIdx = entry.indexOf("=");
+			const entryKey = eqIdx === -1 ? entry.trim() : entry.substring(0, eqIdx).trim();
+			return entryKey !== key;
+		});
+		return entries.join(",");
 	}
 }

@@ -3,6 +3,7 @@ import { AcceptModule } from "./vcl-accept";
 import { AddressModule } from "./vcl-address";
 import { BinaryModule } from "./vcl-binary";
 import { VCLCompiler, type VCLContext, type VCLSubroutines } from "./vcl-compiler";
+import { toRawString } from "./vcl-value";
 
 // Re-export types
 export type { VCLContext, VCLSubroutines };
@@ -209,7 +210,7 @@ export function createVCLContext(): VCLContext {
 
 		tolower: (str: string) => String(str).toLowerCase(),
 		toupper: (str: string) => String(str).toUpperCase(),
-		strlen: (str: string) => String(str).length,
+		strlen: (str: any) => toRawString(str).length,
 		strstr: (haystack: string, needle: string) => {
 			const index = String(haystack).indexOf(String(needle));
 			return index >= 0 ? String(haystack).substring(index) : null;
