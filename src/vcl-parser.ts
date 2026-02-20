@@ -10,8 +10,14 @@ export type VCLNodeType =
 	| "ErrorStatement"
 	| "SetStatement"
 	| "UnsetStatement"
+	| "AddStatement"
+	| "RemoveStatement"
+	| "CallStatement"
 	| "LogStatement"
 	| "SyntheticStatement"
+	| "SyntheticBase64Statement"
+	| "EsiStatement"
+	| "SwitchStatement"
 	| "HashDataStatement"
 	| "GotoStatement"
 	| "LabelStatement"
@@ -20,6 +26,9 @@ export type VCLNodeType =
 	| "IncludeStatement"
 	| "ImportStatement"
 	| "BackendDeclaration"
+	| "DirectorDeclaration"
+	| "PenaltyboxDeclaration"
+	| "RatecounterDeclaration"
 	| "TableDeclaration"
 	| "BinaryExpression"
 	| "UnaryExpression"
@@ -51,6 +60,9 @@ export interface VCLProgram extends VCLNode {
 	imports: VCLImportStatement[];
 	tables: VCLTableDeclaration[];
 	backends: VCLBackendDeclaration[];
+	directors: VCLDirectorDeclaration[];
+	penaltyboxes: VCLPenaltyboxDeclaration[];
+	ratecounters: VCLRatecounterDeclaration[];
 }
 
 export interface VCLACL extends VCLNode {
@@ -66,9 +78,15 @@ export interface VCLACLEntry extends VCLNode {
 	negated?: boolean;
 }
 
+export interface VCLSubroutineParam {
+	name: string;
+	paramType: string;
+}
+
 export interface VCLSubroutine extends VCLNode {
 	type: "Subroutine";
 	name: string;
+	params?: VCLSubroutineParam[];
 	body: VCLStatement[];
 	raw?: string;
 	statements?: VCLStatement[];
@@ -88,8 +106,14 @@ export type VCLStatementType =
 	| "ErrorStatement"
 	| "SetStatement"
 	| "UnsetStatement"
+	| "AddStatement"
+	| "RemoveStatement"
+	| "CallStatement"
 	| "LogStatement"
 	| "SyntheticStatement"
+	| "SyntheticBase64Statement"
+	| "EsiStatement"
+	| "SwitchStatement"
 	| "HashDataStatement"
 	| "GotoStatement"
 	| "LabelStatement"
@@ -138,6 +162,44 @@ export interface VCLUnsetStatement extends VCLNode {
 	target: string;
 }
 
+export interface VCLAddStatement extends VCLNode {
+	type: "AddStatement";
+	target: string;
+	value: VCLExpression;
+}
+
+export interface VCLRemoveStatement extends VCLNode {
+	type: "RemoveStatement";
+	target: string;
+}
+
+export interface VCLCallStatement extends VCLNode {
+	type: "CallStatement";
+	subroutineName: string;
+	arguments: VCLExpression[];
+}
+
+export interface VCLSyntheticBase64Statement extends VCLNode {
+	type: "SyntheticBase64Statement";
+	content: VCLExpression;
+}
+
+export interface VCLEsiStatement extends VCLNode {
+	type: "EsiStatement";
+}
+
+export interface VCLSwitchCase extends VCLNode {
+	test: VCLExpression | null; // null for default case
+	body: VCLStatement[];
+	fallthrough: boolean;
+}
+
+export interface VCLSwitchStatement extends VCLNode {
+	type: "SwitchStatement";
+	subject: VCLExpression;
+	cases: VCLSwitchCase[];
+}
+
 export interface VCLLogStatement extends VCLNode {
 	type: "LogStatement";
 	message: VCLExpression;
@@ -177,8 +239,14 @@ export type VCLStatement =
 	| VCLErrorStatement
 	| VCLSetStatement
 	| VCLUnsetStatement
+	| VCLAddStatement
+	| VCLRemoveStatement
+	| VCLCallStatement
 	| VCLLogStatement
 	| VCLSyntheticStatement
+	| VCLSyntheticBase64Statement
+	| VCLEsiStatement
+	| VCLSwitchStatement
 	| VCLHashDataStatement
 	| VCLGotoStatement
 	| VCLLabelStatement
@@ -227,6 +295,25 @@ export interface VCLDeclareStatement extends VCLNode {
 	type: "DeclareStatement";
 	variableName: string;
 	variableType: string;
+	initialValue?: VCLExpression;
+}
+
+export interface VCLDirectorDeclaration extends VCLNode {
+	type: "DirectorDeclaration";
+	name: string;
+	directorType: string;
+	properties: VCLBackendProperty[];
+	backends: Array<{ name: string; weight?: number }>;
+}
+
+export interface VCLPenaltyboxDeclaration extends VCLNode {
+	type: "PenaltyboxDeclaration";
+	name: string;
+}
+
+export interface VCLRatecounterDeclaration extends VCLNode {
+	type: "RatecounterDeclaration";
+	name: string;
 }
 
 export interface VCLMemberAccess extends VCLNode {
@@ -329,18 +416,31 @@ const VCL_KEYWORDS = [
 	"return",
 	"set",
 	"unset",
+	"add",
+	"remove",
+	"call",
 	"error",
 	"synthetic",
 	"hash_data",
 	"true",
 	"false",
 	"deliver",
+	"deliver_stale",
 	"fetch",
 	"pass",
+	"pipe",
 	"hash",
 	"lookup",
 	"restart",
 	"purge",
+	"log",
+	"esi",
+	"switch",
+	"case",
+	"default",
+	"break",
+	"fallthrough",
+	"hit_for_pass",
 	"acl",
 	"goto",
 	"include",

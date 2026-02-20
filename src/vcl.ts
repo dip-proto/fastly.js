@@ -309,6 +309,8 @@ export function createVCLContext(): VCLContext {
 			hmac_sha1_base64: DigestModule.hmac_sha1_base64,
 			hmac_sha256_base64: DigestModule.hmac_sha256_base64,
 			hmac_sha512_base64: DigestModule.hmac_sha512_base64,
+			time_hmac_md5: DigestModule.time_hmac_md5,
+			time_hmac_sha256: DigestModule.time_hmac_sha256,
 			secure_is_equal: DigestModule.secure_is_equal,
 			base64: DigestModule.base64,
 			base64_decode: DigestModule.base64_decode,

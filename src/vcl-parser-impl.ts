@@ -3,9 +3,13 @@ import {
 	TokenType,
 	type VCLACL,
 	type VCLACLEntry,
+	type VCLAddStatement,
 	type VCLBackendDeclaration,
 	type VCLBackendProperty,
+	type VCLCallStatement,
 	type VCLComment,
+	type VCLDirectorDeclaration,
+	type VCLEsiStatement,
 	type VCLErrorStatement,
 	type VCLExpression,
 	type VCLGotoStatement,
@@ -17,13 +21,20 @@ import {
 	type VCLLabelStatement,
 	type VCLLogStatement,
 	type VCLNumberLiteral,
+	type VCLPenaltyboxDeclaration,
 	type VCLProgram,
+	type VCLRatecounterDeclaration,
+	type VCLRemoveStatement,
 	type VCLRestartStatement,
 	type VCLReturnStatement,
 	type VCLSetStatement,
 	type VCLStatement,
 	type VCLStringLiteral,
 	type VCLSubroutine,
+	type VCLSubroutineParam,
+	type VCLSwitchCase,
+	type VCLSwitchStatement,
+	type VCLSyntheticBase64Statement,
 	type VCLSyntheticStatement,
 	type VCLTableDeclaration,
 	type VCLTableEntry,
@@ -50,6 +61,9 @@ export class VCLParser {
 			imports: [],
 			tables: [],
 			backends: [],
+			directors: [],
+			penaltyboxes: [],
+			ratecounters: [],
 		};
 
 		while (!this.isAtEnd()) {
@@ -76,6 +90,15 @@ export class VCLParser {
 						break;
 					case "backend":
 						program.backends.push(this.parseBackendDeclaration());
+						break;
+					case "director":
+						program.directors.push(this.parseDirectorDeclaration());
+						break;
+					case "penaltybox":
+						program.penaltyboxes.push(this.parsePenaltyboxDeclaration());
+						break;
+					case "ratecounter":
+						program.ratecounters.push(this.parseRatecounterDeclaration());
 						break;
 					default:
 						break;
@@ -114,7 +137,7 @@ export class VCLParser {
 
 	private parseACL(): VCLACL {
 		// We've already consumed the 'acl' keyword
-		const nameToken = this.consume(TokenType.IDENTIFIER, "Expected ACL name");
+		const nameToken = this.consumeName("Expected ACL name");
 
 		this.consume(TokenType.PUNCTUATION, "Expected '{' after ACL name");
 
@@ -249,7 +272,7 @@ export class VCLParser {
 
 	private parseTableDeclaration(): VCLTableDeclaration {
 		const token = this.previous();
-		const nameToken = this.consume(TokenType.IDENTIFIER, "Expected table name");
+		const nameToken = this.consumeName("Expected table name");
 		let valueType: string | undefined;
 		if (this.check(TokenType.IDENTIFIER)) {
 			valueType = this.advance().value;
@@ -303,13 +326,13 @@ export class VCLParser {
 
 	private parseBackendDeclaration(): VCLBackendDeclaration {
 		const token = this.previous();
-		const nameToken = this.consume(TokenType.IDENTIFIER, "Expected backend name");
+		const nameToken = this.consumeName("Expected backend name");
 		this.consume(TokenType.PUNCTUATION, "Expected '{' after backend name");
 
 		const properties: VCLBackendProperty[] = [];
 		while (!this.check(TokenType.PUNCTUATION, "}") && !this.isAtEnd()) {
 			if (this.match(TokenType.PUNCTUATION, ".")) {
-				const propName = this.consume(TokenType.IDENTIFIER, "Expected property name").value;
+				const propName = this.consumeName("Expected property name").value;
 				this.consume(TokenType.OPERATOR, "Expected '=' after property name");
 				let value: string | number = "";
 				if (this.match(TokenType.STRING)) {
@@ -322,7 +345,7 @@ export class VCLParser {
 					}
 				} else if (this.match(TokenType.NUMBER)) {
 					value = parseFloat(this.previous().value);
-				} else if (this.match(TokenType.IDENTIFIER)) {
+				} else if (this.match(TokenType.IDENTIFIER) || this.match(TokenType.KEYWORD)) {
 					value = this.previous().value;
 				}
 				if (this.check(TokenType.PUNCTUATION, ";")) {
@@ -354,8 +377,25 @@ export class VCLParser {
 	}
 
 	private parseSubroutine(): VCLSubroutine {
-		const nameToken = this.consume(TokenType.IDENTIFIER, "Expected subroutine name");
+		const nameToken = this.consumeName("Expected subroutine name");
+		let params: VCLSubroutineParam[] | undefined;
 		let returnType: string | undefined;
+
+		// Parse optional parameter list: sub name(TYPE param1, TYPE param2)
+		if (this.check(TokenType.PUNCTUATION, "(")) {
+			this.advance(); // consume '('
+			params = [];
+			while (!this.check(TokenType.PUNCTUATION, ")") && !this.isAtEnd()) {
+				const paramType = this.consume(TokenType.IDENTIFIER, "Expected parameter type").value;
+				const paramName = this.consume(TokenType.IDENTIFIER, "Expected parameter name").value;
+				params.push({ name: paramName, paramType });
+				if (!this.check(TokenType.PUNCTUATION, ")")) {
+					this.consume(TokenType.PUNCTUATION, "Expected ',' between parameters");
+				}
+			}
+			this.consume(TokenType.PUNCTUATION, "Expected ')' after parameters");
+		}
+
 		if (this.check(TokenType.IDENTIFIER) && !this.check(TokenType.PUNCTUATION, "{")) {
 			returnType = this.advance().value;
 		}
@@ -373,6 +413,7 @@ export class VCLParser {
 		return {
 			type: "Subroutine",
 			name: nameToken.value,
+			params,
 			body,
 			raw: rawVCL,
 			returnType,
@@ -427,8 +468,20 @@ export class VCLParser {
 					return this.parseSetStatement();
 				case "unset":
 					return this.parseUnsetStatement();
+				case "add":
+					return this.parseAddStatement();
+				case "remove":
+					return this.parseRemoveStatement();
+				case "call":
+					return this.parseCallStatement();
 				case "synthetic":
 					return this.parseSyntheticStatement();
+				case "log":
+					return this.parseBareLogStatement();
+				case "esi":
+					return this.parseEsiStatement();
+				case "switch":
+					return this.parseSwitchStatement();
 				case "declare":
 					return this.parseDeclareStatement();
 				case "goto":
@@ -442,6 +495,8 @@ export class VCLParser {
 
 			if (identifier === "declare") {
 				return this.parseDeclareStatement();
+			} else if (identifier === "synthetic.base64") {
+				return this.parseSyntheticBase64Statement();
 			} else if (identifier === "std.log" || identifier.startsWith("std.log")) {
 				if (this.check(TokenType.PUNCTUATION, "(")) {
 					return this.parseLogStatement();
@@ -487,12 +542,9 @@ export class VCLParser {
 	private parseDeclareStatement(): VCLStatement {
 		const token = this.previous();
 
-		// Check for 'local' keyword
 		if (this.match(TokenType.IDENTIFIER) && this.previous().value === "local") {
-			// Found 'local' keyword
 		}
 
-		// Parse the variable name
 		if (!this.match(TokenType.IDENTIFIER)) {
 			this.error("Expected variable name after 'declare local'");
 		}
@@ -500,11 +552,19 @@ export class VCLParser {
 		const variableName = this.previous().value;
 		if (!this.match(TokenType.IDENTIFIER)) this.error("Expected variable type after variable name");
 		const variableType = this.previous().value;
+
+		let initialValue: VCLExpression | undefined;
+		if (this.check(TokenType.OPERATOR, "=")) {
+			this.advance(); // consume '='
+			initialValue = this.parseExpression();
+		}
+
 		this.consume(TokenType.PUNCTUATION, "Expected ';' after declare statement");
 		return {
 			type: "DeclareStatement",
 			variableName,
 			variableType,
+			initialValue,
 			location: { line: token.line, column: token.column },
 		};
 	}
@@ -752,7 +812,13 @@ export class VCLParser {
 		const token = this.previous();
 
 		// Parse the target
-		const target = this.consume(TokenType.IDENTIFIER, "Expected unset target").value;
+		let target = this.consume(TokenType.IDENTIFIER, "Expected unset target").value;
+
+		// Support wildcard unset: unset req.http.X-Debug-*;
+		// The lexer tokenizes the trailing -* as an OPERATOR token
+		if (this.check(TokenType.OPERATOR) && this.peek().value.endsWith("*")) {
+			target += this.advance().value;
+		}
 
 		this.consume(TokenType.PUNCTUATION, "Expected ';' after unset statement");
 
@@ -797,8 +863,33 @@ export class VCLParser {
 	 *
 	 * @returns The parsed synthetic statement
 	 */
+	private parseSyntheticBase64Statement(): VCLSyntheticBase64Statement {
+		const token = this.previous();
+		const content = this.parseExpression();
+		this.consume(TokenType.PUNCTUATION, "Expected ';' after synthetic.base64 statement");
+		return {
+			type: "SyntheticBase64Statement",
+			content,
+			location: { line: token.line, column: token.column },
+		};
+	}
+
 	private parseSyntheticStatement(): VCLSyntheticStatement {
 		const token = this.previous();
+
+		// Check if next identifier is .base64 (synthetic.base64)
+		if (this.check(TokenType.IDENTIFIER) && this.peek().value === ".base64") {
+			// This shouldn't normally get here since we handle it in the identifier branch,
+			// but handle it as a safety measure
+			this.advance(); // consume .base64
+			const content = this.parseExpression();
+			this.consume(TokenType.PUNCTUATION, "Expected ';' after synthetic.base64 statement");
+			return {
+				type: "SyntheticStatement",
+				content: `__base64__:${content}`,
+				location: { line: token.line, column: token.column },
+			} as any;
+		}
 
 		// In VCL, synthetic statements can have different formats:
 		// 1. synthetic "simple string";
@@ -923,6 +1014,242 @@ export class VCLParser {
 				line: token.line,
 				column: token.column,
 			},
+		};
+	}
+
+	private parseAddStatement(): VCLAddStatement {
+		const token = this.previous();
+		// Parse like set but stores as AddStatement
+		if (!this.match(TokenType.IDENTIFIER)) {
+			this.error("Expected identifier after 'add'");
+		}
+		const target = this.previous().value;
+		this.consume(TokenType.OPERATOR, "Expected '=' after identifier");
+		const value = this.parseExpression();
+		this.consume(TokenType.PUNCTUATION, "Expected ';' after add statement");
+		return {
+			type: "AddStatement",
+			target,
+			value,
+			location: { line: token.line, column: token.column },
+		};
+	}
+
+	private parseRemoveStatement(): VCLRemoveStatement {
+		const token = this.previous();
+		let target = this.consume(TokenType.IDENTIFIER, "Expected target after 'remove'").value;
+		// Support wildcard: remove req.http.X-*;
+		if (this.check(TokenType.OPERATOR) && this.peek().value.endsWith("*")) {
+			target += this.advance().value;
+		}
+		this.consume(TokenType.PUNCTUATION, "Expected ';' after remove statement");
+		return {
+			type: "RemoveStatement",
+			target,
+			location: { line: token.line, column: token.column },
+		};
+	}
+
+	private parseCallStatement(): VCLCallStatement {
+		const token = this.previous();
+		const subroutineName = this.consume(
+			TokenType.IDENTIFIER,
+			"Expected subroutine name after 'call'",
+		).value;
+		const args: VCLExpression[] = [];
+		// Optional argument list
+		if (this.check(TokenType.PUNCTUATION, "(")) {
+			this.advance();
+			if (!this.check(TokenType.PUNCTUATION, ")")) {
+				do {
+					args.push(this.parseExpression());
+				} while (this.match(TokenType.PUNCTUATION, ","));
+			}
+			this.consume(TokenType.PUNCTUATION, "Expected ')' after call arguments");
+		}
+		this.consume(TokenType.PUNCTUATION, "Expected ';' after call statement");
+		return {
+			type: "CallStatement",
+			subroutineName,
+			arguments: args,
+			location: { line: token.line, column: token.column },
+		};
+	}
+
+	private parseBareLogStatement(): VCLLogStatement {
+		const token = this.previous();
+		const message = this.parseExpression();
+		this.consume(TokenType.PUNCTUATION, "Expected ';' after log statement");
+		return {
+			type: "LogStatement",
+			message,
+			location: { line: token.line, column: token.column },
+		};
+	}
+
+	private parseEsiStatement(): VCLEsiStatement {
+		const token = this.previous();
+		this.consume(TokenType.PUNCTUATION, "Expected ';' after esi statement");
+		return {
+			type: "EsiStatement",
+			location: { line: token.line, column: token.column },
+		};
+	}
+
+	private parseSwitchStatement(): VCLSwitchStatement {
+		const token = this.previous();
+		this.consume(TokenType.PUNCTUATION, "Expected '(' after switch");
+		const subject = this.parseExpression();
+		this.consume(TokenType.PUNCTUATION, "Expected ')' after switch expression");
+		this.consume(TokenType.PUNCTUATION, "Expected '{' after switch");
+
+		const cases: VCLSwitchCase[] = [];
+		while (!this.check(TokenType.PUNCTUATION, "}") && !this.isAtEnd()) {
+			if (this.match(TokenType.KEYWORD, "case")) {
+				const test = this.parseExpression();
+				this.consume(TokenType.PUNCTUATION, "Expected ':' after case expression");
+				const body: VCLStatement[] = [];
+				let hasFallthrough = false;
+				while (
+					!this.check(TokenType.KEYWORD, "case") &&
+					!this.check(TokenType.KEYWORD, "default") &&
+					!this.check(TokenType.PUNCTUATION, "}") &&
+					!this.isAtEnd()
+				) {
+					if (this.check(TokenType.KEYWORD, "break")) {
+						this.advance();
+						if (this.check(TokenType.PUNCTUATION, ";")) this.advance();
+						break;
+					}
+					if (this.check(TokenType.KEYWORD, "fallthrough")) {
+						this.advance();
+						if (this.check(TokenType.PUNCTUATION, ";")) this.advance();
+						hasFallthrough = true;
+						break;
+					}
+					body.push(this.parseStatement());
+				}
+				cases.push({ test, body, fallthrough: hasFallthrough } as VCLSwitchCase);
+			} else if (this.match(TokenType.KEYWORD, "default")) {
+				this.consume(TokenType.PUNCTUATION, "Expected ':' after default");
+				const body: VCLStatement[] = [];
+				while (!this.check(TokenType.PUNCTUATION, "}") && !this.isAtEnd()) {
+					if (this.check(TokenType.KEYWORD, "break")) {
+						this.advance();
+						if (this.check(TokenType.PUNCTUATION, ";")) this.advance();
+						break;
+					}
+					body.push(this.parseStatement());
+				}
+				cases.push({ test: null, body, fallthrough: false } as VCLSwitchCase);
+			} else {
+				this.advance();
+			}
+		}
+		this.consume(TokenType.PUNCTUATION, "Expected '}' after switch body");
+		return {
+			type: "SwitchStatement",
+			subject,
+			cases,
+			location: { line: token.line, column: token.column },
+		};
+	}
+
+	private parseDirectorDeclaration(): VCLDirectorDeclaration {
+		const token = this.previous();
+		const nameToken = this.consumeName("Expected director name");
+		const directorType = this.consume(TokenType.IDENTIFIER, "Expected director type").value;
+		this.consume(TokenType.PUNCTUATION, "Expected '{' after director type");
+
+		const properties: VCLBackendProperty[] = [];
+		const backends: Array<{ name: string; weight?: number }> = [];
+
+		while (!this.check(TokenType.PUNCTUATION, "}") && !this.isAtEnd()) {
+			if (this.match(TokenType.PUNCTUATION, "{")) {
+				// Backend entry block: { .backend = name; .weight = N; }
+				let backendName = "";
+				let weight: number | undefined;
+				while (!this.check(TokenType.PUNCTUATION, "}") && !this.isAtEnd()) {
+					if (this.match(TokenType.PUNCTUATION, ".")) {
+						const propName = this.consumeName("Expected property name").value;
+						this.consume(TokenType.OPERATOR, "Expected '=' after property name");
+						if (propName === "backend") {
+							backendName = this.consumeName("Expected backend name").value;
+						} else if (propName === "weight") {
+							weight = parseFloat(
+								this.consume(TokenType.NUMBER, "Expected weight value").value,
+							);
+						} else {
+							// Skip other properties
+							if (this.match(TokenType.STRING) || this.match(TokenType.NUMBER) || this.match(TokenType.IDENTIFIER) || this.match(TokenType.KEYWORD)) {
+								// consumed value
+							}
+						}
+						if (this.check(TokenType.PUNCTUATION, ";")) this.advance();
+					} else {
+						this.advance();
+					}
+				}
+				this.consume(TokenType.PUNCTUATION, "Expected '}' after backend entry");
+				if (backendName) backends.push({ name: backendName, weight });
+			} else if (this.match(TokenType.PUNCTUATION, ".")) {
+				const propName = this.consumeName("Expected property name").value;
+				this.consume(TokenType.OPERATOR, "Expected '=' after property name");
+				let value: string | number = "";
+				if (this.match(TokenType.STRING)) {
+					value = this.previous().value.replace(/^["']|["']$/g, "");
+				} else if (this.match(TokenType.NUMBER)) {
+					value = parseFloat(this.previous().value);
+				} else if (this.match(TokenType.IDENTIFIER) || this.match(TokenType.KEYWORD)) {
+					value = this.previous().value;
+				}
+				if (this.check(TokenType.PUNCTUATION, ";")) this.advance();
+				properties.push({ name: propName, value });
+			} else {
+				this.advance();
+			}
+		}
+		this.consume(TokenType.PUNCTUATION, "Expected '}' after director declaration");
+
+		return {
+			type: "DirectorDeclaration",
+			name: nameToken.value,
+			directorType,
+			properties,
+			backends,
+			location: { line: token.line, column: token.column },
+		};
+	}
+
+	private parsePenaltyboxDeclaration(): VCLPenaltyboxDeclaration {
+		const token = this.previous();
+		const nameToken = this.consumeName("Expected penaltybox name");
+		this.consume(TokenType.PUNCTUATION, "Expected '{' after penaltybox name");
+		// Penaltybox body is typically empty
+		while (!this.check(TokenType.PUNCTUATION, "}") && !this.isAtEnd()) {
+			this.advance();
+		}
+		this.consume(TokenType.PUNCTUATION, "Expected '}' after penaltybox body");
+		return {
+			type: "PenaltyboxDeclaration",
+			name: nameToken.value,
+			location: { line: token.line, column: token.column },
+		};
+	}
+
+	private parseRatecounterDeclaration(): VCLRatecounterDeclaration {
+		const token = this.previous();
+		const nameToken = this.consumeName("Expected ratecounter name");
+		this.consume(TokenType.PUNCTUATION, "Expected '{' after ratecounter name");
+		// Ratecounter body is typically empty
+		while (!this.check(TokenType.PUNCTUATION, "}") && !this.isAtEnd()) {
+			this.advance();
+		}
+		this.consume(TokenType.PUNCTUATION, "Expected '}' after ratecounter body");
+		return {
+			type: "RatecounterDeclaration",
+			name: nameToken.value,
+			location: { line: token.line, column: token.column },
 		};
 	}
 
@@ -1203,12 +1530,20 @@ export class VCLParser {
 					"error",
 					"set",
 					"unset",
+					"add",
+					"remove",
 					"goto",
 					"restart",
 					"synthetic",
 					"declare",
 					"call",
 					"log",
+					"esi",
+					"switch",
+					"case",
+					"default",
+					"break",
+					"fallthrough",
 				];
 				if (keywords.includes(token.value)) {
 					return false;
@@ -1442,6 +1777,12 @@ export class VCLParser {
 
 	private consume(type: TokenType, message: string): Token {
 		if (this.check(type)) return this.advance();
+
+		throw new Error(`${message} at line ${this.peek().line}, column ${this.peek().column}`);
+	}
+
+	private consumeName(message: string): Token {
+		if (this.check(TokenType.IDENTIFIER) || this.check(TokenType.KEYWORD)) return this.advance();
 
 		throw new Error(`${message} at line ${this.peek().line}, column ${this.peek().column}`);
 	}

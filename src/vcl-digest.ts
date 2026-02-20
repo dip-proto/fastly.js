@@ -134,6 +134,17 @@ export const DigestModule = {
 	hmac_sha256_base64: (key: string, input: string): string => hmac("sha256", key, input, "base64"),
 	hmac_sha512_base64: (key: string, input: string): string => hmac("sha512", key, input, "base64"),
 
+	time_hmac_md5: (key: string, interval: number, offset: number): string => {
+		const now = Math.floor(Date.now() / 1000);
+		const timeBlock = Math.floor((now + offset) / interval);
+		return crypto.createHmac("md5", String(key)).update(String(timeBlock)).digest("hex");
+	},
+	time_hmac_sha256: (key: string, interval: number, offset: number): string => {
+		const now = Math.floor(Date.now() / 1000);
+		const timeBlock = Math.floor((now + offset) / interval);
+		return crypto.createHmac("sha256", String(key)).update(String(timeBlock)).digest("hex");
+	},
+
 	secure_is_equal: (a: string, b: string): boolean => {
 		try {
 			return crypto.timingSafeEqual(Buffer.from(String(a)), Buffer.from(String(b)));

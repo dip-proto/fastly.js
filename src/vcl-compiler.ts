@@ -1,7 +1,10 @@
 import { createVCLContext } from "./vcl";
 import type {
+	VCLAddStatement,
 	VCLBinaryExpression,
+	VCLCallStatement,
 	VCLDeclareStatement,
+	VCLEsiStatement,
 	VCLErrorStatement,
 	VCLExpression,
 	VCLFunctionCall,
@@ -14,12 +17,16 @@ import type {
 	VCLNumberLiteral,
 	VCLProgram,
 	VCLRegexLiteral,
+	VCLRemoveStatement,
 	VCLRestartStatement,
 	VCLReturnStatement,
 	VCLSetStatement,
 	VCLStatement,
 	VCLStringLiteral,
 	VCLSubroutine,
+	VCLSwitchCase,
+	VCLSwitchStatement,
+	VCLSyntheticBase64Statement,
 	VCLSyntheticStatement,
 	VCLTernaryExpression,
 	VCLUnaryExpression,
@@ -433,6 +440,9 @@ export interface VCLSubroutines {
 	vcl_fetch?: (context: VCLContext) => string;
 	vcl_deliver?: (context: VCLContext) => string;
 	vcl_error?: (context: VCLContext) => string;
+	vcl_pipe?: (context: VCLContext) => string;
+	vcl_init?: (context: VCLContext) => string;
+	vcl_synth?: (context: VCLContext) => string;
 	vcl_log?: (context: VCLContext) => void;
 	// Index signature for dynamic access
 	// biome-ignore lint/suspicious/noConfusingVoidType: vcl_log returns void
@@ -493,24 +503,42 @@ export class VCLCompiler {
 		// Process ACL declarations
 		if (this.program.acls && context.std?.acl) {
 			for (const acl of this.program.acls) {
-				// Add the ACL to the context
 				context.std.acl.add(acl.name);
-
-				// Add entries to the ACL
 				for (const entry of acl.entries) {
 					context.std.acl.add_entry(acl.name, entry.ip, entry.subnet);
 				}
 			}
 		}
 
-		// Compile each subroutine
-		for (const subroutine of this.program.subroutines) {
-			const name = subroutine.name;
-
-			if (name.startsWith("vcl_")) {
-				// Pass the context with ACLs to the subroutine
-				subroutines[name] = this.compileSubroutine(subroutine, context);
+		// Process director declarations
+		if (this.program.directors && context.std?.director) {
+			for (const dir of this.program.directors) {
+				context.std.director.add(dir.name, dir.directorType);
+				for (const backend of dir.backends) {
+					context.std.director.add_backend(dir.name, backend.name, backend.weight ?? 1);
+				}
 			}
+		}
+
+		// Process penaltybox declarations
+		if (this.program.penaltyboxes) {
+			for (const pb of this.program.penaltyboxes) {
+				if (!context.ratelimit) context.ratelimit = { counters: {}, penaltyboxes: {} };
+				context.ratelimit.penaltyboxes[pb.name] = {};
+			}
+		}
+
+		// Process ratecounter declarations
+		if (this.program.ratecounters) {
+			for (const rc of this.program.ratecounters) {
+				if (!context.ratelimit) context.ratelimit = { counters: {}, penaltyboxes: {} };
+				context.ratelimit.counters[rc.name] = { count: 0 };
+			}
+		}
+
+		// Compile each subroutine (both vcl_* and custom subs)
+		for (const subroutine of this.program.subroutines) {
+			subroutines[subroutine.name] = this.compileSubroutine(subroutine, context);
 		}
 
 		return subroutines;
@@ -703,6 +731,9 @@ export class VCLCompiler {
 					vcl_fetch: "deliver",
 					vcl_deliver: "deliver",
 					vcl_error: "deliver",
+					vcl_pipe: "pipe",
+					vcl_init: "ok",
+					vcl_synth: "deliver",
 				};
 				return defaultReturns[subroutine.name] || "";
 			} catch (error) {
@@ -716,6 +747,9 @@ export class VCLCompiler {
 					vcl_fetch: "error",
 					vcl_deliver: "deliver",
 					vcl_error: "deliver",
+					vcl_pipe: "pipe",
+					vcl_init: "ok",
+					vcl_synth: "deliver",
 				};
 				return errorReturns[subroutine.name] || "";
 			}
@@ -736,12 +770,28 @@ export class VCLCompiler {
 			case "UnsetStatement":
 				this.executeUnsetStatement(statement as VCLUnsetStatement, context);
 				return undefined;
+			case "AddStatement":
+				this.executeAddStatement(statement as VCLAddStatement, context);
+				return undefined;
+			case "RemoveStatement":
+				this.executeUnsetStatement(statement as unknown as VCLUnsetStatement, context);
+				return undefined;
+			case "CallStatement":
+				return this.executeCallStatement(statement as VCLCallStatement, context);
 			case "LogStatement":
 				this.executeLogStatement(statement as VCLLogStatement, context);
 				return undefined;
 			case "SyntheticStatement":
 				this.executeSyntheticStatement(statement as VCLSyntheticStatement, context);
 				return undefined;
+			case "SyntheticBase64Statement":
+				this.executeSyntheticBase64Statement(statement as VCLSyntheticBase64Statement, context);
+				return undefined;
+			case "EsiStatement":
+				this.executeEsiStatement(context);
+				return undefined;
+			case "SwitchStatement":
+				return this.executeSwitchStatement(statement as VCLSwitchStatement, context);
 			case "HashDataStatement":
 				this.executeHashDataStatement(statement as VCLHashDataStatement, context);
 				return undefined;
@@ -775,8 +825,19 @@ export class VCLCompiler {
 			IP: "0.0.0.0",
 		};
 		if (!context.locals) context.locals = {};
-		context.locals[statement.variableName] =
-			typeDefaults[statement.variableType.toUpperCase()] ?? "";
+		// Strip "var." prefix to match how evaluateIdentifier and executeSetStatement resolve var.* names
+		const varName = statement.variableName.startsWith("var.")
+			? statement.variableName.substring(4)
+			: statement.variableName;
+		if (statement.initialValue) {
+			context.locals[varName] = this.evaluateExpression(
+				statement.initialValue,
+				context,
+			);
+		} else {
+			context.locals[varName] =
+				typeDefaults[statement.variableType.toUpperCase()] ?? "";
+		}
 	}
 
 	private executeIfStatement(statement: VCLIfStatement, context: VCLContext): string | undefined {
@@ -989,7 +1050,6 @@ export class VCLCompiler {
 			value = newValue;
 		}
 
-		// Handle HTTP headers (*.http.*)
 		if (parts.length >= 3 && part1 === "http") {
 			const headerName = parts.slice(2).join(".");
 			const httpObjects: Record<string, Record<string, string>> = {
@@ -1003,7 +1063,6 @@ export class VCLCompiler {
 				httpObjects[part0]![headerName] = String(value);
 			}
 		}
-		// Handle req.backend
 		else if (parts.length === 2 && part0 === "req" && part1 === "backend") {
 			context.req.backend = String(value);
 
@@ -1032,7 +1091,6 @@ export class VCLCompiler {
 				context.results.defaultBackend = context.req.backend;
 			}
 		}
-		// Handle beresp.ttl
 		else if (parts.length === 2 && part0 === "beresp" && part1 === "ttl") {
 			const ttl = parseTimeValue(String(value));
 			context.beresp.ttl = ttl;
@@ -1049,10 +1107,7 @@ export class VCLCompiler {
 			if (!context.resp.http) context.resp.http = {};
 			context.resp.http["X-SWR"] = String(swr);
 		} else if (parts.length === 2 && part0 === "beresp" && part1 === "do_esi") {
-			// Handle ESI processing flag
 			const esiValue = this.evaluateExpression(statement.value, context);
-
-			// Convert to boolean
 			let doEsi = false;
 			if (typeof esiValue === "boolean") {
 				doEsi = esiValue;
@@ -1064,45 +1119,119 @@ export class VCLCompiler {
 
 			context.beresp.do_esi = doEsi;
 
-			// Also set the X-ESI header for testing
 			if (!context.resp.http) {
 				context.resp.http = {};
 			}
 			context.resp.http["X-ESI"] = doEsi ? "true" : "false";
 		}
-		// Handle local variables (var.*)
 		else if (parts.length >= 2 && part0 === "var") {
 			const varName = parts.slice(1).join(".");
 
-			// Initialize locals if not present
 			if (!context.locals) {
 				context.locals = {};
 			}
 
 			context.locals[varName] = value;
 		}
-		// Handle req.url
 		else if (parts.length === 2 && part0 === "req" && part1 === "url") {
 			context.req.url = String(value);
 		}
-		// Handle bereq.url
 		else if (parts.length === 2 && part0 === "bereq" && part1 === "url") {
 			context.bereq.url = String(value);
 		}
-		// Handle req.method
 		else if (parts.length === 2 && part0 === "req" && part1 === "method") {
 			context.req.method = String(value);
 		}
-		// Handle bereq.method
 		else if (parts.length === 2 && part0 === "bereq" && part1 === "method") {
 			context.bereq.method = String(value);
 		}
-		// Handle req.restarts (read-only but allow setting for test support)
 		else if (parts.length === 2 && part0 === "req" && part1 === "restarts") {
 			context.req.restarts = Number(value);
-		} else {
-			// Unhandled property - log for debugging
-			// console.warn(`Unhandled set target: ${statement.target}`);
+		}
+		else if (parts.length === 2 && part0 === "resp" && part1 === "status") {
+			context.resp.status = Number(value);
+		}
+		else if (parts.length === 2 && part0 === "resp" && part1 === "response") {
+			context.resp.statusText = String(value);
+		}
+		else if (parts.length === 2 && part0 === "beresp" && part1 === "status") {
+			context.beresp.status = Number(value);
+		}
+		else if (parts.length === 2 && part0 === "beresp" && part1 === "response") {
+			context.beresp.statusText = String(value);
+		}
+		else if (parts.length === 2 && part0 === "obj" && part1 === "status") {
+			context.obj.status = Number(value);
+		}
+		else if (parts.length === 2 && part0 === "obj" && part1 === "response") {
+			context.obj.response = String(value);
+		}
+		else if (parts.length === 2 && part0 === "obj" && part1 === "ttl") {
+			(context.obj as any).ttl = parseTimeValue(String(value));
+		}
+		else if (parts.length === 2 && part0 === "obj" && part1 === "grace") {
+			(context.obj as any).grace = parseTimeValue(String(value));
+		}
+		else if (parts.length === 2 && part0 === "obj" && part1 === "hits") {
+			context.obj.hits = Number(value);
+		}
+		else if (parts.length === 2 && part0 === "beresp" && part1 === "cacheable") {
+			(context.beresp as any).cacheable = Boolean(value);
+		}
+		else if (parts.length === 2 && part0 === "beresp" && part1 === "do_stream") {
+			(context.beresp as any).do_stream = Boolean(value);
+		}
+		else if (parts.length === 2 && part0 === "beresp" && part1 === "gzip") {
+			(context.beresp as any).gzip = Boolean(value);
+		}
+		else if (parts.length === 2 && part0 === "beresp" && part1 === "brotli") {
+			(context.beresp as any).brotli = Boolean(value);
+		}
+		else if (parts.length === 2 && part0 === "beresp" && part1 === "saintmode") {
+			(context.beresp as any).saintmode = parseTimeValue(String(value));
+		}
+		else if (parts.length === 2 && part0 === "beresp" && part1 === "stale_if_error") {
+			(context.beresp as any).stale_if_error = parseTimeValue(String(value));
+		}
+		else if (parts.length === 2 && part0 === "client" && part1 === "identity") {
+			(context.client as any).identity = String(value);
+		}
+		else if (parts.length === 2 && part0 === "req" && part1 === "hash_always_miss") {
+			(context.req as any).hash_always_miss = Boolean(value);
+		}
+		else if (parts.length === 2 && part0 === "req" && part1 === "hash_ignore_busy") {
+			(context.req as any).hash_ignore_busy = Boolean(value);
+		}
+		else if (parts.length === 2 && part0 === "req" && part1 === "is_ssl") {
+			(context.req as any).is_ssl = Boolean(value);
+		}
+		else if (parts.length === 2 && part0 === "req" && part1 === "esi") {
+			(context.req as any).esi = Boolean(value);
+		}
+		else if (parts.length === 2 && part0 === "req" && part1 === "grace") {
+			(context.req as any).grace = parseTimeValue(String(value));
+		}
+		else if (parts.length === 2 && part0 === "req" && part1 === "max_stale_if_error") {
+			(context.req as any).max_stale_if_error = parseTimeValue(String(value));
+		}
+		else if (parts.length === 2 && part0 === "req" && part1 === "max_stale_while_revalidate") {
+			(context.req as any).max_stale_while_revalidate = parseTimeValue(String(value));
+		}
+		else if (parts.length === 2 && part0 === "bereq" && part1 === "connect_timeout") {
+			(context.bereq as any).connect_timeout = parseTimeValue(String(value));
+		}
+		else if (parts.length === 2 && part0 === "bereq" && part1 === "first_byte_timeout") {
+			(context.bereq as any).first_byte_timeout = parseTimeValue(String(value));
+		}
+		else if (parts.length === 2 && part0 === "bereq" && part1 === "between_bytes_timeout") {
+			(context.bereq as any).between_bytes_timeout = parseTimeValue(String(value));
+		}
+		else if (parts.length >= 2) {
+			const target = parts[0] as keyof VCLContext;
+			if (target in context && typeof (context as any)[target] === "object") {
+				const rest = parts.slice(1).join(".");
+				(context as any)[target][rest] = value;
+			}
 		}
 	}
 
@@ -1110,8 +1239,8 @@ export class VCLCompiler {
 		const parts = statement.target.split(".");
 		const part0 = parts[0] ?? "";
 		const part1 = parts[1] ?? "";
-		const part2 = parts[2] ?? "";
-		if (parts.length === 3 && part1 === "http") {
+		const headerName = parts.slice(2).join(".");
+		if (parts.length >= 3 && part1 === "http") {
 			const httpObjects: Record<string, Record<string, string>> = {
 				req: context.req.http,
 				bereq: context.bereq.http,
@@ -1119,7 +1248,25 @@ export class VCLCompiler {
 				resp: context.resp.http,
 				obj: context.obj.http,
 			};
-			if (httpObjects[part0]) delete httpObjects[part0]![part2];
+			const headers = httpObjects[part0];
+			if (headers) {
+				// Wildcard support: unset req.http.X-*
+				if (headerName.includes("*")) {
+					const pattern = new RegExp(
+						"^" + headerName.replace(/[.*+?^${}()|[\]\\]/g, (m) => (m === "*" ? ".*" : `\\${m}`)) + "$",
+						"i",
+					);
+					for (const key of Object.keys(headers)) {
+						if (pattern.test(key)) delete headers[key];
+					}
+				} else {
+					delete headers[headerName];
+				}
+			}
+		}
+		else if (parts.length >= 2 && part0 === "var") {
+			const varName = parts.slice(1).join(".");
+			if (context.locals) delete context.locals[varName];
 		}
 	}
 
@@ -1130,6 +1277,129 @@ export class VCLCompiler {
 	private executeSyntheticStatement(statement: VCLSyntheticStatement, context: VCLContext): void {
 		context.obj.http["Content-Type"] = "text/html; charset=utf-8";
 		context.obj.response = statement.content;
+	}
+
+	private executeSyntheticBase64Statement(
+		statement: VCLSyntheticBase64Statement,
+		context: VCLContext,
+	): void {
+		const encoded = this.evaluateExpression(statement.content, context);
+		try {
+			context.obj.response = Buffer.from(String(encoded), "base64").toString("utf-8");
+		} catch {
+			context.obj.response = String(encoded);
+		}
+		context.obj.http["Content-Type"] = "text/html; charset=utf-8";
+	}
+
+	private executeEsiStatement(context: VCLContext): void {
+		context.beresp.do_esi = true;
+	}
+
+	private executeAddStatement(statement: VCLAddStatement, context: VCLContext): void {
+		const value = this.evaluateExpression(statement.value, context);
+		const parts = statement.target.split(".");
+		const part0 = parts[0] ?? "";
+		const part1 = parts[1] ?? "";
+
+		// add only applies to HTTP headers
+		if (parts.length >= 3 && part1 === "http") {
+			const headerName = parts.slice(2).join(".");
+			const httpObjects: Record<string, Record<string, string>> = {
+				req: context.req.http,
+				bereq: context.bereq.http,
+				beresp: context.beresp.http,
+				resp: context.resp.http,
+				obj: context.obj.http,
+			};
+			const headers = httpObjects[part0];
+			if (headers) {
+				const existing = headers[headerName];
+				if (existing) {
+					// Append with comma separation (standard HTTP multi-value)
+					// For Set-Cookie, use newline separation
+					const separator = headerName.toLowerCase() === "set-cookie" ? "\n" : ", ";
+					headers[headerName] = existing + separator + String(value);
+				} else {
+					headers[headerName] = String(value);
+				}
+			}
+		}
+	}
+
+	private executeCallStatement(statement: VCLCallStatement, context: VCLContext): string | undefined {
+		const sub = this.program.subroutines.find((s) => s.name === statement.subroutineName);
+		if (!sub) {
+			console.error(`Unknown subroutine: ${statement.subroutineName}`);
+			return undefined;
+		}
+
+		// Set up parameters as local variables
+		if (sub.params && statement.arguments.length > 0) {
+			if (!context.locals) context.locals = {};
+			for (let i = 0; i < sub.params.length && i < statement.arguments.length; i++) {
+				const param = sub.params[i]!;
+				const argValue = this.evaluateExpression(statement.arguments[i]!, context);
+				context.locals[param.name] = argValue;
+			}
+		}
+
+		// Execute subroutine body
+		for (const stmt of sub.body) {
+			const result = this.executeStatement(stmt, context);
+			if (result && typeof result === "string") {
+				// If the custom sub returns a VCL action (deliver, pass, etc.), propagate it
+				if (
+					["deliver", "pass", "lookup", "fetch", "error", "restart", "pipe", "hash",
+					 "deliver_stale", "hit_for_pass"].includes(result)
+				) {
+					return result;
+				}
+				// For typed returns, store as __return_value__
+				if (sub.returnType) {
+					context.locals.__return_value__ = result;
+					return undefined;
+				}
+			}
+		}
+		return undefined;
+	}
+
+	private executeSwitchStatement(
+		statement: VCLSwitchStatement,
+		context: VCLContext,
+	): string | undefined {
+		const subject = this.evaluateExpression(statement.subject, context);
+		let matched = false;
+		let falling = false;
+
+		for (const switchCase of statement.cases) {
+			if (!falling && switchCase.test !== null) {
+				const caseValue = this.evaluateExpression(switchCase.test, context);
+				if (subject === caseValue) {
+					matched = true;
+				}
+			}
+
+			if (matched || falling || switchCase.test === null) {
+				if (!matched && switchCase.test === null && !falling) {
+					// default case, only execute if nothing matched
+					matched = true;
+				}
+				if (matched || falling) {
+					for (const stmt of switchCase.body) {
+						const result = this.executeStatement(stmt, context);
+						if (result && typeof result === "string") return result;
+					}
+					if (switchCase.fallthrough) {
+						falling = true;
+					} else {
+						return undefined;
+					}
+				}
+			}
+		}
+		return undefined;
 	}
 
 	private executeHashDataStatement(statement: VCLHashDataStatement, context: VCLContext): void {
@@ -1194,7 +1464,6 @@ export class VCLCompiler {
 		const functionName = expression.name;
 		const args = expression.arguments.map((arg) => this.evaluateExpression(arg, context));
 
-		// Simple prefix-based module dispatch
 		const prefixModules: Record<string, any> = {
 			"addr.": context.addr,
 			"accept.": context.accept,
@@ -1202,6 +1471,8 @@ export class VCLCompiler {
 			"querystring.": context.querystring,
 			"uuid.": context.uuid,
 			"waf.": context.waf,
+			"testing.": (context as any).testing,
+			"assert.": (context as any).assert,
 		};
 
 		for (const [prefix, module] of Object.entries(prefixModules)) {
@@ -1245,14 +1516,12 @@ export class VCLCompiler {
 			};
 			if (mathFuncs[stdFunction]) return mathFuncs[stdFunction](args);
 
-			// Handle director.select_backend
-			if (stdParts.length === 2 && stdParts[0] === "director" && stdParts[1] === "select_backend") {
+				if (stdParts.length === 2 && stdParts[0] === "director" && stdParts[1] === "select_backend") {
 				if (args.length === 1 && typeof args[0] === "string") {
 					const directorName = args[0];
 					if (context.directors?.[directorName]) {
 						const director = context.directors[directorName];
 
-						// For random director, just pick the first backend
 						if (director.backends && director.backends.length > 0) {
 							return {
 								name: director.backends[0]!.backend.name,
@@ -1261,7 +1530,6 @@ export class VCLCompiler {
 					}
 				}
 
-				// Default to the first backend if director not found
 				if (context.backends) {
 					const backendNames = Object.keys(context.backends);
 					if (backendNames.length > 0) {
@@ -1274,12 +1542,10 @@ export class VCLCompiler {
 				return { name: "default" };
 			}
 		} else if (functionName === "if") {
-			// Handle if() function as a ternary operator
 			if (args.length === 3) {
 				return args[0] ? args[1] : args[2];
 			}
 		} else if (functionName === "substr") {
-			// Substring function
 			if (args.length >= 2) {
 				const str = String(args[0]);
 				const offset = parseInt(args[1], 10);
@@ -1291,7 +1557,6 @@ export class VCLCompiler {
 				}
 			}
 		} else if (functionName === "regsub") {
-			// Regular expression substitution
 			if (args.length === 3) {
 				try {
 					const regex = new RegExp(args[1]);
@@ -1302,7 +1567,6 @@ export class VCLCompiler {
 				}
 			}
 		} else if (functionName === "regsuball") {
-			// Regular expression substitution (all occurrences)
 			if (args.length === 3) {
 				try {
 					const regex = new RegExp(args[1], "g");
@@ -1372,7 +1636,6 @@ export class VCLCompiler {
 				.replace(/"/g, "&quot;")
 				.replace(/'/g, "&#39;");
 		} else if (functionName === "boltsort.sort") {
-			// Sort query string parameters
 			const url = String(args[0]);
 			const qIdx = url.indexOf("?");
 			if (qIdx === -1) return url;
@@ -1382,7 +1645,6 @@ export class VCLCompiler {
 			params.sort((a, b) => (a.split("=")[0] || "").localeCompare(b.split("=")[0] || ""));
 			return `${base}?${params.join("&")}`;
 		} else if (functionName === "subfield") {
-			// Extract subfield from structured header
 			const str = String(args[0]);
 			const name = String(args[1]);
 			const sep = args.length > 2 ? String(args[2]) : ";";
@@ -1424,7 +1686,6 @@ export class VCLCompiler {
 				() => chars[Math.floor(Math.random() * chars.length)],
 			).join("");
 		} else if (functionName.startsWith("setcookie.")) {
-			// Cookie functions
 			const cookieFunction = functionName.substring(10);
 			if (cookieFunction === "get_value_by_name") {
 				const header = String(args[0]);
@@ -1491,6 +1752,16 @@ export class VCLCompiler {
 			return require("node:crypto").createHash("sha256").update(String(args[0])).digest("hex");
 		} else if (functionName === "fastly.try_select_shield") {
 			return false;
+		} else if (functionName === "h2.push") {
+			return null;
+		} else if (functionName === "h2.disable_header_compression") {
+			return null;
+		} else if (functionName === "h3.alt_svc") {
+			return null;
+		} else if (functionName.startsWith("crypto.")) {
+			const fn = functionName.substring(7);
+			const cryptoModule = context.std?.crypto as Record<string, Function> | undefined;
+			if (cryptoModule && typeof cryptoModule[fn] === "function") return cryptoModule[fn](...args);
 		}
 
 		console.error(`Unknown function call: ${functionName}`);
@@ -1498,14 +1769,18 @@ export class VCLCompiler {
 	}
 
 	private evaluateIdentifier(identifier: VCLIdentifier, context: VCLContext): any {
-		const parts = identifier.name.split(".");
+		const name = identifier.name;
+		const parts = name.split(".");
 
 		const idPart0 = parts[0] ?? "";
 		const idPart1 = parts[1] ?? "";
 		const idPart2 = parts[2] ?? "";
 
-		// Handle HTTP headers (*.http.*)
-		if (parts.length === 3 && idPart1 === "http") {
+		if (name === "now") return Date.now();
+		if (name === "now.sec") return Math.floor(Date.now() / 1000);
+
+		if (parts.length >= 3 && idPart1 === "http") {
+			const headerName = parts.slice(2).join(".");
 			const httpObjects: Record<string, Record<string, string> | undefined> = {
 				req: context.req.http,
 				bereq: context.bereq.http,
@@ -1513,33 +1788,9 @@ export class VCLCompiler {
 				resp: context.resp.http,
 				obj: context.obj.http,
 			};
-			return httpObjects[idPart0]?.[idPart2] || "";
+			return httpObjects[idPart0]?.[headerName] ?? "";
 		}
 
-		// Handle simple property lookups
-		if (parts.length === 2) {
-			const props: Record<string, Record<string, any>> = {
-				req: {
-					url: context.req.url,
-					method: context.req.method,
-					backend: context.req.backend || "",
-					restarts: context.req.restarts || 0,
-				},
-				bereq: { url: context.bereq.url, method: context.bereq.method },
-				beresp: {
-					status: context.beresp.status,
-					ttl: context.beresp.ttl,
-					grace: context.beresp.grace,
-					stale_while_revalidate: context.beresp.stale_while_revalidate,
-				},
-				resp: { status: context.resp.status },
-				obj: { status: context.obj.status, hits: context.obj.hits },
-				client: { ip: context.client?.ip || "127.0.0.1" },
-			};
-			if (props[idPart0]?.[idPart1] !== undefined) return props[idPart0]![idPart1];
-		}
-
-		// Handle regex capture groups (re.group.N)
 		if (parts.length === 3 && idPart0 === "re" && idPart1 === "group") {
 			const groupNumber = parseInt(idPart2, 10);
 			if (!Number.isNaN(groupNumber) && context.re?.groups?.[groupNumber] !== undefined) {
@@ -1548,18 +1799,332 @@ export class VCLCompiler {
 			return "";
 		}
 
-		// Handle test variables and local variables (var.*)
 		if (parts.length >= 2 && idPart0 === "var") {
-			const testVars: Record<string, any> = {
-				test_bool: true,
-				test_string: "test",
-				test_int: 42,
-				test_number: 42,
-			};
-			if (testVars[idPart1] !== undefined) return testVars[idPart1];
 			const varName = parts.slice(1).join(".");
 			return context.locals?.[varName] ?? "";
 		}
+
+		if (context.locals && name in context.locals) {
+			return context.locals[name];
+		}
+
+		return this.resolveVariable(name, context);
+	}
+
+	private resolveVariable(name: string, context: VCLContext): any {
+		const ctx = context as any;
+
+		if (name === "testing.state") return ctx.testing?._state ?? "";
+		if (name === "testing.synthetic_body") return context.obj.response ?? "";
+
+		if (name === "req.url") return context.req.url;
+		if (name === "req.url.path") {
+			const url = context.req.url || "";
+			const qIdx = url.indexOf("?");
+			return qIdx >= 0 ? url.substring(0, qIdx) : url;
+		}
+		if (name === "req.url.qs") {
+			const url = context.req.url || "";
+			const qIdx = url.indexOf("?");
+			return qIdx >= 0 ? url.substring(qIdx + 1) : "";
+		}
+		if (name === "req.url.basename") {
+			const path = this.resolveVariable("req.url.path", context) as string;
+			const lastSlash = path.lastIndexOf("/");
+			return lastSlash >= 0 ? path.substring(lastSlash + 1) : path;
+		}
+		if (name === "req.url.dirname") {
+			const path = this.resolveVariable("req.url.path", context) as string;
+			const lastSlash = path.lastIndexOf("/");
+			return lastSlash >= 0 ? path.substring(0, lastSlash + 1) : "/";
+		}
+		if (name === "req.url.ext") {
+			const basename = this.resolveVariable("req.url.basename", context) as string;
+			const dotIdx = basename.lastIndexOf(".");
+			return dotIdx >= 0 ? basename.substring(dotIdx + 1) : "";
+		}
+		if (name === "req.method" || name === "req.request") return context.req.method;
+		if (name === "req.backend") return context.req.backend || "";
+		if (name === "req.restarts") return context.req.restarts || 0;
+		if (name === "req.proto") return ctx.req?.proto || "HTTP/1.1";
+		if (name === "req.body") return ctx.req?.body || "";
+		if (name === "req.body.base64") {
+			const body = ctx.req?.body || "";
+			return body ? Buffer.from(body).toString("base64") : "";
+		}
+		if (name === "req.is_ssl") return ctx.req?.is_ssl ?? false;
+		if (name === "req.is_purge") return context.req.method === "PURGE";
+		if (name === "req.is_ipv6") return ctx.req?.is_ipv6 ?? false;
+		if (name === "req.is_background_fetch") return false;
+		if (name === "req.is_clustering") return false;
+		if (name === "req.is_esi_subreq") return ctx.req?.is_esi_subreq ?? false;
+		if (name === "req.esi") return ctx.req?.esi ?? false;
+		if (name === "req.esi_level") return ctx.req?.esi_level ?? 0;
+		if (name === "req.hash") return ctx.hashData?.join(":") || "";
+		if (name === "req.hash_always_miss") return ctx.req?.hash_always_miss ?? false;
+		if (name === "req.hash_ignore_busy") return ctx.req?.hash_ignore_busy ?? false;
+		if (name === "req.grace") return ctx.req?.grace ?? 0;
+		if (name === "req.max_stale_if_error") return ctx.req?.max_stale_if_error ?? 0;
+		if (name === "req.max_stale_while_revalidate") return ctx.req?.max_stale_while_revalidate ?? 0;
+		if (name === "req.xid") return ctx.req?.xid || "0";
+		if (name === "req.enable_range_on_pass") return false;
+		if (name === "req.enable_segmented_caching") return false;
+		if (name === "req.digest") return ctx.req?.digest || "";
+		if (name === "req.digest.ratio") return ctx.req?.digest_ratio ?? 0;
+		if (name === "req.bytes_read") return 0;
+		if (name === "req.header_bytes_read") return 0;
+		if (name === "req.body_bytes_read") return 0;
+		if (name === "req.topurl") return context.req.url;
+		if (name.startsWith("req.backend.")) {
+			const prop = name.substring(12);
+			const be = context.current_backend || context.backends?.[context.req.backend || "default"];
+			if (!be) return "";
+			const beProps: Record<string, any> = {
+				name: be.name, ip: be.host, port: be.port, healthy: be.is_healthy ?? true,
+				is_cluster: false, is_origin: true, is_shield: false,
+			};
+			return beProps[prop] ?? "";
+		}
+
+		// bereq.* variables
+		if (name === "bereq.url") return context.bereq.url;
+		if (name === "bereq.method" || name === "bereq.request") return context.bereq.method;
+		if (name === "bereq.proto") return ctx.bereq?.proto || "HTTP/1.1";
+		if (name === "bereq.url.path") {
+			const url = context.bereq.url || "";
+			const qIdx = url.indexOf("?");
+			return qIdx >= 0 ? url.substring(0, qIdx) : url;
+		}
+		if (name === "bereq.url.qs") {
+			const url = context.bereq.url || "";
+			const qIdx = url.indexOf("?");
+			return qIdx >= 0 ? url.substring(qIdx + 1) : "";
+		}
+		if (name === "bereq.connect_timeout") return ctx.bereq?.connect_timeout ?? 1000;
+		if (name === "bereq.first_byte_timeout") return ctx.bereq?.first_byte_timeout ?? 15000;
+		if (name === "bereq.between_bytes_timeout") return ctx.bereq?.between_bytes_timeout ?? 10000;
+		if (name === "bereq.is_clustering") return false;
+		if (name === "bereq.bytes_written") return 0;
+		if (name === "bereq.header_bytes_written") return 0;
+		if (name === "bereq.body_bytes_written") return 0;
+
+		// beresp.* variables
+		if (name === "beresp.status") return context.beresp.status;
+		if (name === "beresp.response") return context.beresp.statusText;
+		if (name === "beresp.proto") return ctx.beresp?.proto || "HTTP/1.1";
+		if (name === "beresp.ttl") return context.beresp.ttl;
+		if (name === "beresp.grace") return context.beresp.grace ?? 0;
+		if (name === "beresp.stale_if_error") return ctx.beresp?.stale_if_error ?? 0;
+		if (name === "beresp.stale_while_revalidate") return context.beresp.stale_while_revalidate ?? 0;
+		if (name === "beresp.cacheable") return ctx.beresp?.cacheable ?? true;
+		if (name === "beresp.do_esi") return context.beresp.do_esi ?? false;
+		if (name === "beresp.do_stream") return ctx.beresp?.do_stream ?? false;
+		if (name === "beresp.gzip") return ctx.beresp?.gzip ?? false;
+		if (name === "beresp.brotli") return ctx.beresp?.brotli ?? false;
+		if (name === "beresp.saintmode") return ctx.beresp?.saintmode ?? 0;
+		if (name === "beresp.hipaa") return false;
+		if (name === "beresp.pci") return false;
+		if (name.startsWith("beresp.backend.")) {
+			const prop = name.substring(15);
+			const be = context.current_backend || context.backends?.[context.req.backend || "default"];
+			if (!be) return "";
+			const beProps: Record<string, any> = {
+				name: be.name, ip: be.host, port: be.port, src_ip: "127.0.0.1", src_port: 0, requests: 0,
+			};
+			return beProps[prop] ?? "";
+		}
+
+		// resp.* variables
+		if (name === "resp.status") return context.resp.status;
+		if (name === "resp.response") return context.resp.statusText;
+		if (name === "resp.proto") return ctx.resp?.proto || "HTTP/1.1";
+		if (name === "resp.is_locally_generated") return ctx.resp?.is_locally_generated ?? false;
+		if (name === "resp.completed") return ctx.resp?.completed ?? false;
+		if (name === "resp.stale") return ctx.resp?.stale ?? false;
+		if (name === "resp.stale.is_error") return false;
+		if (name === "resp.stale.is_revalidating") return false;
+		if (name === "resp.bytes_written") return 0;
+		if (name === "resp.header_bytes_written") return 0;
+		if (name === "resp.body_bytes_written") return 0;
+
+		// obj.* variables
+		if (name === "obj.status") return context.obj.status;
+		if (name === "obj.response") return context.obj.response;
+		if (name === "obj.proto") return "HTTP/1.1";
+		if (name === "obj.hits") return context.obj.hits;
+		if (name === "obj.ttl") return ctx.obj?.ttl ?? 0;
+		if (name === "obj.age") return ctx.obj?.age ?? 0;
+		if (name === "obj.grace") return ctx.obj?.grace ?? 0;
+		if (name === "obj.lastuse") return ctx.obj?.lastuse ?? 0;
+		if (name === "obj.entered") return ctx.obj?.entered ?? Date.now();
+		if (name === "obj.cacheable") return ctx.obj?.cacheable ?? true;
+		if (name === "obj.is_pci") return false;
+		if (name === "obj.stale_if_error") return ctx.obj?.stale_if_error ?? 0;
+		if (name === "obj.stale_while_revalidate") return ctx.obj?.stale_while_revalidate ?? 0;
+
+		// client.* variables
+		if (name === "client.ip") return context.client?.ip || "127.0.0.1";
+		if (name === "client.port") return ctx.client?.port ?? 0;
+		if (name === "client.identity") return ctx.client?.identity || context.client?.ip || "127.0.0.1";
+		if (name === "client.requests") return ctx.client?.requests ?? 1;
+		if (name === "client.identified") return false;
+		if (name === "client.sess_timeout") return 0;
+		if (name.startsWith("client.geo.")) {
+			const geoProp = name.substring(11);
+			const geo = ctx.client?.geo || {};
+			const defaults: Record<string, any> = {
+				city: "", "city.ascii": "", "city.latin1": "", "city.utf8": "",
+				country_code: "US", country_code3: "USA",
+				country_name: "United States", "country_name.ascii": "United States",
+				continent_code: "NA", latitude: 37.7749, longitude: -122.4194,
+				postal_code: "", metro_code: 0, area_code: 0, region: "",
+				"region.ascii": "", "region.latin1": "", "region.utf8": "",
+				gmt_offset: -800, utc_offset: -800,
+				conn_speed: "broadband", conn_type: "wired",
+				ip_override: "", proxy_description: "", proxy_type: "",
+			};
+			return geo[geoProp] ?? defaults[geoProp] ?? "";
+		}
+		if (name.startsWith("client.as.")) {
+			const prop = name.substring(10);
+			return prop === "number" ? 0 : "";
+		}
+		if (name.startsWith("client.browser.")) return ctx.client?.browser?.[name.substring(15)] ?? "";
+		if (name.startsWith("client.os.")) return ctx.client?.os?.[name.substring(10)] ?? "";
+		if (name === "client.bot.name") return "";
+		if (name.startsWith("client.class.")) return false;
+		if (name.startsWith("client.platform.")) {
+			if (name === "client.platform.hwtype") return "";
+			return false;
+		}
+		if (name.startsWith("client.display.")) {
+			if (name === "client.display.touchscreen") return false;
+			return 0;
+		}
+		if (name.startsWith("client.socket.")) return 0;
+
+		// server.* variables
+		if (name === "server.hostname") return ctx.server?.hostname || require("node:os").hostname();
+		if (name === "server.identity") return ctx.server?.identity || "localhost";
+		if (name === "server.datacenter") return ctx.server?.datacenter || "local";
+		if (name === "server.region") return ctx.server?.region || "local";
+		if (name === "server.pop") return ctx.server?.pop || "local";
+		if (name === "server.billing_region") return ctx.server?.billing_region || "local";
+		if (name === "server.ip") return ctx.server?.ip || "127.0.0.1";
+		if (name === "server.port") return ctx.server?.port ?? 8000;
+
+		// fastly.* variables
+		if (name === "fastly.error") return context.fastly?.error || "";
+		if (name === "fastly.is_staging") return false;
+		if (name === "fastly.ddos_detected") return false;
+		if (name.startsWith("fastly.ff.")) return 0;
+
+		// fastly_info.* variables
+		if (name === "fastly_info.state") return context.fastly?.state || "";
+		if (name === "fastly_info.is_h2") return false;
+		if (name === "fastly_info.is_h3") return false;
+		if (name === "fastly_info.is_cluster_edge") return false;
+		if (name === "fastly_info.is_cluster_shield") return false;
+		if (name === "fastly_info.edge.is_tls") return false;
+		if (name === "fastly_info.host_header") return context.req.http["Host"] || "";
+		if (name === "fastly_info.request_id") return ctx.fastly_info?.request_id || "local-req-id";
+		if (name.startsWith("fastly_info.h2.")) return 0;
+
+		// time.* variables
+		if (name === "time.start" || name === "time.start.sec") return Math.floor(Date.now() / 1000);
+		if (name === "time.start.msec") return Date.now();
+		if (name === "time.start.usec") return Date.now() * 1000;
+		if (name === "time.start.msec_frac") return Date.now() % 1000;
+		if (name === "time.start.usec_frac") return (Date.now() * 1000) % 1000000;
+		if (name === "time.elapsed" || name === "time.elapsed.sec") return 0;
+		if (name === "time.elapsed.msec") return 0;
+		if (name === "time.elapsed.usec") return 0;
+		if (name === "time.end" || name === "time.end.sec") return Math.floor(Date.now() / 1000);
+		if (name === "time.to_first_byte") return 0;
+
+		// tls.client.* variables
+		if (name === "tls.client.protocol") return ctx.tls?.client?.protocol || "";
+		if (name === "tls.client.cipher") return ctx.tls?.client?.cipher || "";
+		if (name === "tls.client.servername") return ctx.tls?.client?.servername || "";
+		if (name === "tls.client.ja3_md5") return "";
+		if (name === "tls.client.ja4") return "";
+		if (name.startsWith("tls.client.certificate.")) {
+			const prop = name.substring(23);
+			if (prop.startsWith("is_")) return false;
+			return "";
+		}
+		if (name.startsWith("tls.client.")) return "";
+
+		// waf.* variables
+		if (name === "waf.executed") return ctx.waf?.executed ?? false;
+		if (name === "waf.blocked") return ctx.waf?.blocked ?? false;
+		if (name === "waf.passed") return ctx.waf?.passed ?? false;
+		if (name === "waf.logged") return ctx.waf?.logged ?? false;
+		if (name === "waf.failures") return 0;
+		if (name === "waf.anomaly_score") return ctx.waf?.anomaly_score ?? 0;
+		if (name === "waf.sql_injection_score") return 0;
+		if (name === "waf.xss_score") return 0;
+		if (name === "waf.rce_score") return 0;
+		if (name === "waf.lfi_score") return 0;
+		if (name === "waf.rfi_score") return 0;
+		if (name === "waf.http_violation_score") return 0;
+		if (name === "waf.session_fixation_score") return 0;
+		if (name === "waf.php_injection_score") return 0;
+		if (name === "waf.rule_id") return "";
+		if (name === "waf.severity") return 0;
+		if (name === "waf.message") return "";
+		if (name === "waf.logdata") return "";
+		if (name === "waf.counter") return 0;
+		if (name === "waf.inbound_anomaly_score") return 0;
+
+		// geoip.* legacy variables (alias for client.geo.*)
+		if (name.startsWith("geoip.")) {
+			const prop = name.substring(6);
+			if (prop === "use_x_forwarded_for") return false;
+			return this.resolveVariable("client.geo." + prop, context);
+		}
+
+		// math.* constants
+		const mathConstants: Record<string, number> = {
+			"math.PI": Math.PI, "math.E": Math.E, "math.TAU": 2 * Math.PI,
+			"math.PHI": (1 + Math.sqrt(5)) / 2,
+			"math.1_PI": 1 / Math.PI, "math.2_PI": 2 / Math.PI,
+			"math.2_SQRTPI": 2 / Math.sqrt(Math.PI),
+			"math.SQRT2": Math.SQRT2, "math.SQRT1_2": Math.SQRT1_2,
+			"math.LN2": Math.LN2, "math.LN10": Math.LN10,
+			"math.LOG2E": Math.LOG2E, "math.LOG10E": Math.LOG10E,
+			"math.NEG_INFINITY": -Infinity, "math.POS_INFINITY": Infinity,
+			"math.NAN": NaN,
+			"math.FLOAT_MAX": Number.MAX_VALUE, "math.FLOAT_MIN": Number.MIN_VALUE,
+			"math.FLOAT_EPSILON": Number.EPSILON,
+			"math.INTEGER_MAX": 2147483647, "math.INTEGER_MIN": -2147483648,
+		};
+		if (mathConstants[name] !== undefined) return mathConstants[name];
+
+		// workspace.* variables
+		if (name === "workspace.bytes_free") return 262144;
+		if (name === "workspace.bytes_total") return 262144;
+		if (name === "workspace.overflowed") return false;
+
+		// transport.* variables
+		if (name === "transport.type") return "http";
+		if (name === "transport.bw_estimate") return 0;
+
+		// segmented_caching.* variables
+		if (name.startsWith("segmented_caching.")) return 0;
+
+		// esi.* variables
+		if (name === "esi.allow_inside_cdata") return false;
+
+		// stale.exists
+		if (name === "stale.exists") return false;
+
+		// quic.* variables
+		if (name.startsWith("quic.")) return 0;
+
+		// backend.socket.* variables
+		if (name.startsWith("backend.socket.")) return 0;
+		if (name.startsWith("backend.conn.")) return false;
 
 		return "";
 	}
