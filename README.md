@@ -581,7 +581,7 @@ You can modify the following constants in `index.ts` to change the proxy setting
 
 ## Development Status
 
-The project has successfully implemented all core VCL functionality and is now in a production-ready state. All tests are passing, and the implementation supports:
+The project implements all core VCL functionality for local development and testing. All tests are passing, and the implementation supports:
 
 1. Complete VCL Syntax: All standard VCL statements and expressions, including control flow with if/else and goto/labels
 2. Full Standard Library: Comprehensive implementation of all VCL standard library functions
