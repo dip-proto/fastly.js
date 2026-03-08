@@ -18,20 +18,20 @@ For comprehensive documentation, tutorials, and examples, please visit the [docu
 
 ## Features
 
-- **Complete VCL Implementation**: Parse and execute Fastly VCL scripts with support for all standard subroutines
-- **HTTP Request Pipeline**: Implements the full Fastly request flow (vcl_recv, vcl_hash, vcl_hit, vcl_miss, vcl_fetch, vcl_deliver, etc.)
-- **Standard Library**: Comprehensive implementation of Fastly's VCL standard library functions
-- **Edge Computing**: Execute logic at the edge, closer to users
-- **Caching**: Advanced caching capabilities with fine-grained control
-- **Backend Configuration**: Support for multiple backends, health checks, and load balancing
-- **Error Handling**: Comprehensive error handling with custom error pages
-- **Edge Side Includes (ESI)**: Dynamic content assembly at the edge with ESI tags
-- **Random Functions**: Generate random values with deterministic seeded options
-- **UUID Functions**: Generate and validate UUIDs (v3, v4, v5) with namespace support
-- **WAF Functions**: Web Application Firewall with attack detection and rate limiting
-- **Director Management**: Implement load balancing across multiple backends
-- **Goto Statements**: Control flow with goto statements and labels
-- **Request Restart**: Support for restarting requests with the restart statement
+- Complete VCL Implementation: Parse and execute Fastly VCL scripts with support for all standard subroutines
+- HTTP Request Pipeline: Implements the full Fastly request flow (vcl_recv, vcl_hash, vcl_hit, vcl_miss, vcl_fetch, vcl_deliver, etc.)
+- Standard Library: Comprehensive implementation of Fastly's VCL standard library functions
+- Edge Computing: Execute logic at the edge, closer to users
+- Caching: Advanced caching capabilities with fine-grained control
+- Backend Configuration: Support for multiple backends, health checks, and load balancing
+- Error Handling: Comprehensive error handling with custom error pages
+- Edge Side Includes (ESI): Dynamic content assembly at the edge with ESI tags
+- Random Functions: Generate random values with deterministic seeded options
+- UUID Functions: Generate and validate UUIDs (v3, v4, v5) with namespace support
+- WAF Functions: Web Application Firewall with attack detection and rate limiting
+- Director Management: Implement load balancing across multiple backends
+- Goto Statements: Control flow with goto statements and labels
+- Request Restart: Support for restarting requests with the restart statement
 
 ## Requirements
 
@@ -583,9 +583,9 @@ You can modify the following constants in `index.ts` to change the proxy setting
 
 The project has successfully implemented all core VCL functionality and is now in a production-ready state. All tests are passing, and the implementation supports:
 
-1. **Complete VCL Syntax**: All standard VCL statements and expressions, including control flow with if/else and goto/labels
-2. **Full Standard Library**: Comprehensive implementation of all VCL standard library functions
-3. **Advanced Features**: Caching, multiple backends, error handling, ESI, directors, security features, and more
+1. Complete VCL Syntax: All standard VCL statements and expressions, including control flow with if/else and goto/labels
+2. Full Standard Library: Comprehensive implementation of all VCL standard library functions
+3. Advanced Features: Caching, multiple backends, error handling, ESI, directors, security features, and more
 
 See the `TODO.md` file for a detailed roadmap and current implementation status.
 
