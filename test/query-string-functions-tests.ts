@@ -65,13 +65,13 @@ const queryStringFunctionsTests = {
 						`Expected X-Sort-By to be 'price', got '${context.req.http["X-Sort-By"]}'`,
 					);
 				},
-				// Check missing parameter
+				// Check missing parameter — querystring.get returns NOTSET, so the header is unset
 				(context: VCLContext) => {
 					return assert(
-						context.req.http["X-Missing"] === null ||
-							context.req.http["X-Missing"] === "" ||
-							context.req.http["X-Missing"] === "null",
-						`Expected X-Missing to be null or empty, got '${context.req.http["X-Missing"]}'`,
+						context.req.http["X-Missing"] === undefined ||
+							context.req.http["X-Missing"] === null ||
+							context.req.http["X-Missing"] === "",
+						`Expected X-Missing to be unset or empty, got '${context.req.http["X-Missing"]}'`,
 					);
 				},
 			],

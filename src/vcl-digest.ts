@@ -4,6 +4,38 @@ import { xxHash32 } from "js-xxhash";
 // xxHash64 is not supported: js-xxhash only provides xxHash32.
 
 type HashAlgorithm = "md5" | "sha1" | "sha224" | "sha256" | "sha384" | "sha512";
+type TOTPAlgorithm = "md5" | "sha1" | "sha256" | "sha512";
+
+// TOTP implementation (RFC 6238) for digest.time_hmac_* functions.
+// Algorithm: base64 decode secret, generate TOTP code, hash the code, return base64.
+// Since base32(base64decode(s)) round-trips the key bytes, the effective HMAC key
+// is the base64-decoded secret.
+function generateTOTP(base64Secret: string, period: number, algorithm: TOTPAlgorithm): string {
+	const keyBytes = Buffer.from(String(base64Secret), "base64");
+
+	const counter = Math.floor(Date.now() / 1000 / period);
+
+	const counterBuf = Buffer.alloc(8);
+	const high = Math.floor(counter / 0x100000000);
+	const low = counter >>> 0;
+	counterBuf.writeUInt32BE(high, 0);
+	counterBuf.writeUInt32BE(low, 4);
+
+	const hmacResult = crypto.createHmac(algorithm, keyBytes).update(counterBuf).digest();
+
+	// Dynamic truncation (RFC 4226 section 5.4)
+	const offset = hmacResult[hmacResult.length - 1]! & 0x0f;
+	const code =
+		((hmacResult[offset]! & 0x7f) << 24) |
+		((hmacResult[offset + 1]! & 0xff) << 16) |
+		((hmacResult[offset + 2]! & 0xff) << 8) |
+		(hmacResult[offset + 3]! & 0xff);
+
+	const otp = (code % 1000000).toString().padStart(6, "0");
+
+	const finalHash = crypto.createHash(algorithm).update(otp).digest();
+	return finalHash.toString("base64");
+}
 type CipherAlgorithm =
 	| "aes-128-cbc"
 	| "aes-192-cbc"
@@ -134,15 +166,28 @@ export const DigestModule = {
 	hmac_sha256_base64: (key: string, input: string): string => hmac("sha256", key, input, "base64"),
 	hmac_sha512_base64: (key: string, input: string): string => hmac("sha512", key, input, "base64"),
 
-	time_hmac_md5: (key: string, interval: number, offset: number): string => {
-		const now = Math.floor(Date.now() / 1000);
-		const timeBlock = Math.floor((now + offset) / interval);
-		return crypto.createHmac("md5", String(key)).update(String(timeBlock)).digest("hex");
+	time_hmac_md5: (key: string, interval: number, _offset: number): string => {
+		return generateTOTP(key, interval, "md5");
 	},
-	time_hmac_sha256: (key: string, interval: number, offset: number): string => {
-		const now = Math.floor(Date.now() / 1000);
-		const timeBlock = Math.floor((now + offset) / interval);
-		return crypto.createHmac("sha256", String(key)).update(String(timeBlock)).digest("hex");
+	time_hmac_sha1: (key: string, interval: number, _offset: number): string => {
+		return generateTOTP(key, interval, "sha1");
+	},
+	time_hmac_sha256: (key: string, interval: number, _offset: number): string => {
+		return generateTOTP(key, interval, "sha256");
+	},
+	time_hmac_sha512: (key: string, interval: number, _offset: number): string => {
+		return generateTOTP(key, interval, "sha512");
+	},
+
+	hmac_sha256_with_base64_key: (base64Key: string, input: string): string | null => {
+		const keyStr = String(base64Key);
+		if (keyStr === "") return null; // NOTSET for empty key
+		try {
+			const key = Buffer.from(keyStr, "base64");
+			return `0x${crypto.createHmac("sha256", key).update(String(input)).digest("hex")}`;
+		} catch {
+			return "";
+		}
 	},
 
 	secure_is_equal: (a: string, b: string): boolean => {

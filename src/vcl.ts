@@ -19,6 +19,7 @@ import { RateLimitModule } from "./vcl-ratelimit";
 import { createStdModule } from "./vcl-std";
 import { createTableModule } from "./vcl-table";
 import { createParseTimeDelta, createStrftime, createTimeModule } from "./vcl-time";
+import { UTF8Module } from "./vcl-utf8";
 import { UUIDModule } from "./vcl-uuid";
 import { WAFModule } from "./vcl-waf";
 
@@ -761,6 +762,13 @@ export function createVCLContext(): VCLContext {
 		globfilter_except: QueryStringModule.globfilter_except,
 		regfilter: QueryStringModule.regfilter,
 		regfilter_except: QueryStringModule.regfilter_except,
+	};
+
+	context.utf8 = {
+		is_valid: UTF8Module.is_valid,
+		codepoint_count: UTF8Module.codepoint_count,
+		substr: UTF8Module.substr,
+		strpad: UTF8Module.strpad,
 	};
 
 	context.uuid = {

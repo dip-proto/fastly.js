@@ -767,10 +767,25 @@ export class VCLParser {
 			"^=",
 			"<<=",
 			">>=",
+			"rol=",
+			"ror=",
 		];
 		let operator = "=";
 
-		if (this.check(TokenType.OPERATOR)) {
+		if (this.check(TokenType.IDENTIFIER)) {
+			const identValue = this.peek().value;
+			if (
+				(identValue === "rol" || identValue === "ror") &&
+				this.current + 1 < this.tokens.length &&
+				this.tokens[this.current + 1]?.value === "="
+			) {
+				operator = `${identValue}=`;
+				this.advance();
+				this.advance();
+			} else {
+				this.error("Expected assignment operator after identifier");
+			}
+		} else if (this.check(TokenType.OPERATOR)) {
 			const opToken = this.peek();
 			if (compoundOperators.includes(opToken.value)) {
 				operator = opToken.value;

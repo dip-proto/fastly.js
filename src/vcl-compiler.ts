@@ -197,6 +197,12 @@ export interface VCLContext {
 		encode: (binary: Uint8Array) => string;
 		[key: string]: any;
 	};
+	utf8?: {
+		is_valid: (s: string) => boolean;
+		codepoint_count: (s: string) => number;
+		substr: (s: string, offset: number, length?: number) => string | null;
+		strpad: (s: string, width: number, pad: string) => string | null;
+	};
 	waf?: Record<string, any>;
 	error?: (status: number, message: string) => string;
 	// The std module has many dynamic properties - use a flexible type
@@ -980,6 +986,21 @@ export class VCLCompiler {
 				return cur << val;
 			case ">>=":
 				return cur >> val;
+			case "rol=": {
+				// 64-bit rotation
+				const c = BigInt(cur);
+				const b = BigInt(val) & 63n;
+				const mask = 0xffffffffffffffffn;
+				const v = ((c << b) | ((c & mask) >> (64n - b))) & mask;
+				return Number(v > 0x7fffffffffffffffn ? v - 0x10000000000000000n : v);
+			}
+			case "ror=": {
+				const c = BigInt(cur);
+				const b = BigInt(val) & 63n;
+				const mask = 0xffffffffffffffffn;
+				const v = (((c & mask) >> b) | (c << (64n - b))) & mask;
+				return Number(v > 0x7fffffffffffffffn ? v - 0x10000000000000000n : v);
+			}
 			default:
 				return newValue;
 		}
@@ -1507,6 +1528,7 @@ export class VCLCompiler {
 			"querystring.": context.querystring,
 			"uuid.": context.uuid,
 			"waf.": context.waf,
+			"utf8.": (context as any).utf8,
 			"testing.": (context as any).testing,
 			"assert.": (context as any).assert,
 		};
@@ -1514,7 +1536,10 @@ export class VCLCompiler {
 		for (const [prefix, module] of Object.entries(prefixModules)) {
 			if (functionName.startsWith(prefix) && module) {
 				const fn = functionName.substring(prefix.length);
-				if (typeof module[fn] === "function") return module[fn](...args);
+				if (typeof module[fn] === "function") {
+					const result = module[fn](...args);
+					return result === null ? VCLString.notset() : result;
+				}
 			}
 		}
 
@@ -1526,7 +1551,10 @@ export class VCLCompiler {
 		if (functionName.startsWith("digest.") && context.std?.digest) {
 			const fn = functionName.substring(7);
 			const digestModule = context.std.digest as Record<string, (...args: any[]) => unknown>;
-			if (typeof digestModule[fn] === "function") return digestModule[fn](...args);
+			if (typeof digestModule[fn] === "function") {
+				const result = digestModule[fn](...args);
+				return result === null ? VCLString.notset() : result;
+			}
 		}
 
 		if (functionName.startsWith("std.")) {
@@ -1790,6 +1818,11 @@ export class VCLCompiler {
 			return require("node:crypto").createHash("sha256").update(String(args[0])).digest("hex");
 		} else if (functionName === "fastly.try_select_shield") {
 			return false;
+		} else if (
+			functionName === "fastly.ff_last_hop_was_serviceid" ||
+			functionName === "fastly.ff.last_hop_was_serviceid"
+		) {
+			return false;
 		} else if (functionName === "h2.push") {
 			return null;
 		} else if (functionName === "h2.disable_header_compression") {
@@ -1816,6 +1849,7 @@ export class VCLCompiler {
 		const idPart1 = parts[1] ?? "";
 		const idPart2 = parts[2] ?? "";
 
+		if (name === "LF") return "\n";
 		if (name === "now") return Date.now();
 		if (name === "now.sec") return Math.floor(Date.now() / 1000);
 
@@ -1922,6 +1956,20 @@ export class VCLCompiler {
 		if (name === "req.header_bytes_read") return 0;
 		if (name === "req.body_bytes_read") return 0;
 		if (name === "req.topurl") return context.req.url;
+		if (name === "req.postbody") return ctx.req?.body || "";
+		if (name === "req.protocol") {
+			return ctx.req?.is_ssl ? "https" : "http";
+		}
+		if (name === "req.service_id") return ctx.req?.service_id || "local-service-id";
+		if (name === "req.customer_id") return ctx.req?.customer_id || "local-customer-id";
+		if (name === "req.vcl") return ctx.req?.vcl || "local.1_0-00000000000000000000000000000000";
+		if (name === "req.vcl.md5") {
+			const vcl = ctx.req?.vcl || "local.1_0-00000000000000000000000000000000";
+			return require("node:crypto").createHash("md5").update(vcl).digest("hex");
+		}
+		if (name === "req.vcl.generation") return 1;
+		if (name === "req.vcl.version") return 1;
+		if (name === "req.headers") return Object.keys(context.req.http || {}).length;
 		if (name.startsWith("req.backend.")) {
 			const prop = name.substring(12);
 			const be = context.current_backend || context.backends?.[context.req.backend || "default"];
@@ -1952,6 +2000,24 @@ export class VCLCompiler {
 			const qIdx = url.indexOf("?");
 			return qIdx >= 0 ? url.substring(qIdx + 1) : "";
 		}
+		if (name === "bereq.url.basename") {
+			const path = this.resolveVariable("bereq.url.path", context) as string;
+			const lastSlash = path.lastIndexOf("/");
+			return lastSlash >= 0 ? path.substring(lastSlash + 1) : path;
+		}
+		if (name === "bereq.url.dirname") {
+			const path = this.resolveVariable("bereq.url.path", context) as string;
+			const lastSlash = path.lastIndexOf("/");
+			return lastSlash >= 0 ? path.substring(0, lastSlash + 1) : "/";
+		}
+		if (name === "bereq.url.ext") {
+			const basename = this.resolveVariable("bereq.url.basename", context) as string;
+			const dotIdx = basename.lastIndexOf(".");
+			return dotIdx >= 0 ? basename.substring(dotIdx + 1) : "";
+		}
+		if (name === "bereq.headers") return Object.keys(context.bereq.http || {}).length;
+		if (name === "bereq.max_reuse_idle_time") return ctx.bereq?.max_reuse_idle_time ?? 0;
+		if (name === "bereq.fetch_timeout") return ctx.bereq?.fetch_timeout ?? 0;
 		if (name === "bereq.connect_timeout") return ctx.bereq?.connect_timeout ?? 1000;
 		if (name === "bereq.first_byte_timeout") return ctx.bereq?.first_byte_timeout ?? 15000;
 		if (name === "bereq.between_bytes_timeout") return ctx.bereq?.between_bytes_timeout ?? 10000;
@@ -1976,6 +2042,9 @@ export class VCLCompiler {
 		if (name === "beresp.saintmode") return ctx.beresp?.saintmode ?? 0;
 		if (name === "beresp.hipaa") return false;
 		if (name === "beresp.pci") return false;
+		if (name === "beresp.headers") return Object.keys(context.beresp.http || {}).length;
+		if (name === "beresp.handshake_time_to_origin_ms") return 100;
+		if (name === "beresp.used_alternate_path_to_origin") return false;
 		if (name.startsWith("beresp.backend.")) {
 			const prop = name.substring(15);
 			const be = context.current_backend || context.backends?.[context.req.backend || "default"];
@@ -2000,6 +2069,7 @@ export class VCLCompiler {
 		if (name === "resp.stale") return ctx.resp?.stale ?? false;
 		if (name === "resp.stale.is_error") return false;
 		if (name === "resp.stale.is_revalidating") return false;
+		if (name === "resp.headers") return Object.keys(context.resp.http || {}).length;
 		if (name === "resp.bytes_written") return 0;
 		if (name === "resp.header_bytes_written") return 0;
 		if (name === "resp.body_bytes_written") return 0;
@@ -2018,6 +2088,7 @@ export class VCLCompiler {
 		if (name === "obj.is_pci") return false;
 		if (name === "obj.stale_if_error") return ctx.obj?.stale_if_error ?? 0;
 		if (name === "obj.stale_while_revalidate") return ctx.obj?.stale_while_revalidate ?? 0;
+		if (name === "obj.headers") return Object.keys(context.obj.http || {}).length;
 
 		// client.* variables
 		if (name === "client.ip") return context.client?.ip || "127.0.0.1";
@@ -2091,6 +2162,9 @@ export class VCLCompiler {
 		if (name === "fastly.error") return context.fastly?.error || "";
 		if (name === "fastly.is_staging") return false;
 		if (name === "fastly.ddos_detected") return false;
+		if (name === "fastly.ff.visits_this_pop") return 0;
+		if (name === "fastly.ff.visits_this_pop_this_service") return 0;
+		if (name === "fastly.ff.visits_this_service") return 0;
 		if (name.startsWith("fastly.ff.")) return 0;
 
 		// fastly_info.* variables
@@ -2113,7 +2187,13 @@ export class VCLCompiler {
 		if (name === "time.elapsed" || name === "time.elapsed.sec") return 0;
 		if (name === "time.elapsed.msec") return 0;
 		if (name === "time.elapsed.usec") return 0;
+		if (name === "time.elapsed.msec_frac") return "000";
+		if (name === "time.elapsed.usec_frac") return "000000";
 		if (name === "time.end" || name === "time.end.sec") return Math.floor(Date.now() / 1000);
+		if (name === "time.end.msec") return Date.now();
+		if (name === "time.end.usec") return Date.now() * 1000;
+		if (name === "time.end.msec_frac") return Date.now() % 1000;
+		if (name === "time.end.usec_frac") return (Date.now() * 1000) % 1000000;
 		if (name === "time.to_first_byte") return 0;
 
 		// tls.client.* variables
@@ -2161,6 +2241,9 @@ export class VCLCompiler {
 		// math.* constants
 		const mathConstants: Record<string, number> = {
 			"math.PI": Math.PI,
+			"math.PI_2": Math.PI / 2,
+			"math.PI_4": Math.PI / 4,
+			"math.2PI": 2 * Math.PI,
 			"math.E": Math.E,
 			"math.TAU": 2 * Math.PI,
 			"math.PHI": (1 + Math.sqrt(5)) / 2,
@@ -2175,12 +2258,22 @@ export class VCLCompiler {
 			"math.LOG10E": Math.LOG10E,
 			"math.NEG_INFINITY": -Infinity,
 			"math.POS_INFINITY": Infinity,
+			"math.NEG_HUGE_VAL": -Infinity,
+			"math.POS_HUGE_VAL": Infinity,
 			"math.NAN": NaN,
 			"math.FLOAT_MAX": Number.MAX_VALUE,
 			"math.FLOAT_MIN": Number.MIN_VALUE,
 			"math.FLOAT_EPSILON": Number.EPSILON,
+			"math.FLOAT_DIG": 15,
+			"math.FLOAT_MANT_DIG": 53,
+			"math.FLOAT_MAX_10_EXP": 308,
+			"math.FLOAT_MAX_EXP": 1024,
+			"math.FLOAT_MIN_10_EXP": -307,
+			"math.FLOAT_MIN_EXP": -1021,
+			"math.FLOAT_RADIX": 2,
 			"math.INTEGER_MAX": 2147483647,
 			"math.INTEGER_MIN": -2147483648,
+			"math.INTEGER_BIT": 64,
 		};
 		if (mathConstants[name] !== undefined) return mathConstants[name];
 
@@ -2208,6 +2301,34 @@ export class VCLCompiler {
 		// backend.socket.* variables
 		if (name.startsWith("backend.socket.")) return 0;
 		if (name.startsWith("backend.conn.")) return false;
+
+		// Dynamic backend.{name}.healthy / backend.{name}.connections_* variables
+		const backendHealthMatch = name.match(
+			/^backend\.([^.]+)\.(healthy|connections_open|connections_used)$/,
+		);
+		if (backendHealthMatch) {
+			const beName = backendHealthMatch[1]!;
+			const prop = backendHealthMatch[2]!;
+			const be = context.backends?.[beName];
+			if (prop === "healthy") return be?.is_healthy ?? true;
+			return 0;
+		}
+
+		// Dynamic director.{name}.healthy variables
+		const directorHealthMatch = name.match(/^director\.([^.]+)\.healthy$/);
+		if (directorHealthMatch) {
+			const dirName = directorHealthMatch[1]!;
+			const dir = context.directors?.[dirName];
+			if (dir) return true;
+			const be = context.backends?.[dirName];
+			return be?.is_healthy ?? true;
+		}
+
+		// Dynamic ratecounter.{name}.{method}.{window} variables
+		const ratecounterMatch = name.match(/^ratecounter\.([^.]+)\.(bucket|rate)\.(\d+s)$/);
+		if (ratecounterMatch) {
+			return 0;
+		}
 
 		return "";
 	}
