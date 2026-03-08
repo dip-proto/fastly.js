@@ -9,8 +9,8 @@ import {
 	type VCLCallStatement,
 	type VCLComment,
 	type VCLDirectorDeclaration,
-	type VCLEsiStatement,
 	type VCLErrorStatement,
+	type VCLEsiStatement,
 	type VCLExpression,
 	type VCLGotoStatement,
 	type VCLHashDataStatement,
@@ -1176,12 +1176,15 @@ export class VCLParser {
 						if (propName === "backend") {
 							backendName = this.consumeName("Expected backend name").value;
 						} else if (propName === "weight") {
-							weight = parseFloat(
-								this.consume(TokenType.NUMBER, "Expected weight value").value,
-							);
+							weight = parseFloat(this.consume(TokenType.NUMBER, "Expected weight value").value);
 						} else {
 							// Skip other properties
-							if (this.match(TokenType.STRING) || this.match(TokenType.NUMBER) || this.match(TokenType.IDENTIFIER) || this.match(TokenType.KEYWORD)) {
+							if (
+								this.match(TokenType.STRING) ||
+								this.match(TokenType.NUMBER) ||
+								this.match(TokenType.IDENTIFIER) ||
+								this.match(TokenType.KEYWORD)
+							) {
 								// consumed value
 							}
 						}

@@ -1,11 +1,9 @@
 import { createVCLContext } from "./vcl";
-import { VCLString, VCLConcatResult, isNotSet, toRawString, toDisplayString, toConcatPart } from "./vcl-value";
 import type {
 	VCLAddStatement,
 	VCLBinaryExpression,
 	VCLCallStatement,
 	VCLDeclareStatement,
-	VCLEsiStatement,
 	VCLErrorStatement,
 	VCLExpression,
 	VCLFunctionCall,
@@ -18,14 +16,12 @@ import type {
 	VCLNumberLiteral,
 	VCLProgram,
 	VCLRegexLiteral,
-	VCLRemoveStatement,
 	VCLRestartStatement,
 	VCLReturnStatement,
 	VCLSetStatement,
 	VCLStatement,
 	VCLStringLiteral,
 	VCLSubroutine,
-	VCLSwitchCase,
 	VCLSwitchStatement,
 	VCLSyntheticBase64Statement,
 	VCLSyntheticStatement,
@@ -33,6 +29,14 @@ import type {
 	VCLUnaryExpression,
 	VCLUnsetStatement,
 } from "./vcl-parser";
+import {
+	isNotSet,
+	toConcatPart,
+	toDisplayString,
+	toRawString,
+	VCLConcatResult,
+	VCLString,
+} from "./vcl-value";
 
 export interface VCLBackend {
 	name: string;
@@ -831,13 +835,9 @@ export class VCLCompiler {
 			? statement.variableName.substring(4)
 			: statement.variableName;
 		if (statement.initialValue) {
-			context.locals[varName] = this.evaluateExpression(
-				statement.initialValue,
-				context,
-			);
+			context.locals[varName] = this.evaluateExpression(statement.initialValue, context);
 		} else {
-			context.locals[varName] =
-				typeDefaults[statement.variableType.toUpperCase()] ?? "";
+			context.locals[varName] = typeDefaults[statement.variableType.toUpperCase()] ?? "";
 		}
 	}
 
@@ -904,9 +904,8 @@ export class VCLCompiler {
 
 		const conditionRaw = this.evaluateExpression(statement.test, context);
 		// VCLString NOTSET is falsy, non-NOTSET VCLString (even empty) is truthy
-		const condition = conditionRaw instanceof VCLString
-			? !conditionRaw.isNotSet
-			: Boolean(conditionRaw);
+		const condition =
+			conditionRaw instanceof VCLString ? !conditionRaw.isNotSet : Boolean(conditionRaw);
 		const stmts = condition ? statement.consequent : statement.alternate;
 		if (stmts) {
 			for (const stmt of stmts) {
@@ -1088,21 +1087,21 @@ export class VCLCompiler {
 
 				const [baseHeader, subfieldKey] = this.parseSubfield(headerName);
 				if (subfieldKey !== null) {
-					const strVal = isNotSet(resolved) ? ""
-						: resolved instanceof VCLString ? resolved.value
-						: String(resolved);
+					const strVal = isNotSet(resolved)
+						? ""
+						: resolved instanceof VCLString
+							? resolved.value
+							: String(resolved);
 					const currentVal = httpObjects[part0]![baseHeader] ?? "";
 					httpObjects[part0]![baseHeader] = this.dictSet(currentVal, subfieldKey, strVal);
 				} else if (isNotSet(resolved)) {
 					delete httpObjects[part0]![headerName];
 				} else {
-					httpObjects[part0]![headerName] = resolved instanceof VCLString
-						? resolved.value
-						: String(resolved);
+					httpObjects[part0]![headerName] =
+						resolved instanceof VCLString ? resolved.value : String(resolved);
 				}
 			}
-		}
-		else if (parts.length === 2 && part0 === "req" && part1 === "backend") {
+		} else if (parts.length === 2 && part0 === "req" && part1 === "backend") {
 			context.req.backend = String(value);
 
 			// Also update current_backend if the backend exists
@@ -1129,8 +1128,7 @@ export class VCLCompiler {
 			} else {
 				context.results.defaultBackend = context.req.backend;
 			}
-		}
-		else if (parts.length === 2 && part0 === "beresp" && part1 === "ttl") {
+		} else if (parts.length === 2 && part0 === "beresp" && part1 === "ttl") {
 			const ttl = parseTimeValue(String(value));
 			context.beresp.ttl = ttl;
 			if (!context.resp.http) context.resp.http = {};
@@ -1162,8 +1160,7 @@ export class VCLCompiler {
 				context.resp.http = {};
 			}
 			context.resp.http["X-ESI"] = doEsi ? "true" : "false";
-		}
-		else if (parts.length >= 2 && part0 === "var") {
+		} else if (parts.length >= 2 && part0 === "var") {
 			const varName = parts.slice(1).join(".");
 
 			if (!context.locals) {
@@ -1182,101 +1179,69 @@ export class VCLCompiler {
 				resolved = VCLString.from(resolved);
 			}
 			context.locals[varName] = resolved;
-		}
-		else if (parts.length === 2 && part0 === "req" && part1 === "url") {
+		} else if (parts.length === 2 && part0 === "req" && part1 === "url") {
 			context.req.url = String(value);
-		}
-		else if (parts.length === 2 && part0 === "bereq" && part1 === "url") {
+		} else if (parts.length === 2 && part0 === "bereq" && part1 === "url") {
 			context.bereq.url = String(value);
-		}
-		else if (parts.length === 2 && part0 === "req" && part1 === "method") {
+		} else if (parts.length === 2 && part0 === "req" && part1 === "method") {
 			context.req.method = String(value);
-		}
-		else if (parts.length === 2 && part0 === "bereq" && part1 === "method") {
+		} else if (parts.length === 2 && part0 === "bereq" && part1 === "method") {
 			context.bereq.method = String(value);
-		}
-		else if (parts.length === 2 && part0 === "req" && part1 === "restarts") {
+		} else if (parts.length === 2 && part0 === "req" && part1 === "restarts") {
 			context.req.restarts = Number(value);
-		}
-		else if (parts.length === 2 && part0 === "resp" && part1 === "status") {
+		} else if (parts.length === 2 && part0 === "resp" && part1 === "status") {
 			context.resp.status = Number(value);
-		}
-		else if (parts.length === 2 && part0 === "resp" && part1 === "response") {
+		} else if (parts.length === 2 && part0 === "resp" && part1 === "response") {
 			context.resp.statusText = String(value);
-		}
-		else if (parts.length === 2 && part0 === "beresp" && part1 === "status") {
+		} else if (parts.length === 2 && part0 === "beresp" && part1 === "status") {
 			context.beresp.status = Number(value);
-		}
-		else if (parts.length === 2 && part0 === "beresp" && part1 === "response") {
+		} else if (parts.length === 2 && part0 === "beresp" && part1 === "response") {
 			context.beresp.statusText = String(value);
-		}
-		else if (parts.length === 2 && part0 === "obj" && part1 === "status") {
+		} else if (parts.length === 2 && part0 === "obj" && part1 === "status") {
 			context.obj.status = Number(value);
-		}
-		else if (parts.length === 2 && part0 === "obj" && part1 === "response") {
+		} else if (parts.length === 2 && part0 === "obj" && part1 === "response") {
 			context.obj.response = String(value);
-		}
-		else if (parts.length === 2 && part0 === "obj" && part1 === "ttl") {
+		} else if (parts.length === 2 && part0 === "obj" && part1 === "ttl") {
 			(context.obj as any).ttl = parseTimeValue(String(value));
-		}
-		else if (parts.length === 2 && part0 === "obj" && part1 === "grace") {
+		} else if (parts.length === 2 && part0 === "obj" && part1 === "grace") {
 			(context.obj as any).grace = parseTimeValue(String(value));
-		}
-		else if (parts.length === 2 && part0 === "obj" && part1 === "hits") {
+		} else if (parts.length === 2 && part0 === "obj" && part1 === "hits") {
 			context.obj.hits = Number(value);
-		}
-		else if (parts.length === 2 && part0 === "beresp" && part1 === "cacheable") {
+		} else if (parts.length === 2 && part0 === "beresp" && part1 === "cacheable") {
 			(context.beresp as any).cacheable = Boolean(value);
-		}
-		else if (parts.length === 2 && part0 === "beresp" && part1 === "do_stream") {
+		} else if (parts.length === 2 && part0 === "beresp" && part1 === "do_stream") {
 			(context.beresp as any).do_stream = Boolean(value);
-		}
-		else if (parts.length === 2 && part0 === "beresp" && part1 === "gzip") {
+		} else if (parts.length === 2 && part0 === "beresp" && part1 === "gzip") {
 			(context.beresp as any).gzip = Boolean(value);
-		}
-		else if (parts.length === 2 && part0 === "beresp" && part1 === "brotli") {
+		} else if (parts.length === 2 && part0 === "beresp" && part1 === "brotli") {
 			(context.beresp as any).brotli = Boolean(value);
-		}
-		else if (parts.length === 2 && part0 === "beresp" && part1 === "saintmode") {
+		} else if (parts.length === 2 && part0 === "beresp" && part1 === "saintmode") {
 			(context.beresp as any).saintmode = parseTimeValue(String(value));
-		}
-		else if (parts.length === 2 && part0 === "beresp" && part1 === "stale_if_error") {
+		} else if (parts.length === 2 && part0 === "beresp" && part1 === "stale_if_error") {
 			(context.beresp as any).stale_if_error = parseTimeValue(String(value));
-		}
-		else if (parts.length === 2 && part0 === "client" && part1 === "identity") {
+		} else if (parts.length === 2 && part0 === "client" && part1 === "identity") {
 			(context.client as any).identity = String(value);
-		}
-		else if (parts.length === 2 && part0 === "req" && part1 === "hash_always_miss") {
+		} else if (parts.length === 2 && part0 === "req" && part1 === "hash_always_miss") {
 			(context.req as any).hash_always_miss = Boolean(value);
-		}
-		else if (parts.length === 2 && part0 === "req" && part1 === "hash_ignore_busy") {
+		} else if (parts.length === 2 && part0 === "req" && part1 === "hash_ignore_busy") {
 			(context.req as any).hash_ignore_busy = Boolean(value);
-		}
-		else if (parts.length === 2 && part0 === "req" && part1 === "is_ssl") {
+		} else if (parts.length === 2 && part0 === "req" && part1 === "is_ssl") {
 			(context.req as any).is_ssl = Boolean(value);
-		}
-		else if (parts.length === 2 && part0 === "req" && part1 === "esi") {
+		} else if (parts.length === 2 && part0 === "req" && part1 === "esi") {
 			(context.req as any).esi = Boolean(value);
-		}
-		else if (parts.length === 2 && part0 === "req" && part1 === "grace") {
+		} else if (parts.length === 2 && part0 === "req" && part1 === "grace") {
 			(context.req as any).grace = parseTimeValue(String(value));
-		}
-		else if (parts.length === 2 && part0 === "req" && part1 === "max_stale_if_error") {
+		} else if (parts.length === 2 && part0 === "req" && part1 === "max_stale_if_error") {
 			(context.req as any).max_stale_if_error = parseTimeValue(String(value));
-		}
-		else if (parts.length === 2 && part0 === "req" && part1 === "max_stale_while_revalidate") {
+		} else if (parts.length === 2 && part0 === "req" && part1 === "max_stale_while_revalidate") {
 			(context.req as any).max_stale_while_revalidate = parseTimeValue(String(value));
-		}
-		else if (parts.length === 2 && part0 === "bereq" && part1 === "connect_timeout") {
+		} else if (parts.length === 2 && part0 === "bereq" && part1 === "connect_timeout") {
 			(context.bereq as any).connect_timeout = parseTimeValue(String(value));
-		}
-		else if (parts.length === 2 && part0 === "bereq" && part1 === "first_byte_timeout") {
+		} else if (parts.length === 2 && part0 === "bereq" && part1 === "first_byte_timeout") {
 			(context.bereq as any).first_byte_timeout = parseTimeValue(String(value));
-		}
-		else if (parts.length === 2 && part0 === "bereq" && part1 === "between_bytes_timeout") {
+		} else if (parts.length === 2 && part0 === "bereq" && part1 === "between_bytes_timeout") {
 			(context.bereq as any).between_bytes_timeout = parseTimeValue(String(value));
-		}
-		else if (parts.length >= 2) {
+		} else if (parts.length >= 2) {
 			const target = parts[0] as keyof VCLContext;
 			if (target in context && typeof (context as any)[target] === "object") {
 				const rest = parts.slice(1).join(".");
@@ -1311,7 +1276,9 @@ export class VCLCompiler {
 					}
 				} else if (headerName.includes("*")) {
 					const pattern = new RegExp(
-						"^" + headerName.replace(/[.*+?^${}()|[\]\\]/g, (m) => (m === "*" ? ".*" : `\\${m}`)) + "$",
+						"^" +
+							headerName.replace(/[.*+?^${}()|[\]\\]/g, (m) => (m === "*" ? ".*" : `\\${m}`)) +
+							"$",
 						"i",
 					);
 					for (const key of Object.keys(headers)) {
@@ -1321,8 +1288,7 @@ export class VCLCompiler {
 					delete headers[headerName];
 				}
 			}
-		}
-		else if (parts.length >= 2 && part0 === "var") {
+		} else if (parts.length >= 2 && part0 === "var") {
 			const varName = parts.slice(1).join(".");
 			if (context.locals) delete context.locals[varName];
 		}
@@ -1384,7 +1350,10 @@ export class VCLCompiler {
 		}
 	}
 
-	private executeCallStatement(statement: VCLCallStatement, context: VCLContext): string | undefined {
+	private executeCallStatement(
+		statement: VCLCallStatement,
+		context: VCLContext,
+	): string | undefined {
 		const sub = this.program.subroutines.find((s) => s.name === statement.subroutineName);
 		if (!sub) {
 			console.error(`Unknown subroutine: ${statement.subroutineName}`);
@@ -1407,8 +1376,18 @@ export class VCLCompiler {
 			if (result && typeof result === "string") {
 				// If the custom sub returns a VCL action (deliver, pass, etc.), propagate it
 				if (
-					["deliver", "pass", "lookup", "fetch", "error", "restart", "pipe", "hash",
-					 "deliver_stale", "hit_for_pass"].includes(result)
+					[
+						"deliver",
+						"pass",
+						"lookup",
+						"fetch",
+						"error",
+						"restart",
+						"pipe",
+						"hash",
+						"deliver_stale",
+						"hit_for_pass",
+					].includes(result)
 				) {
 					return result;
 				}
@@ -1546,7 +1525,7 @@ export class VCLCompiler {
 
 		if (functionName.startsWith("digest.") && context.std?.digest) {
 			const fn = functionName.substring(7);
-			const digestModule = context.std.digest as Record<string, Function>;
+			const digestModule = context.std.digest as Record<string, (...args: any[]) => unknown>;
 			if (typeof digestModule[fn] === "function") return digestModule[fn](...args);
 		}
 
@@ -1573,7 +1552,7 @@ export class VCLCompiler {
 			};
 			if (mathFuncs[stdFunction]) return mathFuncs[stdFunction](args);
 
-				if (stdParts.length === 2 && stdParts[0] === "director" && stdParts[1] === "select_backend") {
+			if (stdParts.length === 2 && stdParts[0] === "director" && stdParts[1] === "select_backend") {
 				if (args.length === 1 && typeof args[0] === "string") {
 					const directorName = args[0];
 					if (context.directors?.[directorName]) {
@@ -1635,11 +1614,11 @@ export class VCLCompiler {
 			}
 		} else if (functionName.startsWith("math.")) {
 			const fn = functionName.substring(5);
-			const mathModule = context.math as Record<string, Function> | undefined;
+			const mathModule = context.math as Record<string, (...args: any[]) => unknown> | undefined;
 			if (mathModule && typeof mathModule[fn] === "function") return mathModule[fn](...args);
 		} else if (functionName.startsWith("table.")) {
 			const fn = functionName.substring(6);
-			const tableModule = context.table as Record<string, Function> | undefined;
+			const tableModule = context.table as Record<string, (...args: any[]) => unknown> | undefined;
 			if (tableModule && typeof tableModule[fn] === "function") {
 				if (fn === "lookup" || fn === "contains" || fn.startsWith("lookup_")) {
 					const firstArg = expression.arguments[0];
@@ -1651,11 +1630,13 @@ export class VCLCompiler {
 			}
 		} else if (functionName.startsWith("time.")) {
 			const fn = functionName.substring(5);
-			const timeModule = context.time as Record<string, Function> | undefined;
+			const timeModule = context.time as Record<string, (...args: any[]) => unknown> | undefined;
 			if (timeModule && typeof timeModule[fn] === "function") return timeModule[fn](...args);
 		} else if (functionName.startsWith("header.")) {
 			const fn = functionName.substring(7);
-			const headerModule = context.header as Record<string, Function> | undefined;
+			const headerModule = context.header as
+				| Record<string, (...args: any[]) => unknown>
+				| undefined;
 			if (headerModule && typeof headerModule[fn] === "function") return headerModule[fn](...args);
 		} else if (functionName.startsWith("ratelimit.")) {
 			const fn = functionName.substring(10);
@@ -1817,7 +1798,9 @@ export class VCLCompiler {
 			return null;
 		} else if (functionName.startsWith("crypto.")) {
 			const fn = functionName.substring(7);
-			const cryptoModule = context.std?.crypto as Record<string, Function> | undefined;
+			const cryptoModule = context.std?.crypto as
+				| Record<string, (...args: any[]) => unknown>
+				| undefined;
 			if (cryptoModule && typeof cryptoModule[fn] === "function") return cryptoModule[fn](...args);
 		}
 
@@ -1944,8 +1927,13 @@ export class VCLCompiler {
 			const be = context.current_backend || context.backends?.[context.req.backend || "default"];
 			if (!be) return "";
 			const beProps: Record<string, any> = {
-				name: be.name, ip: be.host, port: be.port, healthy: be.is_healthy ?? true,
-				is_cluster: false, is_origin: true, is_shield: false,
+				name: be.name,
+				ip: be.host,
+				port: be.port,
+				healthy: be.is_healthy ?? true,
+				is_cluster: false,
+				is_origin: true,
+				is_shield: false,
 			};
 			return beProps[prop] ?? "";
 		}
@@ -1993,7 +1981,12 @@ export class VCLCompiler {
 			const be = context.current_backend || context.backends?.[context.req.backend || "default"];
 			if (!be) return "";
 			const beProps: Record<string, any> = {
-				name: be.name, ip: be.host, port: be.port, src_ip: "127.0.0.1", src_port: 0, requests: 0,
+				name: be.name,
+				ip: be.host,
+				port: be.port,
+				src_ip: "127.0.0.1",
+				src_port: 0,
+				requests: 0,
 			};
 			return beProps[prop] ?? "";
 		}
@@ -2029,7 +2022,8 @@ export class VCLCompiler {
 		// client.* variables
 		if (name === "client.ip") return context.client?.ip || "127.0.0.1";
 		if (name === "client.port") return ctx.client?.port ?? 0;
-		if (name === "client.identity") return ctx.client?.identity || context.client?.ip || "127.0.0.1";
+		if (name === "client.identity")
+			return ctx.client?.identity || context.client?.ip || "127.0.0.1";
 		if (name === "client.requests") return ctx.client?.requests ?? 1;
 		if (name === "client.identified") return false;
 		if (name === "client.sess_timeout") return 0;
@@ -2037,15 +2031,31 @@ export class VCLCompiler {
 			const geoProp = name.substring(11);
 			const geo = ctx.client?.geo || {};
 			const defaults: Record<string, any> = {
-				city: "", "city.ascii": "", "city.latin1": "", "city.utf8": "",
-				country_code: "US", country_code3: "USA",
-				country_name: "United States", "country_name.ascii": "United States",
-				continent_code: "NA", latitude: 37.7749, longitude: -122.4194,
-				postal_code: "", metro_code: 0, area_code: 0, region: "",
-				"region.ascii": "", "region.latin1": "", "region.utf8": "",
-				gmt_offset: -800, utc_offset: -800,
-				conn_speed: "broadband", conn_type: "wired",
-				ip_override: "", proxy_description: "", proxy_type: "",
+				city: "",
+				"city.ascii": "",
+				"city.latin1": "",
+				"city.utf8": "",
+				country_code: "US",
+				country_code3: "USA",
+				country_name: "United States",
+				"country_name.ascii": "United States",
+				continent_code: "NA",
+				latitude: 37.7749,
+				longitude: -122.4194,
+				postal_code: "",
+				metro_code: 0,
+				area_code: 0,
+				region: "",
+				"region.ascii": "",
+				"region.latin1": "",
+				"region.utf8": "",
+				gmt_offset: -800,
+				utc_offset: -800,
+				conn_speed: "broadband",
+				conn_type: "wired",
+				ip_override: "",
+				proxy_description: "",
+				proxy_type: "",
 			};
 			return geo[geoProp] ?? defaults[geoProp] ?? "";
 		}
@@ -2090,7 +2100,7 @@ export class VCLCompiler {
 		if (name === "fastly_info.is_cluster_edge") return false;
 		if (name === "fastly_info.is_cluster_shield") return false;
 		if (name === "fastly_info.edge.is_tls") return false;
-		if (name === "fastly_info.host_header") return context.req.http["Host"] || "";
+		if (name === "fastly_info.host_header") return context.req.http.Host || "";
 		if (name === "fastly_info.request_id") return ctx.fastly_info?.request_id || "local-req-id";
 		if (name.startsWith("fastly_info.h2.")) return 0;
 
@@ -2145,23 +2155,32 @@ export class VCLCompiler {
 		if (name.startsWith("geoip.")) {
 			const prop = name.substring(6);
 			if (prop === "use_x_forwarded_for") return false;
-			return this.resolveVariable("client.geo." + prop, context);
+			return this.resolveVariable(`client.geo.${prop}`, context);
 		}
 
 		// math.* constants
 		const mathConstants: Record<string, number> = {
-			"math.PI": Math.PI, "math.E": Math.E, "math.TAU": 2 * Math.PI,
+			"math.PI": Math.PI,
+			"math.E": Math.E,
+			"math.TAU": 2 * Math.PI,
 			"math.PHI": (1 + Math.sqrt(5)) / 2,
-			"math.1_PI": 1 / Math.PI, "math.2_PI": 2 / Math.PI,
+			"math.1_PI": 1 / Math.PI,
+			"math.2_PI": 2 / Math.PI,
 			"math.2_SQRTPI": 2 / Math.sqrt(Math.PI),
-			"math.SQRT2": Math.SQRT2, "math.SQRT1_2": Math.SQRT1_2,
-			"math.LN2": Math.LN2, "math.LN10": Math.LN10,
-			"math.LOG2E": Math.LOG2E, "math.LOG10E": Math.LOG10E,
-			"math.NEG_INFINITY": -Infinity, "math.POS_INFINITY": Infinity,
+			"math.SQRT2": Math.SQRT2,
+			"math.SQRT1_2": Math.SQRT1_2,
+			"math.LN2": Math.LN2,
+			"math.LN10": Math.LN10,
+			"math.LOG2E": Math.LOG2E,
+			"math.LOG10E": Math.LOG10E,
+			"math.NEG_INFINITY": -Infinity,
+			"math.POS_INFINITY": Infinity,
 			"math.NAN": NaN,
-			"math.FLOAT_MAX": Number.MAX_VALUE, "math.FLOAT_MIN": Number.MIN_VALUE,
+			"math.FLOAT_MAX": Number.MAX_VALUE,
+			"math.FLOAT_MIN": Number.MIN_VALUE,
 			"math.FLOAT_EPSILON": Number.EPSILON,
-			"math.INTEGER_MAX": 2147483647, "math.INTEGER_MIN": -2147483648,
+			"math.INTEGER_MAX": 2147483647,
+			"math.INTEGER_MIN": -2147483648,
 		};
 		if (mathConstants[name] !== undefined) return mathConstants[name];
 
@@ -2223,12 +2242,8 @@ export class VCLCompiler {
 		switch (expression.operator) {
 			case " ": {
 				// String concatenation with NOTSET tracking
-				const leftPart = left instanceof VCLConcatResult
-					? left.parts
-					: [toConcatPart(left)];
-				const rightPart = right instanceof VCLConcatResult
-					? right.parts
-					: [toConcatPart(right)];
+				const leftPart = left instanceof VCLConcatResult ? left.parts : [toConcatPart(left)];
+				const rightPart = right instanceof VCLConcatResult ? right.parts : [toConcatPart(right)];
 				return new VCLConcatResult([...leftPart, ...rightPart]);
 			}
 			case "+":
@@ -2452,7 +2467,7 @@ export class VCLCompiler {
 	/** Set a subfield in a comma-separated key=value dictionary */
 	private dictSet(headerValue: string, key: string, value: string): string {
 		const entries: Array<{ key: string; val: string | null }> = [];
-		let found = false;
+		let _found = false;
 
 		if (headerValue) {
 			for (const entry of headerValue.split(",")) {
@@ -2460,7 +2475,7 @@ export class VCLCompiler {
 				const entryKey = eqIdx === -1 ? entry.trim() : entry.substring(0, eqIdx).trim();
 				const entryVal = eqIdx === -1 ? null : entry.substring(eqIdx + 1).trim();
 				if (entryKey === key) {
-					found = true;
+					_found = true;
 					// Remove old entry, will re-add at end
 				} else if (entryKey) {
 					entries.push({ key: entryKey, val: entryVal });

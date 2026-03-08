@@ -4,9 +4,8 @@ interface AcceptValue {
 }
 
 function parseAcceptHeader(header: any): AcceptValue[] {
-	const headerStr = header && typeof header === "object" && "value" in header
-		? header.value
-		: String(header ?? "");
+	const headerStr =
+		header && typeof header === "object" && "value" in header ? header.value : String(header ?? "");
 	if (!headerStr) {
 		return [];
 	}
