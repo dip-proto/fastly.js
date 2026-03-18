@@ -488,6 +488,10 @@ const TIME_MULTIPLIERS: Record<string, number> = {
 	d: 60 * 60 * 24,
 };
 
+function seededRandom(seed: number): number {
+	return Math.abs(Math.sin(seed * 9301 + 49297) % 1);
+}
+
 function parseTimeValue(value: string): number {
 	const str = value.replace(/"/g, "");
 	for (const [suffix, multiplier] of Object.entries(TIME_MULTIPLIERS)) {
@@ -1669,7 +1673,15 @@ export class VCLCompiler {
 		} else if (functionName.startsWith("ratelimit.")) {
 			const fn = functionName.substring(10);
 			if (context.rateLimitModule && typeof context.rateLimitModule[fn] === "function") {
-				return context.rateLimitModule[fn](...args);
+				// ID arguments (ratecounter/penaltybox names) are bare identifiers in VCL.
+				const hasIdentifierArgs = expression.arguments.some((a) => a?.type === "Identifier");
+				const resolvedArgs = hasIdentifierArgs
+					? args.map((arg, i) => {
+							const exprArg = expression.arguments[i];
+							return exprArg?.type === "Identifier" ? (exprArg as VCLIdentifier).name : arg;
+						})
+					: args;
+				return context.rateLimitModule[fn](...resolvedArgs);
 			}
 		} else if (functionName === "strftime" && context.strftime) {
 			return context.strftime(args[0] as string, args[1] as Date);
@@ -1734,19 +1746,26 @@ export class VCLCompiler {
 				}
 			}
 			return "";
-		} else if (functionName === "randombool" || functionName === "randombool_seeded") {
+		} else if (functionName === "randombool") {
 			const numerator = Number(args[0]) || 1;
 			const denominator = Number(args[1]) || 2;
 			if (context.std?.random?.bool) return context.std.random.bool(numerator, denominator);
 			return Math.random() < numerator / denominator;
+		} else if (functionName === "randombool_seeded") {
+			const numerator = Number(args[0]) || 1;
+			const denominator = Number(args[1]) || 2;
+			return seededRandom(Number(args[2]) || 0) < numerator / denominator;
 		} else if (functionName === "randomint") {
 			const [from, to] = [Math.floor(Number(args[0])), Math.floor(Number(args[1]))];
 			return Math.floor(Math.random() * (to - from)) + from;
 		} else if (functionName === "randomint_seeded") {
-			const [from, to] = [Math.floor(Number(args[1])), Math.floor(Number(args[2]))];
-			return Math.floor(Math.random() * (to - from)) + from;
+			const [from, to] = [Math.floor(Number(args[0])), Math.floor(Number(args[1]))];
+			return Math.floor(seededRandom(Number(args[2]) || 0) * (to - from)) + from;
 		} else if (functionName === "randomstr") {
-			const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+			const chars =
+				args.length >= 2 && args[1]
+					? String(args[1])
+					: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 			return Array.from(
 				{ length: Math.max(0, Math.floor(Number(args[0]))) },
 				() => chars[Math.floor(Math.random() * chars.length)],
@@ -2056,6 +2075,7 @@ export class VCLCompiler {
 				src_ip: "127.0.0.1",
 				src_port: 0,
 				requests: 0,
+				alternate_ips: "",
 			};
 			return beProps[prop] ?? "";
 		}

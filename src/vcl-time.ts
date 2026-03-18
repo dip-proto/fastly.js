@@ -95,7 +95,7 @@ function getDayOfYear(date: Date): number {
 	return Math.floor((date.getTime() - start.getTime()) / 86400000);
 }
 
-function parseTimeValue(str: string): number {
+export function parseTimeValue(str: string): number {
 	const match = str.match(/^(-?\d+(?:\.\d+)?)(ms|s|m|h|d|w|y)?$/);
 	if (!match) return 0;
 	const num = parseFloat(match[1] ?? "0");

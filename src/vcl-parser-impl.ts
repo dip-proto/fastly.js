@@ -488,6 +488,15 @@ export class VCLParser {
 					return this.parseGotoStatement();
 				case "restart":
 					return this.parseRestartStatement();
+				case "pragma": {
+					// Skip pragma statements - consume tokens until semicolon
+					while (!this.check(TokenType.PUNCTUATION, ";") && !this.isAtEnd()) this.advance();
+					if (this.check(TokenType.PUNCTUATION, ";")) this.advance();
+					return {
+						type: "Statement",
+						location: { line: this.previous().line, column: this.previous().column },
+					};
+				}
 			}
 		} else if (this.match(TokenType.IDENTIFIER)) {
 			const identifier = this.previous().value;
@@ -586,7 +595,13 @@ export class VCLParser {
 
 	private parseElseClause(): VCLStatement[] | undefined {
 		while (this.check(TokenType.COMMENT)) this.advance();
-		if (!this.check(TokenType.KEYWORD) || this.peek().value !== "else") return undefined;
+		if (!this.check(TokenType.KEYWORD)) return undefined;
+		const kw = this.peek().value;
+		if (kw === "elseif" || kw === "elsif") {
+			this.advance();
+			return [this.parseIfStatement()];
+		}
+		if (kw !== "else") return undefined;
 		this.advance();
 		if (this.check(TokenType.KEYWORD) && this.peek().value === "if") {
 			this.advance();

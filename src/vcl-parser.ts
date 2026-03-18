@@ -413,6 +413,8 @@ const VCL_KEYWORDS = [
 	"if",
 	"else",
 	"elseif",
+	"elsif",
+	"pragma",
 	"return",
 	"set",
 	"unset",
