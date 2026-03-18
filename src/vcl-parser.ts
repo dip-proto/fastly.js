@@ -477,6 +477,14 @@ export class VCLLexer {
 				this.tokenizeComment();
 				continue;
 			}
+			if (char === "/" && this.peek() === "/") {
+				this.tokenizeComment();
+				continue;
+			}
+			if (char === "/" && this.peek() === "*") {
+				this.tokenizeBlockComment();
+				continue;
+			}
 			if (char === '"' || char === "'") {
 				this.tokenizeString(char);
 				continue;
@@ -556,8 +564,41 @@ export class VCLLexer {
 		const startLine = this.line;
 		const startColumn = this.column;
 		this.advance();
+		// Skip second / or # character if present
+		if (this.position < this.input.length && this.input[this.position] === "/") {
+			this.advance();
+		}
 		while (this.position < this.input.length && this.input[this.position] !== "\n") {
 			this.advance();
+		}
+		this.tokens.push({
+			type: TokenType.COMMENT,
+			value: this.input.substring(start, this.position),
+			line: startLine,
+			column: startColumn,
+			position: start,
+		});
+	}
+
+	private tokenizeBlockComment(): void {
+		const start = this.position;
+		const startLine = this.line;
+		const startColumn = this.column;
+		this.advance(); // skip /
+		this.advance(); // skip *
+		while (
+			this.position < this.input.length - 1 &&
+			!(this.input[this.position] === "*" && this.input[this.position + 1] === "/")
+		) {
+			if (this.input[this.position] === "\n") {
+				this.line++;
+				this.column = 1;
+			}
+			this.advance();
+		}
+		if (this.position < this.input.length - 1) {
+			this.advance(); // skip *
+			this.advance(); // skip /
 		}
 		this.tokens.push({
 			type: TokenType.COMMENT,

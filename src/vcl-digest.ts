@@ -1,29 +1,24 @@
 import * as crypto from "node:crypto";
 import { xxHash32 } from "js-xxhash";
+import sodium from "libsodium-wrappers";
 
-// xxHash64 is not supported: js-xxhash only provides xxHash32.
+// Initialize libsodium (it's async, but we ensure it's ready before use)
+let sodiumReady = false;
+const sodiumInit = sodium.ready.then(() => {
+	sodiumReady = true;
+});
 
 type HashAlgorithm = "md5" | "sha1" | "sha224" | "sha256" | "sha384" | "sha512";
 type TOTPAlgorithm = "md5" | "sha1" | "sha256" | "sha512";
 
-// TOTP implementation (RFC 6238) for digest.time_hmac_* functions.
-// Algorithm: base64 decode secret, generate TOTP code, hash the code, return base64.
-// Since base32(base64decode(s)) round-trips the key bytes, the effective HMAC key
-// is the base64-decoded secret.
 function generateTOTP(base64Secret: string, period: number, algorithm: TOTPAlgorithm): string {
 	const keyBytes = Buffer.from(String(base64Secret), "base64");
-
 	const counter = Math.floor(Date.now() / 1000 / period);
-
 	const counterBuf = Buffer.alloc(8);
-	const high = Math.floor(counter / 0x100000000);
-	const low = counter >>> 0;
-	counterBuf.writeUInt32BE(high, 0);
-	counterBuf.writeUInt32BE(low, 4);
+	counterBuf.writeUInt32BE(Math.floor(counter / 0x100000000), 0);
+	counterBuf.writeUInt32BE(counter >>> 0, 4);
 
 	const hmacResult = crypto.createHmac(algorithm, keyBytes).update(counterBuf).digest();
-
-	// Dynamic truncation (RFC 4226 section 5.4)
 	const offset = hmacResult[hmacResult.length - 1]! & 0x0f;
 	const code =
 		((hmacResult[offset]! & 0x7f) << 24) |
@@ -32,10 +27,10 @@ function generateTOTP(base64Secret: string, period: number, algorithm: TOTPAlgor
 		(hmacResult[offset + 3]! & 0xff);
 
 	const otp = (code % 1000000).toString().padStart(6, "0");
-
 	const finalHash = crypto.createHash(algorithm).update(otp).digest();
 	return finalHash.toString("base64");
 }
+
 type CipherAlgorithm =
 	| "aes-128-cbc"
 	| "aes-192-cbc"
@@ -47,13 +42,31 @@ type CipherAlgorithm =
 	| "aes-192-ctr"
 	| "aes-256-ctr";
 
+// Use libsodium for SHA-256 and SHA-512 when available, fall back to node:crypto
 function hash(algorithm: HashAlgorithm, input: string): string {
+	if (sodiumReady) {
+		const data = new TextEncoder().encode(String(input));
+		if (algorithm === "sha256") {
+			return Buffer.from(sodium.crypto_hash_sha256(data)).toString("hex");
+		}
+		if (algorithm === "sha512") {
+			return Buffer.from(sodium.crypto_hash_sha512(data)).toString("hex");
+		}
+	}
 	return crypto.createHash(algorithm).update(String(input)).digest("hex");
 }
 
 function hashFromBase64(algorithm: HashAlgorithm, input: string): string {
 	try {
 		const decoded = Buffer.from(String(input), "base64");
+		if (sodiumReady) {
+			if (algorithm === "sha256") {
+				return Buffer.from(sodium.crypto_hash_sha256(decoded)).toString("hex");
+			}
+			if (algorithm === "sha512") {
+				return Buffer.from(sodium.crypto_hash_sha512(decoded)).toString("hex");
+			}
+		}
 		return crypto.createHash(algorithm).update(decoded).digest("hex");
 	} catch {
 		return "";
@@ -66,6 +79,22 @@ function hmac(
 	input: string,
 	encoding: "hex" | "base64",
 ): string {
+	if (sodiumReady) {
+		const keyBytes = new TextEncoder().encode(String(key));
+		const data = new TextEncoder().encode(String(input));
+		if (algorithm === "sha256") {
+			const state = sodium.crypto_auth_hmacsha256_init(keyBytes);
+			sodium.crypto_auth_hmacsha256_update(state, data);
+			const result = sodium.crypto_auth_hmacsha256_final(state);
+			return Buffer.from(result).toString(encoding);
+		}
+		if (algorithm === "sha512") {
+			const state = sodium.crypto_auth_hmacsha512_init(keyBytes);
+			sodium.crypto_auth_hmacsha512_update(state, data);
+			const result = sodium.crypto_auth_hmacsha512_final(state);
+			return Buffer.from(result).toString(encoding);
+		}
+	}
 	return crypto.createHmac(algorithm, String(key)).update(String(input)).digest(encoding);
 }
 
@@ -107,6 +136,8 @@ function crc32b(input: string): string {
 	return buf.toString("hex");
 }
 
+export { sodiumInit };
+
 export const DigestModule = {
 	hash_md5: (input: string): string => hash("md5", input),
 	hash_sha1: (input: string): string => hash("sha1", input),
@@ -124,11 +155,9 @@ export const DigestModule = {
 	},
 
 	// xxHash64 stub - js-xxhash only provides xxHash32
-	// This returns a placeholder consistent with xxh32 for compatibility
 	hash_xxh64: (input: string): string => {
-		// xxHash64 is not available in js-xxhash, use sha256 truncated as a substitute
-		const hash = crypto.createHash("sha256").update(String(input)).digest("hex");
-		return hash.substring(0, 16); // Return 64-bit (16 hex chars) portion
+		const h = hash("sha256", input);
+		return h.substring(0, 16);
 	},
 
 	hash_sha1_from_base64: (input: string): string => hashFromBase64("sha1", input),
@@ -145,12 +174,11 @@ export const DigestModule = {
 		}
 	},
 
-	// xxHash64 from base64 stub
 	hash_xxh64_from_base64: (input: string): string => {
 		try {
 			const decoded = Buffer.from(String(input), "base64");
-			const hash = crypto.createHash("sha256").update(decoded).digest("hex");
-			return hash.substring(0, 16);
+			const h = hash("sha256", decoded.toString());
+			return h.substring(0, 16);
 		} catch {
 			return "";
 		}
@@ -163,8 +191,10 @@ export const DigestModule = {
 
 	hmac_md5_base64: (key: string, input: string): string => hmac("md5", key, input, "base64"),
 	hmac_sha1_base64: (key: string, input: string): string => hmac("sha1", key, input, "base64"),
-	hmac_sha256_base64: (key: string, input: string): string => hmac("sha256", key, input, "base64"),
-	hmac_sha512_base64: (key: string, input: string): string => hmac("sha512", key, input, "base64"),
+	hmac_sha256_base64: (key: string, input: string): string =>
+		hmac("sha256", key, input, "base64"),
+	hmac_sha512_base64: (key: string, input: string): string =>
+		hmac("sha512", key, input, "base64"),
 
 	time_hmac_md5: (key: string, interval: number, _offset: number): string => {
 		return generateTOTP(key, interval, "md5");
@@ -181,9 +211,16 @@ export const DigestModule = {
 
 	hmac_sha256_with_base64_key: (base64Key: string, input: string): string | null => {
 		const keyStr = String(base64Key);
-		if (keyStr === "") return null; // NOTSET for empty key
+		if (keyStr === "") return null;
 		try {
 			const key = Buffer.from(keyStr, "base64");
+			if (sodiumReady) {
+				const data = new TextEncoder().encode(String(input));
+				const state = sodium.crypto_auth_hmacsha256_init(key);
+				sodium.crypto_auth_hmacsha256_update(state, data);
+				const result = sodium.crypto_auth_hmacsha256_final(state);
+				return `0x${Buffer.from(result).toString("hex")}`;
+			}
 			return `0x${crypto.createHmac("sha256", key).update(String(input)).digest("hex")}`;
 		} catch {
 			return "";
@@ -192,7 +229,13 @@ export const DigestModule = {
 
 	secure_is_equal: (a: string, b: string): boolean => {
 		try {
-			return crypto.timingSafeEqual(Buffer.from(String(a)), Buffer.from(String(b)));
+			const bufA = Buffer.from(String(a));
+			const bufB = Buffer.from(String(b));
+			if (bufA.length !== bufB.length) return false;
+			if (sodiumReady) {
+				return sodium.memcmp(bufA, bufB);
+			}
+			return crypto.timingSafeEqual(bufA, bufB);
 		} catch {
 			return false;
 		}
@@ -249,6 +292,7 @@ export const DigestModule = {
 		service: string,
 		stringToSign: string,
 	): string => {
+		// AWS v4 uses HMAC-SHA256 throughout - use libsodium when available
 		let signature: Buffer = Buffer.from(`AWS4${String(key)}`);
 		const parts = [
 			String(dateStamp),
@@ -258,7 +302,14 @@ export const DigestModule = {
 			String(stringToSign),
 		];
 		for (const part of parts) {
-			signature = crypto.createHmac("sha256", signature).update(part).digest() as Buffer;
+			if (sodiumReady) {
+				const data = new TextEncoder().encode(part);
+				const state = sodium.crypto_auth_hmacsha256_init(signature);
+				sodium.crypto_auth_hmacsha256_update(state, data);
+				signature = Buffer.from(sodium.crypto_auth_hmacsha256_final(state));
+			} else {
+				signature = crypto.createHmac("sha256", signature).update(part).digest() as Buffer;
+			}
 		}
 		return signature.toString("hex").toLowerCase();
 	},
@@ -281,7 +332,10 @@ export const DigestModule = {
 				case "url":
 				case "url_nopad":
 				default:
-					sig = Buffer.from(String(signature).replace(/-/g, "+").replace(/_/g, "/"), "base64");
+					sig = Buffer.from(
+						String(signature).replace(/-/g, "+").replace(/_/g, "/"),
+						"base64",
+					);
 					break;
 			}
 
@@ -311,7 +365,10 @@ export const DigestModule = {
 				case "url":
 				case "url_nopad":
 				default:
-					sig = Buffer.from(String(signature).replace(/-/g, "+").replace(/_/g, "/"), "base64");
+					sig = Buffer.from(
+						String(signature).replace(/-/g, "+").replace(/_/g, "/"),
+						"base64",
+					);
 					break;
 			}
 

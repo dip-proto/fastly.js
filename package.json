@@ -11,7 +11,8 @@
 		"test:caching": "bun run test/caching-tests.ts",
 		"test:backend": "bun run test/backend-error-tests.ts",
 		"test:root": "bun run test/run-root-tests.ts",
-		"test:all": "bun run test && bun run test:root",
+		"test:falco": "bun run test/falco-test-runner.ts",
+		"test:all": "bun run test && bun run test:root && bun run test:falco",
 		"lint": "biome lint .",
 		"format": "biome format --write .",
 		"check": "biome check --write .",
@@ -27,8 +28,10 @@
 		"typescript": "^5.9.3"
 	},
 	"dependencies": {
+		"@types/libsodium-wrappers": "^0.8.2",
 		"@types/uuid": "^11.0.0",
 		"js-xxhash": "^5.0.1",
+		"libsodium-wrappers": "^0.8.2",
 		"uuid": "^13.0.0"
 	}
 }

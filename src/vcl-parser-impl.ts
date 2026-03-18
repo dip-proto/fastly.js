@@ -1233,6 +1233,8 @@ export class VCLParser {
 					value = this.previous().value.replace(/^["']|["']$/g, "");
 				} else if (this.match(TokenType.NUMBER)) {
 					value = parseFloat(this.previous().value);
+					// Consume trailing % (e.g., .quorum = 50%)
+					if (this.check(TokenType.OPERATOR, "%")) this.advance();
 				} else if (this.match(TokenType.IDENTIFIER) || this.match(TokenType.KEYWORD)) {
 					value = this.previous().value;
 				}

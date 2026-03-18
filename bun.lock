@@ -5,8 +5,10 @@
     "": {
       "name": "vcljs",
       "dependencies": {
+        "@types/libsodium-wrappers": "^0.8.2",
         "@types/uuid": "^11.0.0",
         "js-xxhash": "^5.0.1",
+        "libsodium-wrappers": "^0.8.2",
         "uuid": "^13.0.0",
       },
       "devDependencies": {
@@ -45,6 +47,8 @@
 
     "@types/deep-eql": ["@types/deep-eql@4.0.2", "", {}, "sha512-c9h9dVVMigMPc4bwTvC5dxqtqJZwQPePsWjPlpSOnojbor6pGqdk541lfA7AqFQr5pB1BRdq0juY9db81BwyFw=="],
 
+    "@types/libsodium-wrappers": ["@types/libsodium-wrappers@0.8.2", "", { "dependencies": { "libsodium-wrappers": "*" } }, "sha512-+2IDfSULPUskSjIYfZl9suIUsIE5PXwoKZiE/j0MZWd+M9nEGvJDsk/ztMZKNhL1lBL+1CaypW0dQSjqPW2dMg=="],
+
     "@types/node": ["@types/node@22.15.18", "", { "dependencies": { "undici-types": "~6.21.0" } }, "sha512-v1DKRfUdyW+jJhZNEI1PYy29S2YRxMV5AOO/x/SjKmW0acCIOqmbj6Haf9eHAhsPmrhlHSxEhv/1WszcLWV4cg=="],
 
     "@types/uuid": ["@types/uuid@11.0.0", "", { "dependencies": { "uuid": "*" } }, "sha512-HVyk8nj2m+jcFRNazzqyVKiZezyhDKrGUA3jlEcg/nZ6Ms+qHwocba1Y/AaVaznJTAM9xpdFSh+ptbNrhOGvZA=="],
@@ -56,6 +60,10 @@
     "chai": ["chai@6.2.2", "", {}, "sha512-NUPRluOfOiTKBKvWPtSD4PhFvWCqOi0BGStNWs57X9js7XGTprSmFoz5F0tWhR4WPjNeR9jXqdC7/UpSJTnlRg=="],
 
     "js-xxhash": ["js-xxhash@5.0.1", "", {}, "sha512-OGuTCR9wqYqF2FrhjtGb6fx8Rm1jzhdpUEsY2sLkXbNYLzOS+XWcYT4KTUL7vnaRTmBuGuVpW1AK2zzxjgZXGg=="],
+
+    "libsodium": ["libsodium@0.8.2", "", {}, "sha512-TsnGYMoZtpweT+kR+lOv5TVsnJ/9U0FZOsLFzFOMWmxqOAYXjX3fsrPAW+i1LthgDKXJnI9A8dWEanT1tnJKIw=="],
+
+    "libsodium-wrappers": ["libsodium-wrappers@0.8.2", "", { "dependencies": { "libsodium": "^0.8.0" } }, "sha512-VFLmfxkxo+U9q60tjcnSomQBRx2UzlRjKWJqvB4K1pUqsMQg4cu3QXA2nrcsj9A1qRsnJBbi2Ozx1hsiDoCkhw=="],
 
     "typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
 
