@@ -2016,6 +2016,7 @@ export class VCLCompiler {
 			if (!be) return "";
 			const beProps: Record<string, any> = {
 				name: be.name,
+				host: be.host,
 				ip: be.host,
 				port: be.port,
 				healthy: be.is_healthy ?? true,
@@ -2091,6 +2092,7 @@ export class VCLCompiler {
 			if (!be) return "";
 			const beProps: Record<string, any> = {
 				name: be.name,
+				host: be.host,
 				ip: be.host,
 				port: be.port,
 				src_ip: "127.0.0.1",
