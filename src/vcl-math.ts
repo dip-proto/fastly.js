@@ -53,6 +53,8 @@ function requireFinite(x: number, fn: (x: number) => number): number {
 }
 
 function logWithZeroCheck(x: number, fn: (x: number) => number): number {
+	if (x === -Infinity) return NaN;
+	if (x === Infinity) return Infinity;
 	if (x < 0) return NaN;
 	if (x === 0) return -Infinity;
 	return fn(x);

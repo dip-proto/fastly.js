@@ -78,7 +78,8 @@ function hmac(
 	key: string,
 	input: string,
 	encoding: "hex" | "base64",
-): string {
+): string | null {
+	if (String(key) === "") return null;
 	if (sodiumReady) {
 		const keyBytes = new TextEncoder().encode(String(key));
 		const data = new TextEncoder().encode(String(input));
@@ -184,16 +185,16 @@ export const DigestModule = {
 		}
 	},
 
-	hmac_md5: (key: string, input: string): string => hmac("md5", key, input, "hex"),
-	hmac_sha1: (key: string, input: string): string => hmac("sha1", key, input, "hex"),
-	hmac_sha256: (key: string, input: string): string => hmac("sha256", key, input, "hex"),
-	hmac_sha512: (key: string, input: string): string => hmac("sha512", key, input, "hex"),
+	hmac_md5: (key: string, input: string): string | null => hmac("md5", key, input, "hex"),
+	hmac_sha1: (key: string, input: string): string | null => hmac("sha1", key, input, "hex"),
+	hmac_sha256: (key: string, input: string): string | null => hmac("sha256", key, input, "hex"),
+	hmac_sha512: (key: string, input: string): string | null => hmac("sha512", key, input, "hex"),
 
-	hmac_md5_base64: (key: string, input: string): string => hmac("md5", key, input, "base64"),
-	hmac_sha1_base64: (key: string, input: string): string => hmac("sha1", key, input, "base64"),
-	hmac_sha256_base64: (key: string, input: string): string =>
+	hmac_md5_base64: (key: string, input: string): string | null => hmac("md5", key, input, "base64"),
+	hmac_sha1_base64: (key: string, input: string): string | null => hmac("sha1", key, input, "base64"),
+	hmac_sha256_base64: (key: string, input: string): string | null =>
 		hmac("sha256", key, input, "base64"),
-	hmac_sha512_base64: (key: string, input: string): string =>
+	hmac_sha512_base64: (key: string, input: string): string | null =>
 		hmac("sha512", key, input, "base64"),
 
 	time_hmac_md5: (key: string, interval: number, _offset: number): string => {

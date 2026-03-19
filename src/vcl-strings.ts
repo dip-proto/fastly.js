@@ -151,10 +151,33 @@ export function strtol(s: string, base: number): number {
 	return Number.isNaN(result) ? 0 : result;
 }
 
+function expandReplacement(input: string, replacement: string, match: RegExpExecArray): string {
+	let result = "";
+	for (let i = 0; i < replacement.length; i++) {
+		if (replacement[i] !== "\\" || i + 1 >= replacement.length) {
+			result += replacement[i];
+			continue;
+		}
+		i++;
+		const next = replacement[i]!;
+		if (next >= "0" && next <= "9") {
+			const groupIdx = parseInt(next, 10);
+			// Non-participating groups return undefined — use empty string
+			result += match[groupIdx] ?? "";
+		} else {
+			result += next;
+		}
+	}
+	return result;
+}
+
 export function regsub(str: string, pattern: string, replacement: string): string {
 	try {
-		const converted = replacement.replace(/\\(\d+)/g, "$$$1");
-		return String(str).replace(new RegExp(pattern), converted);
+		const s = String(str);
+		const re = new RegExp(pattern);
+		const match = re.exec(s);
+		if (!match) return s;
+		return s.slice(0, match.index) + expandReplacement(s, replacement, match) + s.slice(match.index + match[0].length);
 	} catch {
 		return str;
 	}
@@ -162,8 +185,21 @@ export function regsub(str: string, pattern: string, replacement: string): strin
 
 export function regsuball(str: string, pattern: string, replacement: string): string {
 	try {
-		const converted = replacement.replace(/\\(\d+)/g, "$$$1");
-		return String(str).replace(new RegExp(pattern, "g"), converted);
+		const s = String(str);
+		const re = new RegExp(pattern, "g");
+		let result = "";
+		let lastEnd = 0;
+		let match: RegExpExecArray | null;
+		while ((match = re.exec(s)) !== null) {
+			result += s.slice(lastEnd, match.index);
+			result += expandReplacement(s, replacement, match);
+			lastEnd = match.index + match[0].length;
+			if (match[0].length === 0) {
+				re.lastIndex++;
+			}
+		}
+		result += s.slice(lastEnd);
+		return result;
 	} catch {
 		return str;
 	}
@@ -213,8 +249,8 @@ export function subfield(header: string, name: string, separator: string = ";"):
 			const key = trimmed.slice(0, eqIdx).trim().toLowerCase();
 			if (key === search) {
 				let value = trimmed.slice(eqIdx + 1).trim();
-				if (value.startsWith('"') && value.endsWith('"')) {
-					value = value.slice(1, -1);
+				if (value.length >= 2 && value.startsWith('"') && value.endsWith('"')) {
+					value = value.slice(1, -1).replace(/\\"/g, '"');
 				}
 				return value;
 			}
@@ -313,18 +349,18 @@ export const Utf8Module = {
 
 	strpad: (str: string, width: number, pad: string): string => {
 		const s = String(str);
+		const p = String(pad);
+		if (p === "") return s;
 		const codepoints = [...s];
-		const padCodepoints = [...String(pad)];
+		const padCodepoints = [...p];
 		const w = Math.abs(width);
 
-		if (codepoints.length >= w || padCodepoints.length === 0) return s;
+		if (codepoints.length >= w) return s;
 
 		const needed = w - codepoints.length;
-		let padding = "";
-		while ([...padding].length < needed) {
-			padding += pad;
-		}
-		padding = [...padding].slice(0, needed).join("");
+		const padding = Array.from({ length: needed }, (_, i) =>
+			padCodepoints[i % padCodepoints.length],
+		).join("");
 
 		return width < 0 ? s + padding : padding + s;
 	},

@@ -265,14 +265,14 @@ export interface VCLContext {
 			hash_sha512: (str: string) => string;
 			hash_xxh32: (str: string) => string;
 			hash_xxh64: (str: string) => string;
-			hmac_md5: (key: string, message: string) => string;
-			hmac_sha1: (key: string, message: string) => string;
-			hmac_sha256: (key: string, message: string) => string;
-			hmac_sha512: (key: string, message: string) => string;
-			hmac_md5_base64: (key: string, message: string) => string;
-			hmac_sha1_base64: (key: string, message: string) => string;
-			hmac_sha256_base64: (key: string, message: string) => string;
-			hmac_sha512_base64: (key: string, message: string) => string;
+			hmac_md5: (key: string, message: string) => string | null;
+			hmac_sha1: (key: string, message: string) => string | null;
+			hmac_sha256: (key: string, message: string) => string | null;
+			hmac_sha512: (key: string, message: string) => string | null;
+			hmac_md5_base64: (key: string, message: string) => string | null;
+			hmac_sha1_base64: (key: string, message: string) => string | null;
+			hmac_sha256_base64: (key: string, message: string) => string | null;
+			hmac_sha512_base64: (key: string, message: string) => string | null;
 			secure_is_equal: (a: string, b: string) => boolean;
 			base64: (str: string) => string;
 			base64_decode: (str: string) => string;
@@ -1647,7 +1647,19 @@ export class VCLCompiler {
 		} else if (functionName.startsWith("math.")) {
 			const fn = functionName.substring(5);
 			const mathModule = context.math as Record<string, (...args: any[]) => unknown> | undefined;
-			if (mathModule && typeof mathModule[fn] === "function") return mathModule[fn](...args);
+			if (mathModule && typeof mathModule[fn] === "function") {
+				const result = mathModule[fn](...args);
+				// Set fastly.error for math domain/range errors
+				if (typeof result === "number" && (fn === "log" || fn === "log2" || fn === "log10")) {
+					const x = Number(args[0]);
+					if (x < 0 || (x === -Infinity)) {
+						if (context.fastly) context.fastly.error = "EDOM";
+					} else if (x === 0) {
+						if (context.fastly) context.fastly.error = "ERANGE";
+					}
+				}
+				return result;
+			}
 		} else if (functionName.startsWith("table.")) {
 			const fn = functionName.substring(6);
 			const tableModule = context.table as Record<string, (...args: any[]) => unknown> | undefined;
@@ -1735,10 +1747,10 @@ export class VCLCompiler {
 					const key = part.substring(0, eqIdx).trim();
 					const value = part.substring(eqIdx + 1).trim();
 					if (key === name) {
-						if (
-							(value.startsWith('"') && value.endsWith('"')) ||
-							(value.startsWith("'") && value.endsWith("'"))
-						) {
+						if (value.length >= 2 && value.startsWith('"') && value.endsWith('"')) {
+							return value.substring(1, value.length - 1).replace(/\\"/g, '"');
+						}
+						if (value.length >= 2 && value.startsWith("'") && value.endsWith("'")) {
 							return value.substring(1, value.length - 1);
 						}
 						return value;
@@ -1747,25 +1759,34 @@ export class VCLCompiler {
 			}
 			return "";
 		} else if (functionName === "randombool") {
-			const numerator = Number(args[0]) || 1;
-			const denominator = Number(args[1]) || 2;
+			const numerator = Math.floor(Number(args[0]));
+			const denominator = Math.floor(Number(args[1]));
+			if (numerator <= 0) return false;
+			if (denominator <= 0) return true;
 			if (context.std?.random?.bool) return context.std.random.bool(numerator, denominator);
-			return Math.random() < numerator / denominator;
+			const rv = Math.floor(Math.random() * denominator) + 1;
+			return rv <= numerator;
 		} else if (functionName === "randombool_seeded") {
-			const numerator = Number(args[0]) || 1;
-			const denominator = Number(args[1]) || 2;
-			return seededRandom(Number(args[2]) || 0) < numerator / denominator;
+			const numerator = Math.floor(Number(args[0]));
+			const denominator = Math.floor(Number(args[1]));
+			if (numerator <= 0) return false;
+			if (denominator <= 0) return true;
+			const rv = Math.floor(seededRandom(Number(args[2]) || 0) * denominator) + 1;
+			return rv <= numerator;
 		} else if (functionName === "randomint") {
 			const [from, to] = [Math.floor(Number(args[0])), Math.floor(Number(args[1]))];
+			if (from > to) return 0;
 			return Math.floor(Math.random() * (to - from)) + from;
 		} else if (functionName === "randomint_seeded") {
 			const [from, to] = [Math.floor(Number(args[0])), Math.floor(Number(args[1]))];
+			if (from > to) return 0;
 			return Math.floor(seededRandom(Number(args[2]) || 0) * (to - from)) + from;
 		} else if (functionName === "randomstr") {
 			const chars =
 				args.length >= 2 && args[1]
 					? String(args[1])
-					: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+					: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_";
+			if (chars.length === 0) return "";
 			return Array.from(
 				{ length: Math.max(0, Math.floor(Number(args[0]))) },
 				() => chars[Math.floor(Math.random() * chars.length)],

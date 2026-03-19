@@ -57,15 +57,57 @@ export interface StdModule {
 }
 
 const IPV4_REGEX = /^(\d{1,3}\.){3}\d{1,3}$/;
-const IPV6_REGEX = /^([0-9a-fA-F]{0,4}:){2,7}[0-9a-fA-F]{0,4}$/;
 
 function isValidIPv4(str: string): boolean {
 	if (!IPV4_REGEX.test(str)) return false;
 	return str.split(".").every((p) => parseInt(p, 10) <= 255);
 }
 
+function isValidIPv6(str: string): boolean {
+	// Handle :: shorthand
+	if (!str.includes(":")) return false;
+	const parts = str.split("::");
+	if (parts.length > 2) return false;
+
+	const validateGroups = (groups: string[]) =>
+		groups.every((g) => g === "" || (/^[0-9a-fA-F]{1,4}$/.test(g)));
+
+	if (parts.length === 2) {
+		const left = parts[0] === "" ? [] : parts[0]!.split(":");
+		const right = parts[1] === "" ? [] : parts[1]!.split(":");
+		return left.length + right.length <= 7 && validateGroups(left) && validateGroups(right);
+	}
+
+	const groups = str.split(":");
+	return groups.length === 8 && validateGroups(groups);
+}
+
 function isValidIP(str: string): boolean {
-	return isValidIPv4(str) || IPV6_REGEX.test(str) || str.includes("::");
+	return isValidIPv4(str) || isValidIPv6(str);
+}
+
+function parseAnyIP(addr: string): string | null {
+	if (!addr) return null;
+	if (addr.toLowerCase() === "localhost") return "127.0.0.1";
+	// If no colon, try flexible IPv4 parsing (supports hex/octal notation)
+	if (!addr.includes(":")) {
+		if (isValidIPv4(addr)) return addr;
+		// Try parsing as integer-format IPv4 (hex/octal octets)
+		const parts = addr.split(".");
+		if (parts.length === 4) {
+			const octets = parts.map((p) => {
+				if (p.startsWith("0x") || p.startsWith("0X")) return parseInt(p, 16);
+				if (p.startsWith("0") && p.length > 1) return parseInt(p, 8);
+				return parseInt(p, 10);
+			});
+			if (octets.every((o) => !Number.isNaN(o) && o >= 0 && o <= 255)) {
+				return octets.join(".");
+			}
+		}
+	}
+	// Standard IPv6 or IPv4 validation
+	if (isValidIP(addr)) return addr;
+	return null;
 }
 
 export function createStdModule(): StdModule {
@@ -203,7 +245,7 @@ export function createStdModule(): StdModule {
 
 		ip: (s: string, fallback: string): string => {
 			const str = String(s).trim();
-			if (isValidIPv4(str) || IPV6_REGEX.test(str) || str.includes("::")) return str;
+			if (isValidIP(str)) return str;
 			return String(fallback);
 		},
 
@@ -212,8 +254,10 @@ export function createStdModule(): StdModule {
 		str2ip: (s: string): string => String(s).trim(),
 
 		anystr2ip: (s: string, fallback: string): string => {
-			const str = String(s).trim();
-			return isValidIP(str) ? str : String(fallback);
+			const primary = parseAnyIP(String(s).trim());
+			if (primary) return primary;
+			const fb = parseAnyIP(String(fallback).trim());
+			return fb || "";
 		},
 
 		collect: (header: string[], separator: string = ", "): string => {
