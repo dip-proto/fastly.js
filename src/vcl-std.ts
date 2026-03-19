@@ -57,6 +57,7 @@ export interface StdModule {
 }
 
 const IPV4_REGEX = /^(\d{1,3}\.){3}\d{1,3}$/;
+const IPV6_GROUP_REGEX = /^[0-9a-fA-F]{1,4}$/;
 
 function isValidIPv4(str: string): boolean {
 	if (!IPV4_REGEX.test(str)) return false;
@@ -64,13 +65,12 @@ function isValidIPv4(str: string): boolean {
 }
 
 function isValidIPv6(str: string): boolean {
-	// Handle :: shorthand
 	if (!str.includes(":")) return false;
 	const parts = str.split("::");
 	if (parts.length > 2) return false;
 
 	const validateGroups = (groups: string[]) =>
-		groups.every((g) => g === "" || (/^[0-9a-fA-F]{1,4}$/.test(g)));
+		groups.every((g) => g === "" || IPV6_GROUP_REGEX.test(g));
 
 	if (parts.length === 2) {
 		const left = parts[0] === "" ? [] : parts[0]!.split(":");
@@ -89,7 +89,7 @@ function isValidIP(str: string): boolean {
 function parseAnyIP(addr: string): string | null {
 	if (!addr) return null;
 	if (addr.toLowerCase() === "localhost") return "127.0.0.1";
-	// If no colon, try flexible IPv4 parsing (supports hex/octal notation)
+	// If no colon, try IPv4 parsing (standard and hex/octal notation)
 	if (!addr.includes(":")) {
 		if (isValidIPv4(addr)) return addr;
 		// Try parsing as integer-format IPv4 (hex/octal octets)
@@ -104,9 +104,10 @@ function parseAnyIP(addr: string): string | null {
 				return octets.join(".");
 			}
 		}
+		return null;
 	}
-	// Standard IPv6 or IPv4 validation
-	if (isValidIP(addr)) return addr;
+	// Colon present — try IPv6
+	if (isValidIPv6(addr)) return addr;
 	return null;
 }
 

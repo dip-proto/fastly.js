@@ -358,9 +358,9 @@ export const Utf8Module = {
 		if (codepoints.length >= w) return s;
 
 		const needed = w - codepoints.length;
-		const padding = Array.from({ length: needed }, (_, i) =>
-			padCodepoints[i % padCodepoints.length],
-		).join("");
+		const padStr = padCodepoints.join("");
+		const repeated = padStr.repeat(Math.ceil(needed / padCodepoints.length));
+		const padding = [...repeated].slice(0, needed).join("");
 
 		return width < 0 ? s + padding : padding + s;
 	},

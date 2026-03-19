@@ -1652,7 +1652,7 @@ export class VCLCompiler {
 				// Set fastly.error for math domain/range errors
 				if (typeof result === "number" && (fn === "log" || fn === "log2" || fn === "log10")) {
 					const x = Number(args[0]);
-					if (x < 0 || (x === -Infinity)) {
+					if (x < 0) {
 						if (context.fastly) context.fastly.error = "EDOM";
 					} else if (x === 0) {
 						if (context.fastly) context.fastly.error = "ERANGE";

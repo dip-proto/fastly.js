@@ -79,7 +79,7 @@ function hmac(
 	input: string,
 	encoding: "hex" | "base64",
 ): string | null {
-	if (String(key) === "") return null;
+	if (key === "") return null;
 	if (sodiumReady) {
 		const keyBytes = new TextEncoder().encode(String(key));
 		const data = new TextEncoder().encode(String(input));
