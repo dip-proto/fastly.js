@@ -94,25 +94,25 @@ const digestFunctionsTests = {
 				executeSubroutine(context, subroutines, "vcl_recv");
 			},
 			assertions: [
-				// Check HMAC-MD5
+				// Check HMAC-MD5 (0x prefix + 32 hex chars = 34)
 				(context: VCLContext) => {
 					return assert(
-						context.req.http["X-HMAC-MD5"]!.length === 32,
-						`Expected X-HMAC-MD5 to be 32 characters, got ${context.req.http["X-HMAC-MD5"]!.length}`,
+						context.req.http["X-HMAC-MD5"]!.length === 34,
+						`Expected X-HMAC-MD5 to be 34 characters, got ${context.req.http["X-HMAC-MD5"]!.length}`,
 					);
 				},
-				// Check HMAC-SHA1
+				// Check HMAC-SHA1 (0x prefix + 40 hex chars = 42)
 				(context: VCLContext) => {
 					return assert(
-						context.req.http["X-HMAC-SHA1"]!.length === 40,
-						`Expected X-HMAC-SHA1 to be 40 characters, got ${context.req.http["X-HMAC-SHA1"]!.length}`,
+						context.req.http["X-HMAC-SHA1"]!.length === 42,
+						`Expected X-HMAC-SHA1 to be 42 characters, got ${context.req.http["X-HMAC-SHA1"]!.length}`,
 					);
 				},
-				// Check HMAC-SHA256
+				// Check HMAC-SHA256 (0x prefix + 64 hex chars = 66)
 				(context: VCLContext) => {
 					return assert(
-						context.req.http["X-HMAC-SHA256"]!.length === 64,
-						`Expected X-HMAC-SHA256 to be 64 characters, got ${context.req.http["X-HMAC-SHA256"]!.length}`,
+						context.req.http["X-HMAC-SHA256"]!.length === 66,
+						`Expected X-HMAC-SHA256 to be 66 characters, got ${context.req.http["X-HMAC-SHA256"]!.length}`,
 					);
 				},
 			],

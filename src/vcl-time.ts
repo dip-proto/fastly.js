@@ -202,7 +202,12 @@ export function createStrftime(): StrftimeFunction {
 						pad(t.getFullYear() % 100, 2);
 					break;
 				case "e":
-					result += modifier === "-" ? t.getDate() : modifier === "0" ? pad(t.getDate(), 2) : padSpace(t.getDate(), 2);
+					result +=
+						modifier === "-"
+							? t.getDate()
+							: modifier === "0"
+								? pad(t.getDate(), 2)
+								: padSpace(t.getDate(), 2);
 					break;
 				case "F":
 					result += `${t.getFullYear()}-${pad(t.getMonth() + 1, 2)}-${pad(t.getDate(), 2)}`;

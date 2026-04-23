@@ -69,8 +69,7 @@ export function createAssertModule(state: TestingState) {
 			const e = normalizeValue(expected);
 			if (a === e) {
 				throw new AssertionError(
-					message ||
-						`Expected ${JSON.stringify(a)} to not strictly equal ${JSON.stringify(e)}`,
+					message || `Expected ${JSON.stringify(a)} to not strictly equal ${JSON.stringify(e)}`,
 				);
 			}
 		},
@@ -144,9 +143,7 @@ export function createAssertModule(state: TestingState) {
 			const expected = String(normalizeValue(expectedState)).toLowerCase();
 			const actual = state._state.toLowerCase();
 			if (actual !== expected) {
-				throw new AssertionError(
-					message || `Expected state "${expected}" but got "${actual}"`,
-				);
+				throw new AssertionError(message || `Expected state "${expected}" but got "${actual}"`);
 			}
 		},
 		not_state: (expectedState: any, message?: string) => {
@@ -174,8 +171,7 @@ export function createAssertModule(state: TestingState) {
 				const expectedStatus = Number(status);
 				if (state._error.status !== expectedStatus) {
 					throw new AssertionError(
-						message ||
-							`Expected error status ${expectedStatus} but got ${state._error.status}`,
+						message || `Expected error status ${expectedStatus} but got ${state._error.status}`,
 					);
 				}
 			}
@@ -183,8 +179,7 @@ export function createAssertModule(state: TestingState) {
 				const expectedText = String(normalizeValue(responseText));
 				if (state._error.message !== expectedText) {
 					throw new AssertionError(
-						message ||
-							`Expected error message "${expectedText}" but got "${state._error.message}"`,
+						message || `Expected error message "${expectedText}" but got "${state._error.message}"`,
 					);
 				}
 			}
@@ -198,18 +193,14 @@ export function createAssertModule(state: TestingState) {
 		},
 		is_notset: (value: any, message?: string) => {
 			if (!isNotSet(value)) {
-				throw new AssertionError(
-					message || `Expected NOTSET but got ${JSON.stringify(value)}`,
-				);
+				throw new AssertionError(message || `Expected NOTSET but got ${JSON.stringify(value)}`);
 			}
 		},
 		is_json: (value: any, message?: string) => {
 			try {
 				JSON.parse(String(normalizeValue(value)));
 			} catch {
-				throw new AssertionError(
-					message || `Expected valid JSON but got ${JSON.stringify(value)}`,
-				);
+				throw new AssertionError(message || `Expected valid JSON but got ${JSON.stringify(value)}`);
 			}
 		},
 		subroutine_called: (name: any, timesOrMessage?: any, message?: string) => {
@@ -255,17 +246,11 @@ export function createTestingModule(
 			const actualName = mockName || subName;
 
 			// Track the original subroutine name call
-			state._subroutinesCalled.set(
-				subName,
-				(state._subroutinesCalled.get(subName) || 0) + 1,
-			);
+			state._subroutinesCalled.set(subName, (state._subroutinesCalled.get(subName) || 0) + 1);
 
 			// Also track the actual name if different (for nested call tracking)
 			if (mockName) {
-				state._subroutinesCalled.set(
-					mockName,
-					(state._subroutinesCalled.get(mockName) || 0) + 1,
-				);
+				state._subroutinesCalled.set(mockName, (state._subroutinesCalled.get(mockName) || 0) + 1);
 			}
 
 			if (!subroutines[actualName]) {

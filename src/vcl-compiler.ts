@@ -1890,6 +1890,30 @@ export class VCLCompiler {
 		const idPart2 = parts[2] ?? "";
 
 		if (name === "LF") return "\n";
+
+		const VCL_ENUM_VALUES = new Set([
+			"aes128",
+			"aes192",
+			"aes256",
+			"cbc",
+			"ctr",
+			"gcm",
+			"ccm",
+			"pkcs7",
+			"nopad",
+			"sha1",
+			"sha256",
+			"sha384",
+			"sha512",
+			"der",
+			"jwt",
+			"standard",
+			"url",
+			"url_nopad",
+			"default",
+		]);
+		if (VCL_ENUM_VALUES.has(name)) return name;
+
 		if (name === "now") return Date.now();
 		if (name === "now.sec") return Math.floor(Date.now() / 1000);
 

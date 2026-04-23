@@ -177,7 +177,11 @@ export function regsub(str: string, pattern: string, replacement: string): strin
 		const re = new RegExp(pattern);
 		const match = re.exec(s);
 		if (!match) return s;
-		return s.slice(0, match.index) + expandReplacement(s, replacement, match) + s.slice(match.index + match[0].length);
+		return (
+			s.slice(0, match.index) +
+			expandReplacement(s, replacement, match) +
+			s.slice(match.index + match[0].length)
+		);
 	} catch {
 		return str;
 	}

@@ -203,7 +203,8 @@ export const DigestModule = {
 	},
 
 	hmac_md5_base64: (key: string, input: string): string | null => hmac("md5", key, input, "base64"),
-	hmac_sha1_base64: (key: string, input: string): string | null => hmac("sha1", key, input, "base64"),
+	hmac_sha1_base64: (key: string, input: string): string | null =>
+		hmac("sha1", key, input, "base64"),
 	hmac_sha256_base64: (key: string, input: string): string | null =>
 		hmac("sha256", key, input, "base64"),
 	hmac_sha512_base64: (key: string, input: string): string | null =>
@@ -345,10 +346,7 @@ export const DigestModule = {
 				case "url":
 				case "url_nopad":
 				default:
-					sig = Buffer.from(
-						String(signature).replace(/-/g, "+").replace(/_/g, "/"),
-						"base64",
-					);
+					sig = Buffer.from(String(signature).replace(/-/g, "+").replace(/_/g, "/"), "base64");
 					break;
 			}
 
@@ -378,10 +376,7 @@ export const DigestModule = {
 				case "url":
 				case "url_nopad":
 				default:
-					sig = Buffer.from(
-						String(signature).replace(/-/g, "+").replace(/_/g, "/"),
-						"base64",
-					);
+					sig = Buffer.from(String(signature).replace(/-/g, "+").replace(/_/g, "/"), "base64");
 					break;
 			}
 
