@@ -2,9 +2,20 @@
  * VCL Query String Module - query string manipulation functionality
  */
 
+function splitUrl(url: string): [string, string] {
+	const qIdx = url.indexOf("?");
+	if (qIdx < 0) return [url, ""];
+	return [url.substring(0, qIdx), url.substring(qIdx + 1)];
+}
+
 function parseQueryString(queryString: string): URLSearchParams {
-	const clean = queryString.startsWith("?") ? queryString.substring(1) : queryString;
-	return new URLSearchParams(clean);
+	const [, qs] = splitUrl(queryString);
+	return new URLSearchParams(qs || (queryString.startsWith("?") ? queryString.substring(1) : queryString));
+}
+
+function rebuildUrl(url: string, newQs: string): string {
+	const [base] = splitUrl(url);
+	return newQs ? `${base}?${newQs}` : base;
 }
 
 export const QueryStringModule = {
@@ -57,17 +68,17 @@ export const QueryStringModule = {
 		return filteredParams.toString();
 	},
 
-	filter_except(queryString: string, paramNames: string[]): string {
-		const params = parseQueryString(String(queryString));
+	filter_except(url: string, paramNames: string[]): string {
+		const params = parseQueryString(String(url));
 		const filteredParams = new URLSearchParams();
 
 		for (const [name, value] of params.entries()) {
-			if (!paramNames.includes(name)) {
+			if (paramNames.includes(name)) {
 				filteredParams.append(name, value);
 			}
 		}
 
-		return filteredParams.toString();
+		return rebuildUrl(String(url), filteredParams.toString());
 	},
 
 	filtersep(queryString: string, prefix: string, separator: string): string {

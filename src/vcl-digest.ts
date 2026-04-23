@@ -363,26 +363,67 @@ export const DigestModule = {
 		publicKey: string,
 		payload: string,
 		signature: string,
+		digestFormat: string = "der",
 		base64Method: string = "url_nopad",
 	): boolean => {
 		try {
 			const algo = String(hashMethod) === "default" ? "sha256" : String(hashMethod);
-			let sig: Buffer;
+			const format = String(digestFormat).toLowerCase();
+			let sigBuf: Buffer;
 
 			switch (String(base64Method)) {
 				case "standard":
-					sig = Buffer.from(String(signature), "base64");
+					sigBuf = Buffer.from(String(signature), "base64");
 					break;
 				case "url":
 				case "url_nopad":
 				default:
-					sig = Buffer.from(String(signature).replace(/-/g, "+").replace(/_/g, "/"), "base64");
+					sigBuf = Buffer.from(
+						String(signature).replace(/-/g, "+").replace(/_/g, "/"),
+						"base64",
+					);
 					break;
+			}
+
+			if (format === "jwt") {
+				// JWT format: raw R || S (each 32 bytes for P-256)
+				// Convert to DER format for Node.js crypto
+				if (sigBuf.length !== 64) return false;
+				const r = sigBuf.subarray(0, 32);
+				const s = sigBuf.subarray(32, 64);
+
+				function derEncodeInteger(buf: Buffer): Buffer {
+					let i = 0;
+					while (i < buf.length - 1 && buf[i] === 0) i++;
+					const trimmed = buf.subarray(i);
+					const needsPad = (trimmed[0]! & 0x80) !== 0;
+					const len = trimmed.length + (needsPad ? 1 : 0);
+					const result = Buffer.alloc(2 + len);
+					result[0] = 0x02; // INTEGER tag
+					result[1] = len;
+					if (needsPad) {
+						result[2] = 0x00;
+						trimmed.copy(result, 3);
+					} else {
+						trimmed.copy(result, 2);
+					}
+					return result;
+				}
+
+				const derR = derEncodeInteger(r);
+				const derS = derEncodeInteger(s);
+				const seqLen = derR.length + derS.length;
+				const derSig = Buffer.alloc(2 + seqLen);
+				derSig[0] = 0x30; // SEQUENCE tag
+				derSig[1] = seqLen;
+				derR.copy(derSig, 2);
+				derS.copy(derSig, 2 + derR.length);
+				sigBuf = derSig;
 			}
 
 			const verifier = crypto.createVerify(algo);
 			verifier.update(String(payload));
-			return verifier.verify(String(publicKey), sig);
+			return verifier.verify(String(publicKey), sigBuf);
 		} catch {
 			return false;
 		}

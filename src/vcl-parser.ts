@@ -668,7 +668,7 @@ export class VCLLexer {
 			if (this.input[this.position] === "\\" && this.position + 1 < this.input.length) {
 				this.advance();
 				const escChar = this.input[this.position] ?? "";
-				content += escapes[escChar] ?? escChar;
+				content += escapes[escChar] ?? ("\\" + escChar);
 				this.advance();
 				continue;
 			}

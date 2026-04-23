@@ -476,22 +476,18 @@ export function createVCLContext(): VCLContext {
 				}
 			},
 			filter_except: (url: string, names: string[]): string => {
-				const filterParams = (params: URLSearchParams) => {
-					const filtered = new URLSearchParams();
-					for (const [name, value] of params.entries()) {
-						if (!names.includes(name)) filtered.append(name, value);
-					}
-					return filtered;
-				};
-				try {
-					const urlObj = new URL(String(url));
-					urlObj.search = filterParams(urlObj.searchParams).toString();
-					return urlObj.toString();
-				} catch {
-					const [base, qs] = String(url).split("?");
-					const newQs = filterParams(new URLSearchParams(qs || "")).toString();
-					return newQs ? `${base}?${newQs}` : (base ?? "");
+				const urlStr = String(url);
+				const qIdx = urlStr.indexOf("?");
+				if (qIdx < 0) return urlStr;
+				const base = urlStr.substring(0, qIdx);
+				const qs = urlStr.substring(qIdx + 1);
+				const params = new URLSearchParams(qs);
+				const filtered = new URLSearchParams();
+				for (const [name, value] of params.entries()) {
+					if (names.includes(name)) filtered.append(name, value);
 				}
+				const newQs = filtered.toString();
+				return newQs ? `${base}?${newQs}` : base;
 			},
 		},
 	};
