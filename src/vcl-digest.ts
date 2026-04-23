@@ -185,10 +185,22 @@ export const DigestModule = {
 		}
 	},
 
-	hmac_md5: (key: string, input: string): string | null => hmac("md5", key, input, "hex"),
-	hmac_sha1: (key: string, input: string): string | null => hmac("sha1", key, input, "hex"),
-	hmac_sha256: (key: string, input: string): string | null => hmac("sha256", key, input, "hex"),
-	hmac_sha512: (key: string, input: string): string | null => hmac("sha512", key, input, "hex"),
+	hmac_md5: (key: string, input: string): string | null => {
+		const result = hmac("md5", key, input, "hex");
+		return result === null ? null : `0x${result}`;
+	},
+	hmac_sha1: (key: string, input: string): string | null => {
+		const result = hmac("sha1", key, input, "hex");
+		return result === null ? null : `0x${result}`;
+	},
+	hmac_sha256: (key: string, input: string): string | null => {
+		const result = hmac("sha256", key, input, "hex");
+		return result === null ? null : `0x${result}`;
+	},
+	hmac_sha512: (key: string, input: string): string | null => {
+		const result = hmac("sha512", key, input, "hex");
+		return result === null ? null : `0x${result}`;
+	},
 
 	hmac_md5_base64: (key: string, input: string): string | null => hmac("md5", key, input, "base64"),
 	hmac_sha1_base64: (key: string, input: string): string | null => hmac("sha1", key, input, "base64"),
@@ -382,125 +394,136 @@ export const DigestModule = {
 	},
 };
 
-function getCipherAlgorithm(cipher: string, keyLength: number): CipherAlgorithm | null {
+function getCipherAlgorithm(cipher: string, mode: string): CipherAlgorithm | null {
 	const c = String(cipher).toLowerCase();
-	const mode = c.includes("gcm") ? "gcm" : c.includes("ctr") ? "ctr" : "cbc";
-	if (keyLength === 16) return `aes-128-${mode}` as CipherAlgorithm;
-	if (keyLength === 24) return `aes-192-${mode}` as CipherAlgorithm;
-	if (keyLength === 32) return `aes-256-${mode}` as CipherAlgorithm;
+	const m = String(mode).toLowerCase();
+	const modeStr = m === "gcm" ? "gcm" : m === "ctr" ? "ctr" : "cbc";
+	if (c === "aes128") return `aes-128-${modeStr}` as CipherAlgorithm;
+	if (c === "aes192") return `aes-192-${modeStr}` as CipherAlgorithm;
+	if (c === "aes256") return `aes-256-${modeStr}` as CipherAlgorithm;
 	return null;
+}
+
+function cryptoEncrypt(
+	cipher: string,
+	mode: string,
+	padding: string,
+	keyHex: string,
+	ivHex: string,
+	plainData: Buffer,
+): Buffer | null {
+	try {
+		const keyBuf = Buffer.from(String(keyHex), "hex");
+		const ivBuf = Buffer.from(String(ivHex), "hex");
+		const m = String(mode).toLowerCase();
+		const algo = getCipherAlgorithm(cipher, m);
+		if (!algo) return null;
+
+		if (m === "gcm") {
+			const cipherInst = crypto.createCipheriv(algo, keyBuf, ivBuf) as crypto.CipherGCM;
+			const encrypted = Buffer.concat([cipherInst.update(plainData), cipherInst.final()]);
+			const tag = cipherInst.getAuthTag();
+			return Buffer.concat([encrypted, tag]);
+		}
+
+		const cipherInst = crypto.createCipheriv(algo, keyBuf, ivBuf);
+		if (String(padding).toLowerCase() === "nopad") {
+			cipherInst.setAutoPadding(false);
+		}
+		const encrypted = Buffer.concat([cipherInst.update(plainData), cipherInst.final()]);
+		return encrypted;
+	} catch {
+		return null;
+	}
+}
+
+function cryptoDecrypt(
+	cipher: string,
+	mode: string,
+	padding: string,
+	keyHex: string,
+	ivHex: string,
+	cipherData: Buffer,
+): Buffer | null {
+	try {
+		const keyBuf = Buffer.from(String(keyHex), "hex");
+		const ivBuf = Buffer.from(String(ivHex), "hex");
+		const m = String(mode).toLowerCase();
+		const algo = getCipherAlgorithm(cipher, m);
+		if (!algo) return null;
+
+		if (m === "gcm") {
+			const tagLength = 16;
+			if (cipherData.length < tagLength) return null;
+			const encrypted = cipherData.subarray(0, cipherData.length - tagLength);
+			const tag = cipherData.subarray(cipherData.length - tagLength);
+			const decipher = crypto.createDecipheriv(algo, keyBuf, ivBuf) as crypto.DecipherGCM;
+			decipher.setAuthTag(tag);
+			const decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()]);
+			return decrypted;
+		}
+
+		const decipher = crypto.createDecipheriv(algo, keyBuf, ivBuf);
+		if (String(padding).toLowerCase() === "nopad") {
+			decipher.setAutoPadding(false);
+		}
+		const decrypted = Buffer.concat([decipher.update(cipherData), decipher.final()]);
+		return decrypted;
+	} catch {
+		return null;
+	}
 }
 
 export const CryptoModule = {
 	encrypt_base64: (
 		cipher: string,
-		_mode: string,
+		mode: string,
 		padding: string,
 		key: string,
 		iv: string,
 		plaintext: string,
 	): string => {
-		try {
-			const keyBuf = Buffer.from(String(key));
-			const ivBuf = Buffer.from(String(iv));
-			const algo = getCipherAlgorithm(cipher, keyBuf.length);
-			if (!algo) return "";
-
-			const data = Buffer.from(String(plaintext), "base64");
-			const cipherInst = crypto.createCipheriv(algo, keyBuf, ivBuf);
-
-			if (String(padding).toLowerCase() === "nopad") {
-				cipherInst.setAutoPadding(false);
-			}
-
-			const encrypted = Buffer.concat([cipherInst.update(data), cipherInst.final()]);
-			return encrypted.toString("base64");
-		} catch {
-			return "";
-		}
+		const data = Buffer.from(String(plaintext), "base64");
+		const result = cryptoEncrypt(cipher, mode, padding, key, iv, data);
+		return result ? result.toString("base64") : "";
 	},
 
 	decrypt_base64: (
 		cipher: string,
-		_mode: string,
+		mode: string,
 		padding: string,
 		key: string,
 		iv: string,
 		ciphertext: string,
 	): string => {
-		try {
-			const keyBuf = Buffer.from(String(key));
-			const ivBuf = Buffer.from(String(iv));
-			const algo = getCipherAlgorithm(cipher, keyBuf.length);
-			if (!algo) return "";
-
-			const data = Buffer.from(String(ciphertext), "base64");
-			const decipher = crypto.createDecipheriv(algo, keyBuf, ivBuf);
-
-			if (String(padding).toLowerCase() === "nopad") {
-				decipher.setAutoPadding(false);
-			}
-
-			const decrypted = Buffer.concat([decipher.update(data), decipher.final()]);
-			return decrypted.toString("base64");
-		} catch {
-			return "";
-		}
+		const data = Buffer.from(String(ciphertext), "base64");
+		const result = cryptoDecrypt(cipher, mode, padding, key, iv, data);
+		return result ? result.toString("base64") : "";
 	},
 
 	encrypt_hex: (
 		cipher: string,
-		_mode: string,
+		mode: string,
 		padding: string,
 		key: string,
 		iv: string,
 		plaintext: string,
 	): string => {
-		try {
-			const keyBuf = Buffer.from(String(key));
-			const ivBuf = Buffer.from(String(iv));
-			const algo = getCipherAlgorithm(cipher, keyBuf.length);
-			if (!algo) return "";
-
-			const data = Buffer.from(String(plaintext), "hex");
-			const cipherInst = crypto.createCipheriv(algo, keyBuf, ivBuf);
-
-			if (String(padding).toLowerCase() === "nopad") {
-				cipherInst.setAutoPadding(false);
-			}
-
-			const encrypted = Buffer.concat([cipherInst.update(data), cipherInst.final()]);
-			return encrypted.toString("hex");
-		} catch {
-			return "";
-		}
+		const data = Buffer.from(String(plaintext), "hex");
+		const result = cryptoEncrypt(cipher, mode, padding, key, iv, data);
+		return result ? result.toString("hex") : "";
 	},
 
 	decrypt_hex: (
 		cipher: string,
-		_mode: string,
+		mode: string,
 		padding: string,
 		key: string,
 		iv: string,
 		ciphertext: string,
 	): string => {
-		try {
-			const keyBuf = Buffer.from(String(key));
-			const ivBuf = Buffer.from(String(iv));
-			const algo = getCipherAlgorithm(cipher, keyBuf.length);
-			if (!algo) return "";
-
-			const data = Buffer.from(String(ciphertext), "hex");
-			const decipher = crypto.createDecipheriv(algo, keyBuf, ivBuf);
-
-			if (String(padding).toLowerCase() === "nopad") {
-				decipher.setAutoPadding(false);
-			}
-
-			const decrypted = Buffer.concat([decipher.update(data), decipher.final()]);
-			return decrypted.toString("hex");
-		} catch {
-			return "";
-		}
+		const data = Buffer.from(String(ciphertext), "hex");
+		const result = cryptoDecrypt(cipher, mode, padding, key, iv, data);
+		return result ? result.toString("hex") : "";
 	},
 };
