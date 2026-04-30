@@ -393,8 +393,10 @@ sub vcl_recv {
     set req.http.X-Restart-Reason = "final_pass";
   }
 
-  # Prevent infinite loops
-  if (req.restarts >= 4) {
+  # Defensive cap inside VCL. The proxy itself enforces MAX_RESTARTS = 3
+  # in index.ts and will return its own 503 if that limit is reached, so
+  # this branch is mostly there to demonstrate the pattern.
+  if (req.restarts >= 3) {
     set req.http.X-Max-Restarts-Reached = "true";
     error 503 "Maximum number of restarts reached";
   }
@@ -470,8 +472,8 @@ sub vcl_recv {
     }
   }
 
-  # Prevent infinite loops
-  if (req.restarts >= 5) {
+  # The proxy enforces MAX_RESTARTS = 3, so this is just defensive.
+  if (req.restarts >= 3) {
     set req.http.X-Max-Restarts-Reached = "true";
     error 503 "Maximum number of restarts reached";
   }
@@ -563,21 +565,27 @@ All tests are currently passing, indicating that the implementation is working c
 ## Project Structure
 
 - `src/`: Core implementation files
-  - `vcl.ts`: Main VCL interface for loading and executing VCL files
-  - `vcl-parser.ts`: VCL lexer and parser
-  - `vcl-compiler.ts`: Compiles VCL AST to executable functions
-  - `vcl-types.ts`: TypeScript type definitions for VCL
+  - `vcl.ts`: Main VCL interface for loading and executing VCL files; also exports the runtime types (`VCLContext`, `VCLSubroutines`)
+  - `vcl-parser.ts`: VCL lexer, AST node definitions, and the high-level `parseVCL` entry point
+  - `vcl-parser-impl.ts`: Recursive-descent parser implementation
+  - `vcl-compiler.ts`: Compiles a parsed VCL program into executable JavaScript functions; defines the runtime context and standard library shape
+  - `vcl-*.ts`: Individual standard library modules (digest, strings, time, querystring, address, accept, ratelimit, waf, etc.)
 - `test/`: Test suites and framework
 - `fastly-vcl/`: Documentation and specifications for Fastly VCL
   - `vcl-functions/`: Detailed documentation for all VCL functions
 
 ## Configuration
 
-You can modify the following constants in `index.ts` to change the proxy settings:
+The proxy currently uses a few hardcoded constants at the top of `index.ts`:
 
-- `PROXY_HOST`: The host to listen on (default: "127.0.0.1")
-- `PROXY_PORT`: The port to listen on (default: 8000)
-- `VCL_FILE_PATH`: The path to the VCL file to load (default: "filter.vcl" or specified via command line)
+- `PROXY_HOST`: The host to listen on (default: `"127.0.0.1"`)
+- `PROXY_PORT`: The port to listen on (default: `8000`)
+- `DEFAULT_VCL_FILE`: The VCL file used when none is specified on the command line (default: `"filter.vcl"`)
+- `MAX_RESTARTS`: The maximum number of times a request may be restarted before the proxy gives up with a 503 (default: `3`)
+
+The list of VCL files to load is taken from the command-line arguments rather than a single constant — pass one or more paths after `bun run index.ts` and they are concatenated in order.
+
+The development server in `index.ts` also pre-registers three example backends (`main` → `perdu.com:443` over TLS, `api` → `httpbin.org:80`, `static` → `example.com:80`) and two directors (`main_director`, `fallback_director`). These exist purely so the bundled `filter.vcl` and the example VCL snippets in this README have something to talk to; you will normally want to replace them with your own `backend` declarations in VCL.
 
 ## Development Status
 

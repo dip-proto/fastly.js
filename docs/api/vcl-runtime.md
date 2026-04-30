@@ -1,225 +1,146 @@
 # VCL Runtime API
 
-The VCL Runtime provides the execution environment for compiled VCL code. It includes the context objects, standard library functions, and the execution flow control. This document provides a reference for the VCL Runtime API in Fastly.JS.
+The VCL runtime is what actually runs your VCL code once it has been parsed and compiled. It owns the execution context, the standard library, and the small piece of glue that dispatches into individual subroutines like `vcl_recv` or `vcl_fetch`.
 
-## Overview
+In Fastly.JS the runtime entry points all live in [`src/vcl.ts`](../../src/vcl.ts) — there is no separate `vcl-runtime.ts` module. The HTTP request pipeline that ties everything together is implemented in [`index.ts`](../../index.ts) at the project root, which is the best place to look for a working example.
 
-The VCL Runtime consists of several components:
+## Importing the runtime
 
-1. **VCL Context**: The execution context for VCL code
-2. **Standard Library**: Built-in functions available to VCL code
-3. **Execution Engine**: Controls the flow of execution through VCL subroutines
-
-## Importing the Runtime
+Everything you need to load and run VCL is exported from `src/vcl`:
 
 ```typescript
-import { 
-  createVCLContext, 
-  executeVCL, 
-  executeSubroutine 
-} from '../src/vcl-runtime';
+import {
+  loadVCL,
+  loadVCLContent,
+  createVCLContext,
+  executeVCL,
+  executeVCLByName,
+  type VCLContext,
+  type VCLSubroutines,
+} from "../src/vcl";
 ```
 
-## Basic Usage
+`VCLContext` and `VCLSubroutines` are re-exported from `src/vcl-compiler.ts` for convenience.
+
+## Basic usage
 
 ```typescript
-import { loadVCL, createVCLContext, executeVCL } from '../src/vcl';
+import { loadVCL, createVCLContext, executeVCL } from "../src/vcl";
 
-// Load VCL code
-const subroutines = loadVCL('./path/to/file.vcl');
+const subroutines = loadVCL("./filter.vcl");
 
-// Create a VCL context
 const context = createVCLContext();
-
-// Set request properties
-context.req.method = 'GET';
-context.req.url = '/api/users';
+context.req.method = "GET";
+context.req.url = "/api/users";
 context.req.http = {
-  'Host': 'example.com',
-  'User-Agent': 'Mozilla/5.0'
+  host: "example.com",
+  "user-agent": "Mozilla/5.0",
 };
 
-// Execute the VCL code
-const result = executeVCL(context, subroutines);
+const action = executeVCL(subroutines, "vcl_recv", context);
 
-// Check the response
-console.log(result.resp.status);  // HTTP status code
-console.log(result.resp.http);    // Response headers
-console.log(result.resp.body);    // Response body
+console.log(action);              // e.g. "lookup", "pass", "error", "restart"
+console.log(context.resp.status); // populated after vcl_deliver runs
+console.log(context.resp.http);   // response headers
 ```
+
+`executeVCL` returns the *action* string the subroutine returned (its `return(...)` value), not a new context. Mutations happen in place on the context object you passed in. Driving the full request pipeline — cache lookup, fetch, fallback, restart, error pages — is the caller's responsibility; see `index.ts` for a complete reference implementation.
 
 ## Runtime API
 
-### createVCLContext(): VCLContext
+### `loadVCL(filePath: string): VCLSubroutines`
 
-Creates a new VCL execution context.
+Reads a VCL file from disk, lexes, parses, and compiles it into a map of executable subroutines. Throws if the file does not exist.
 
-**Returns:**
-- `VCLContext`: A new VCL context object
+### `loadVCLContent(content: string): VCLSubroutines`
 
-**Example:**
+Same as `loadVCL`, but operates on a string already in memory. Useful when you want to concatenate several VCL files yourself before compilation, which is exactly what `index.ts` does when invoked with multiple paths on the command line.
+
+### `createVCLContext(): VCLContext`
+
+Creates a fresh execution context with empty `req`, `bereq`, `beresp`, `resp`, `obj`, an empty cache, and a fully wired-up standard library (`context.std`, `context.fastly`, `context.waf`, `context.ratelimit`, …). One context corresponds to one in-flight request.
+
+A small default backend named `"default"` pointing at `perdu.com:443` is registered so contexts always have something to fall back to. Replace or extend `context.backends` before calling `executeVCL` if you need different defaults.
+
+### `executeVCL(subroutines, subroutineName, context): string`
+
 ```typescript
-const context = createVCLContext();
+function executeVCL(
+  subroutines: VCLSubroutines,
+  subroutineName: keyof VCLSubroutines,
+  context: VCLContext,
+): string;
 ```
 
-### executeVCL(context: VCLContext, subroutines: VCLSubroutines): VCLContext
+Runs a single named subroutine (`"vcl_recv"`, `"vcl_fetch"`, …) and returns the action string it produced. If the subroutine throws, the error is logged and `"error"` is returned so callers can route into `vcl_error`.
 
-Executes VCL code with the given context and subroutines.
+### `executeVCLByName(subroutines, name, context): string`
 
-**Parameters:**
-- `context` (VCLContext): The VCL context
-- `subroutines` (VCLSubroutines): The compiled VCL subroutines
+Lower-level variant of `executeVCL` that accepts an arbitrary subroutine name (including user-defined `sub` blocks) and additionally takes care of running ESI processing on the response body when `vcl_deliver` finishes with `beresp.do_esi` set. Use this when calling subroutines whose names are not part of the built-in `vcl_*` set.
 
-**Returns:**
-- `VCLContext`: The updated VCL context after execution
+## VCLContext
 
-**Example:**
-```typescript
-const result = executeVCL(context, subroutines);
-```
-
-### executeSubroutine(context: VCLContext, subroutines: VCLSubroutines, name: string): string
-
-Executes a specific VCL subroutine.
-
-**Parameters:**
-- `context` (VCLContext): The VCL context
-- `subroutines` (VCLSubroutines): The compiled VCL subroutines
-- `name` (string): The name of the subroutine to execute
-
-**Returns:**
-- `string`: The return value of the subroutine
-
-**Example:**
-```typescript
-const result = executeSubroutine(context, subroutines, 'vcl_recv');
-```
-
-## VCLContext Interface
-
-The `VCLContext` interface represents the execution context for VCL code:
+Everything VCL code touches lives on the context. The shape is defined in `src/vcl-compiler.ts`; the most important fields are:
 
 ```typescript
 interface VCLContext {
-  req: {
-    method: string;
-    url: string;
-    http: Record<string, string>;
-    backend: string;
-    [key: string]: any;
-  };
-  bereq: {
-    method: string;
-    url: string;
-    http: Record<string, string>;
-    [key: string]: any;
-  };
-  beresp: {
-    status: number;
-    http: Record<string, string>;
-    body: string;
-    [key: string]: any;
-  };
-  resp: {
-    status: number;
-    http: Record<string, string>;
-    body: string;
-    [key: string]: any;
-  };
-  obj: {
-    status: number;
-    http: Record<string, string>;
-    response: string;
-    [key: string]: any;
-  };
-  client: {
-    ip: string;
-    geo: {
-      country_code: string;
-      continent_code: string;
-      [key: string]: any;
-    };
-    [key: string]: any;
-  };
-  server: {
-    ip: string;
-    [key: string]: any;
-  };
-  std: {
-    [key: string]: any;
-  };
-  [key: string]: any;
+  req:    { url: string; method: string; http: Record<string, string>; backend: string; restarts: number; ... };
+  bereq:  { url: string; method: string; http: Record<string, string>; ... };
+  beresp: { status: number; statusText: string; http: Record<string, string>; ttl: number; grace: number; stale_while_revalidate: number; do_esi: boolean; ... };
+  resp:   { status: number; statusText: string; http: Record<string, string> };
+  obj:    { status: number; response: string; http: Record<string, string>; hits: number };
+
+  client: { ip: string; geo?: { country_code: string; continent_code: string; ... } };
+  server: { ip: string };
+
+  cache: Map<string, unknown>;
+  hashData: string[];
+  locals: Record<string, unknown>;
+  backends: Record<string, VCLBackend>;
+  directors: Record<string, VCLDirector>;
+  acls: Record<string, VCLACL>;
+  tables: Record<string, VCLTable>;
+  current_backend?: VCLBackend;
+
+  std: { /* standard library — see below */ };
+  fastly: { error: string; state: string };
+  waf: { allowed: boolean; blocked: boolean; blockStatus: number; blockMessage: string };
+  ratelimit: { counters: Record<string, unknown>; penaltyboxes: Record<string, unknown> };
 }
 ```
 
-## Execution Flow
+Note that the synthetic body produced by `synthetic { ... }` ends up on `context.obj.response`, not on `resp.body`. The actual backend response body in Fastly.JS is streamed by the host pipeline (e.g. `index.ts`), not stored on the context.
 
-The VCL Runtime follows the Fastly execution flow:
+## Execution flow
 
-1. **vcl_recv**: Called when a request is received
-2. **vcl_hash**: Called to create a hash key for the object
-3. **vcl_hit**: Called when a cache hit occurs
-4. **vcl_miss**: Called when a cache miss occurs
-5. **vcl_pass**: Called when the request should bypass the cache
-6. **vcl_fetch**: Called after a request has been sent to the backend
-7. **vcl_error**: Called when an error occurs
-8. **vcl_deliver**: Called before delivering the response to the client
-9. **vcl_log**: Called after the response has been delivered
+The runtime itself does not impose an order on subroutines — your host code calls them. The conventional Fastly flow is:
 
-The flow can be controlled by the return values of each subroutine:
+1. `vcl_recv` — request received
+2. `vcl_hash` — build the cache key
+3. `vcl_hit` / `vcl_miss` — depending on cache state
+4. `vcl_pass` — when the request bypasses the cache
+5. `vcl_fetch` — after a backend response arrives
+6. `vcl_error` — anywhere an error is raised
+7. `vcl_deliver` — just before the response goes to the client
+8. `vcl_log` — after the response has been sent
 
-- `lookup`: Proceed to cache lookup
-- `pass`: Bypass the cache
-- `pipe`: Switch to pipe mode
-- `error`: Generate an error
-- `hash`: Proceed to hash calculation
-- `miss`: Proceed as if cache miss occurred
-- `hit`: Proceed as if cache hit occurred
-- `deliver`: Deliver the response
-- `fetch`: Fetch from backend
-- `restart`: Restart the request processing
+The action string a subroutine returns is one of: `lookup`, `pass`, `pipe`, `error`, `hash`, `miss`, `hit`, `deliver`, `fetch`, `restart`. The host code uses this to decide which subroutine to call next.
 
-## Standard Library
+## Standard library
 
-The VCL Runtime provides a standard library of functions that can be used in VCL code:
+`context.std` exposes a large surface, all of which is covered in the [standard library reference](./standard-library.md) and the per-module pages under [`fastly-vcl/vcl-functions/`](../../fastly-vcl/vcl-functions/). A few highlights:
 
-### String Functions
+- String handling: `std.strlen`, `std.toupper`, `std.tolower`, `std.substr`, `std.strstr`, `std.regsub`, `std.regsuball`, `std.replace`, `std.replaceall`, `std.prefixof`, `std.suffixof`.
+- Math: `std.math.round/floor/ceil/pow/log/min/max/abs`.
+- Time: `std.time.now/add/sub/is_after/hex_to_time`, `std.strftime`.
+- Random: `std.random.randombool`, `std.random.randombool_seeded`, `std.random.randomint`, `std.random.randomint_seeded`, `std.random.randomstr`, `std.random.randomstr_seeded`.
+- Digest and crypto: `std.digest.hash_*`, `std.digest.hmac_*`, `std.digest.base64*`, `std.digest.rsa_verify`, `std.digest.ecdsa_verify`, `std.digest.awsv4_hmac`, `std.crypto.encrypt_*`/`decrypt_*`.
+- Headers: `std.header.get/set/remove/filter/filter_except`.
+- Logging: `std.log`, `std.syslog`.
 
-- `std.strlen(string)`: Returns the length of a string
-- `std.toupper(string)`: Converts a string to uppercase
-- `std.tolower(string)`: Converts a string to lowercase
-- `std.substr(string, offset, length)`: Returns a substring
-- `std.strstr(haystack, needle)`: Finds the first occurrence of a substring
-- `std.regsuball(string, regex, replacement)`: Replaces all occurrences of a regex pattern
+## Error handling
 
-### Math Functions
-
-- `std.random.randombool(probability)`: Returns a random boolean with the given probability
-- `std.random.randomint(min, max)`: Returns a random integer between min and max
-
-### Time Functions
-
-- `std.time.now()`: Returns the current time
-- `std.time.add(time, offset)`: Adds an offset to a time
-- `std.time.sub(time1, time2)`: Calculates the difference between two times
-- `std.strftime(format, time)`: Formats a time according to the format string
-
-### Digest Functions
-
-- `digest.hash_md5(string)`: Calculates the MD5 hash of a string
-- `digest.hash_sha1(string)`: Calculates the SHA-1 hash of a string
-- `digest.hash_sha256(string)`: Calculates the SHA-256 hash of a string
-- `digest.base64_decode(string)`: Decodes a base64-encoded string
-- `digest.base64_encode(string)`: Encodes a string as base64
-
-### Logging Functions
-
-- `std.log(string)`: Logs a message
-- `std.syslog(priority, string)`: Logs a message with the given priority
-
-## Error Handling
-
-The VCL Runtime provides error handling through the `vcl_error` subroutine and the `error` statement:
+Errors are raised either by VCL code (`error 403 "Forbidden";`) or by your host pipeline calling `context.std.error(status, message)` and then dispatching `vcl_error`:
 
 ```vcl
 sub vcl_recv {
@@ -231,100 +152,32 @@ sub vcl_recv {
 
 sub vcl_error {
   set obj.http.Content-Type = "text/html; charset=utf-8";
-  synthetic {"
-    <html>
-      <head>
-        <title>Error</title>
-      </head>
-      <body>
-        <h1>Error " + obj.status + "</h1>
-        <p>" + obj.response + "</p>
-      </body>
-    </html>
-  "};
+  synthetic {"<html><body><h1>Error</h1></body></html>"};
   return(deliver);
 }
 ```
 
-## Advanced Usage
+When a subroutine throws a JavaScript exception, `executeVCL` logs the error and returns the string `"error"`, which gives the caller a chance to route into `vcl_error` rather than crashing the proxy.
 
-### Custom Context Properties
+## Customising the context
 
-```typescript
-import { createVCLContext } from '../src/vcl-runtime';
-
-// Create a context with custom properties
-const context = createVCLContext();
-context.custom = {
-  userId: '123',
-  features: {
-    featureA: true,
-    featureB: false
-  }
-};
-
-// Access custom properties in VCL
-// sub vcl_recv {
-//   if (custom.features.featureA) {
-//     set req.http.X-Feature-A = "enabled";
-//   }
-//   return(lookup);
-// }
-```
-
-### Extending the Standard Library
+Because the context is a plain object you can attach anything to it before calling `executeVCL`. For example, the proxy in `index.ts` pre-registers backends and directors on a "setup context", then copies them onto every per-request context:
 
 ```typescript
-import { createVCLContext, extendStandardLibrary } from '../src/vcl-runtime';
+const setupContext = createVCLContext();
+setupContext.std!.backend!.add("api", "httpbin.org", 80, false);
+setupContext.std!.director!.add("main_director", "random", { quorum: 50, retries: 3 });
 
-// Extend the standard library with custom functions
-extendStandardLibrary('custom', {
-  myFunction: (arg1, arg2) => {
-    // Implementation
-    return result;
-  }
-});
-
-// Create a context with the extended standard library
+// per request:
 const context = createVCLContext();
-
-// Use the custom function in VCL
-// sub vcl_recv {
-//   set req.http.X-Result = std.custom.myFunction(req.url, "test");
-//   return(lookup);
-// }
+context.backends  = { ...setupContext.backends };
+context.directors = { ...setupContext.directors };
 ```
 
-### Custom Backend Handling
+This is the recommended way to seed shared state — there is no `extendStandardLibrary` helper in the public API.
 
-```typescript
-import { createVCLContext, executeVCL } from '../src/vcl-runtime';
+## See also
 
-// Create a context with custom backend handling
-const context = createVCLContext();
-context.backends = {
-  default: {
-    host: 'example.com',
-    port: 80
-  },
-  api: {
-    host: 'api.example.com',
-    port: 443
-  }
-};
-
-// Custom backend request handler
-context.sendBackendRequest = async (backend, request) => {
-  // Implementation
-  return response;
-};
-
-// Execute VCL with custom backend handling
-const result = executeVCL(context, subroutines);
-```
-
-## Conclusion
-
-The VCL Runtime API provides a powerful way to execute VCL code in a JavaScript/TypeScript environment. It's the heart of Fastly.JS's ability to simulate the Fastly edge computing platform locally.
-
-For more information on the HTTP Object Model, see the [HTTP Object Model API Reference](./http-object-model.md).
+- [HTTP Object Model](./http-object-model.md) for the shape of `req`, `bereq`, `beresp`, `resp`, and `obj` in more detail.
+- [VCL Compiler](./vcl-compiler.md) for the layer that turns a parsed program into the subroutine map executed here.
+- [Standard Library](./standard-library.md) for a per-function reference.

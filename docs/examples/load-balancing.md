@@ -32,36 +32,40 @@ backend server3 {
 }
 ```
 
-## Round-Robin Load Balancing
+## Director types
 
-Round-robin load balancing distributes requests evenly across all backend servers:
+`std.director.add(name, type, options?)` accepts five director types: `"random"`, `"hash"`, `"client"`, `"fallback"`, and `"chash"`. Round-robin behaviour is achieved by giving every backend the same weight in a `random` director; weighted balancing is the same idea with non-uniform weights.
+
+## Random / round-robin balancing
+
+Equal weights yield (statistically) uniform distribution across backends:
 
 ```vcl
-# Define a director for round-robin load balancing
-std.director.add("round_robin_director", "round-robin");
+# Define a director that picks backends uniformly at random
+std.director.add("balanced_director", "random");
 
-# Add backends to the director
-std.director.add_backend("round_robin_director", "server1", 1);
-std.director.add_backend("round_robin_director", "server2", 1);
-std.director.add_backend("round_robin_director", "server3", 1);
+# Add backends with equal weights — equivalent to round-robin
+std.director.add_backend("balanced_director", "server1", 1);
+std.director.add_backend("balanced_director", "server2", 1);
+std.director.add_backend("balanced_director", "server3", 1);
 
 sub vcl_recv {
   # Set the backend to the director
-  set req.backend = std.director.select_backend("round_robin_director").name;
-  
+  set req.backend = std.director.select_backend("balanced_director").name;
+
   return(lookup);
 }
 ```
 
-## Weighted Load Balancing
+## Weighted load balancing
 
-Weighted load balancing distributes requests based on the weight assigned to each backend:
+To bias traffic towards specific backends, vary the weight argument passed to `add_backend`:
 
 ```vcl
-# Define a director for weighted load balancing
-std.director.add("weighted_director", "weighted");
+# A weighted random director
+std.director.add("weighted_director", "random");
 
-# Add backends to the director with different weights
+# Add backends with different weights
 std.director.add_backend("weighted_director", "server1", 3);  # 3x weight
 std.director.add_backend("weighted_director", "server2", 2);  # 2x weight
 std.director.add_backend("weighted_director", "server3", 1);  # 1x weight
@@ -69,7 +73,7 @@ std.director.add_backend("weighted_director", "server3", 1);  # 1x weight
 sub vcl_recv {
   # Set the backend to the director
   set req.backend = std.director.select_backend("weighted_director").name;
-  
+
   return(lookup);
 }
 ```
@@ -211,12 +215,12 @@ backend server3 {
   .port = "80";
 }
 
-# Define a director for API load balancing
-std.director.add("api_director", "weighted");
+# Define a director for API load balancing (weighted random selection)
+std.director.add("api_director", "random");
 std.director.add_backend("api_director", "server1", 3);
 
 # Define a director for static content load balancing
-std.director.add("static_director", "round-robin");
+std.director.add("static_director", "random");
 std.director.add_backend("static_director", "server2", 1);
 
 # Define a director for default content load balancing

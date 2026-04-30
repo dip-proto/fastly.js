@@ -471,11 +471,11 @@ std.syslog(3, "Error processing request: " + req.url);
 
 ### std.director.add(name, type)
 
-Adds a director.
+Adds a director. Round-robin and weighted balancing are achieved with the `"random"` type by tuning each backend's weight; there is no separate `"round-robin"` or `"weighted"` director type.
 
 **Parameters:**
 - `name`: The name of the director
-- `type`: The type of the director (e.g., "random", "round-robin", "hash", "client")
+- `type`: One of `"random"`, `"hash"`, `"client"`, `"fallback"`, `"chash"`
 
 **Example:**
 ```vcl
@@ -513,20 +513,7 @@ set req.backend = std.director.select_backend("my_director").name;
 
 ## Geo Functions
 
-### std.geo.lookup(ip)
-
-Looks up geolocation data for an IP address.
-
-**Parameters:**
-- `ip`: The IP address to look up
-
-**Returns:**
-- The geolocation data
-
-**Example:**
-```vcl
-set req.http.X-Country = std.geo.lookup(client.ip).country_code;
-```
+Geolocation is **not implemented** in Fastly.JS. There is no `std.geo` namespace, and the only field on `client` is `client.ip`. References to `client.geo.country_code`, `client.geo.continent_code`, and similar properties parse without error but evaluate to empty strings at runtime. If you need geo data while developing locally, populate `context.client` from JavaScript before invoking the VCL pipeline.
 
 ## Ratelimit Functions
 

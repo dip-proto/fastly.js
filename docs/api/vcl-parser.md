@@ -1,49 +1,29 @@
 # VCL Parser API
 
-The VCL Parser is responsible for parsing VCL (Varnish Configuration Language) code into an abstract syntax tree (AST) that can be processed by the VCL Compiler. This document provides a reference for the VCL Parser API in Fastly.JS.
+The VCL parser turns VCL source text into an abstract syntax tree (AST) that the [VCL compiler](./vcl-compiler.md) can then walk into executable subroutines. It lives in [`src/vcl-parser.ts`](../../src/vcl-parser.ts) (lexer plus type definitions) and [`src/vcl-parser-impl.ts`](../../src/vcl-parser-impl.ts) (the recursive-descent parser).
 
 ## Overview
 
-The VCL Parser consists of several components:
+Parsing happens in two stages:
 
-1. **Tokenizer**: Breaks down the VCL code into tokens
-2. **Parser**: Converts the tokens into an abstract syntax tree (AST)
-3. **AST Nodes**: Represents the structure of the VCL code
+1. **Lexer** (`VCLLexer`): walks the source string character by character and produces a flat list of `Token` values.
+2. **Parser** (`VCLParser`, used internally by `parseVCL`): consumes the token stream and produces a `VCLProgram` AST.
 
-## Importing the Parser
+For most callers the only entry point you need is `parseVCL`.
+
+## Importing the parser
 
 ```typescript
-import { parseVCL } from '../src/vcl-parser';
+import { parseVCL, VCLLexer, type VCLProgram } from "../src/vcl-parser";
 ```
 
-## Basic Usage
+If you simply want to load and run a VCL file, use `loadVCL` / `loadVCLContent` from `src/vcl` instead — they handle parsing and compilation in one call.
+
+## Basic usage
 
 ```typescript
-// Parse VCL code into an AST
-const vclCode = `
-  sub vcl_recv {
-    set req.http.X-Test = "Hello, World!";
-    return(lookup);
-  }
-`;
+import { parseVCL } from "../src/vcl-parser";
 
-const ast = parseVCL(vclCode);
-```
-
-## Parser API
-
-### parseVCL(code: string): VCLProgram
-
-Parses VCL code into an abstract syntax tree (AST).
-
-**Parameters:**
-- `code` (string): The VCL code to parse
-
-**Returns:**
-- `VCLProgram`: The root node of the AST
-
-**Example:**
-```typescript
 const ast = parseVCL(`
   sub vcl_recv {
     set req.http.X-Test = "Hello, World!";
@@ -51,170 +31,149 @@ const ast = parseVCL(`
   }
 `);
 
-console.log(JSON.stringify(ast, null, 2));
+console.log(ast.subroutines[0].name); // "vcl_recv"
 ```
 
-### loadVCL(filePath: string): VCLSubroutines
+## Parser API
 
-Loads and parses a VCL file, then compiles it into executable subroutines.
+### `parseVCL(input: string): VCLProgram`
 
-**Parameters:**
-- `filePath` (string): The path to the VCL file
+Lexes and parses a VCL source string and returns the root `VCLProgram` node. Throws on syntax errors with a message that includes the offending line.
 
-**Returns:**
-- `VCLSubroutines`: An object containing the compiled subroutines
+### `class VCLLexer`
 
-**Example:**
+The tokenizer used by `parseVCL`. You can use it directly when you want to inspect or modify the token stream before handing it back to the parser:
+
 ```typescript
-const subroutines = loadVCL('./path/to/file.vcl');
+import { VCLLexer } from "../src/vcl-parser";
 
-// Execute a subroutine
-const context = createVCLContext();
-const result = subroutines.vcl_recv(context);
+const lexer = new VCLLexer(`set req.http.X = "hi";`);
+const tokens = lexer.tokenize();
 ```
 
-## AST Node Types
+There is no separate "loadVCL" or "mergeAST" helper exported from this module; loading a file goes through `src/vcl.ts`. To combine multiple VCL files, concatenate them as text before passing them to `parseVCL` or `loadVCLContent` — that is the approach `index.ts` takes when you pass several files on the command line.
 
-The VCL Parser generates an AST with the following node types:
+## AST node types
 
-### VCLProgram
+The full set of node interfaces is defined at the top of `src/vcl-parser.ts`. The most commonly inspected nodes are:
 
-The root node of the AST, representing a complete VCL program.
+### `VCLProgram`
 
-**Properties:**
-- `type` (string): Always "Program"
-- `body` (VCLStatement[]): An array of statements in the program
+The root node. In addition to the parsed subroutines it carries every top-level declaration:
 
-### VCLSubroutineDeclaration
+```typescript
+interface VCLProgram {
+  type: "Program";
+  subroutines: VCLSubroutine[];
+  comments: VCLComment[];
+  acls: VCLACL[];
+  includes: VCLIncludeStatement[];
+  imports: VCLImportStatement[];
+  tables: VCLTableDeclaration[];
+  backends: VCLBackendDeclaration[];
+  directors: VCLDirectorDeclaration[];
+  penaltyboxes: VCLPenaltyboxDeclaration[];
+  ratecounters: VCLRatecounterDeclaration[];
+}
+```
 
-Represents a subroutine declaration in VCL.
+### `VCLSubroutine`
 
-**Properties:**
-- `type` (string): Always "SubroutineDeclaration"
-- `name` (string): The name of the subroutine (e.g., "vcl_recv")
-- `body` (VCLStatement[]): An array of statements in the subroutine body
+```typescript
+interface VCLSubroutine {
+  type: "Subroutine";
+  name: string;                   // e.g. "vcl_recv" or a user-defined name
+  params?: VCLSubroutineParam[];
+  body: VCLStatement[];
+  returnType?: string;
+}
+```
 
-### VCLSetStatement
+### `VCLSetStatement`
 
-Represents a variable assignment statement in VCL.
+```typescript
+interface VCLSetStatement {
+  type: "SetStatement";
+  target: string;        // e.g. "req.http.X-Test"
+  value: VCLExpression;
+  operator?: string;     // "=", "+=", etc.
+}
+```
 
-**Properties:**
-- `type` (string): Always "SetStatement"
-- `left` (VCLExpression): The left-hand side of the assignment
-- `right` (VCLExpression): The right-hand side of the assignment
+### `VCLReturnStatement`
 
-### VCLReturnStatement
+```typescript
+interface VCLReturnStatement {
+  type: "ReturnStatement";
+  argument: string;      // "lookup", "pass", "deliver", ...
+  value?: VCLExpression; // for return statements that yield a value
+}
+```
 
-Represents a return statement in VCL.
+### `VCLIfStatement`
 
-**Properties:**
-- `type` (string): Always "ReturnStatement"
-- `argument` (string): The return value (e.g., "lookup", "pass", "deliver")
+```typescript
+interface VCLIfStatement {
+  type: "IfStatement";
+  test: VCLExpression;
+  consequent: VCLStatement[];
+  alternate?: VCLStatement[];
+}
+```
 
-### VCLIfStatement
+### Expressions
 
-Represents an if statement in VCL.
+Expression nodes share the same `VCLNode` base and discriminate on `type`:
 
-**Properties:**
-- `type` (string): Always "IfStatement"
-- `test` (VCLExpression): The condition to test
-- `consequent` (VCLStatement[]): Statements to execute if the condition is true
-- `alternate` (VCLStatement[] | null): Statements to execute if the condition is false (for else blocks)
+- `VCLBinaryExpression` — `{ type: "BinaryExpression", operator, left, right }`
+- `VCLUnaryExpression` — `{ type: "UnaryExpression", operator, argument }`
+- `VCLTernaryExpression` — `{ type: "TernaryExpression", test, consequent, alternate }`
+- `VCLFunctionCall` — `{ type: "FunctionCall", name, arguments }`
+- `VCLIdentifier` — `{ type: "Identifier", name }`
+- `VCLStringLiteral` — `{ type: "StringLiteral", value }`
+- `VCLNumberLiteral` — `{ type: "NumberLiteral", value }`
+- `VCLRegexLiteral` — `{ type: "RegexLiteral", pattern, flags }`
+- `VCLMemberAccess` — `{ type: "MemberAccess", object, property }`
 
-### VCLExpression
+A complete list of statement node types lives in the `VCLStatementType` union: `Assignment`, `IfStatement`, `ReturnStatement`, `ErrorStatement`, `SetStatement`, `UnsetStatement`, `AddStatement`, `RemoveStatement`, `CallStatement`, `LogStatement`, `SyntheticStatement`, `SyntheticBase64Statement`, `EsiStatement`, `SwitchStatement`, `HashDataStatement`, `GotoStatement`, `LabelStatement`, `RestartStatement`, `DeclareStatement`.
 
-Base interface for all expression nodes.
+## Error handling
 
-**Properties:**
-- `type` (string): The type of expression
-
-### VCLBinaryExpression
-
-Represents a binary expression in VCL (e.g., `a + b`, `a == b`).
-
-**Properties:**
-- `type` (string): Always "BinaryExpression"
-- `operator` (string): The operator (e.g., "+", "==", "~")
-- `left` (VCLExpression): The left operand
-- `right` (VCLExpression): The right operand
-
-### VCLIdentifier
-
-Represents an identifier in VCL (e.g., variable names).
-
-**Properties:**
-- `type` (string): Always "Identifier"
-- `name` (string): The name of the identifier
-
-### VCLLiteral
-
-Represents a literal value in VCL (e.g., strings, numbers).
-
-**Properties:**
-- `type` (string): Always "Literal"
-- `value` (string | number | boolean): The literal value
-- `raw` (string): The raw string representation of the value
-
-## Error Handling
-
-The VCL Parser throws descriptive error messages when it encounters syntax errors:
+The parser throws `Error` instances with a description and the location of the problem:
 
 ```typescript
 try {
-  const ast = parseVCL(`
+  parseVCL(`
     sub vcl_recv {
       set req.http.X-Test = "Unclosed string;
       return(lookup);
     }
   `);
 } catch (error) {
-  console.error(error.message);
-  // Output: Unterminated string at line 3, column 32
+  console.error((error as Error).message);
+  // Unterminated string literal at line 3
 }
 ```
 
-## Advanced Usage
+`loadVCLContent` (in `src/vcl.ts`) wraps this and prints the error before re-throwing, which is what you see when the proxy fails to start.
 
-### Parsing Multiple Files
+## Working with multiple files
 
-```typescript
-import { parseVCL, mergeAST } from '../src/vcl-parser';
-import * as fs from 'fs';
-
-// Parse multiple VCL files
-const mainAst = parseVCL(fs.readFileSync('./main.vcl', 'utf8'));
-const includeAst = parseVCL(fs.readFileSync('./include.vcl', 'utf8'));
-
-// Merge the ASTs
-const mergedAst = mergeAST(mainAst, includeAst);
-```
-
-### Custom Tokenizer
+The proxy in `index.ts` concatenates every file passed on the command line, separated by `# Begin file:` / `# End file:` marker comments, and then calls `loadVCLContent` once on the result. This is the recommended pattern when you want to split a configuration across several files — there is no AST-level merge helper.
 
 ```typescript
-import { createTokenizer, parseTokens } from '../src/vcl-parser';
+import { loadVCLContent } from "../src/vcl";
+import { readFileSync } from "node:fs";
 
-// Create a custom tokenizer
-const tokenizer = createTokenizer(`
-  sub vcl_recv {
-    set req.http.X-Test = "Hello, World!";
-    return(lookup);
-  }
-`);
+const combined = ["./common.vcl", "./site.vcl"]
+  .map((path) => readFileSync(path, "utf-8"))
+  .join("\n");
 
-// Get all tokens
-const tokens = [];
-let token;
-while ((token = tokenizer.nextToken()) && token.type !== 'EOF') {
-  tokens.push(token);
-}
-
-// Parse the tokens into an AST
-const ast = parseTokens(tokens);
+const subroutines = loadVCLContent(combined);
 ```
 
-## Conclusion
+## See also
 
-The VCL Parser API provides a powerful way to parse and analyze VCL code in JavaScript/TypeScript. It's the foundation of Fastly.JS's ability to process and execute VCL configurations locally.
-
-For more information on the VCL Compiler, see the [VCL Compiler API Reference](./vcl-compiler.md).
+- [VCL Compiler](./vcl-compiler.md) for the layer that consumes this AST.
+- [VCL Runtime](./vcl-runtime.md) for the execution model the compiled code targets.
+- [`src/vcl-parser.ts`](../../src/vcl-parser.ts) for the authoritative list of AST node interfaces.

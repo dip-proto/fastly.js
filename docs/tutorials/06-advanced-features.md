@@ -344,11 +344,11 @@ sub vcl_fetch {
 
 ## Geolocation
 
-Fastly.JS provides geolocation information through the `client.geo` object:
+> **Not implemented.** Fastly.JS does not currently populate `client.geo.*`. The fields below are part of the standard Fastly VCL surface and are accepted by the parser, but they evaluate to empty strings at runtime. The example is shown for reference — to make it actually work locally, set `req.http.X-Country` (and friends) yourself in `vcl_recv`, either via a JavaScript-side resolver before calling `executeVCL` or by using a header injected by your test harness.
 
 ```vcl
 sub vcl_recv {
-  # Set headers based on geolocation
+  # Set headers based on geolocation (will be empty strings in Fastly.JS)
   set req.http.X-Country = client.geo.country_code;
   set req.http.X-Region = client.geo.region;
   set req.http.X-City = client.geo.city;

@@ -1,409 +1,151 @@
-# HTTP Object Model API
+# HTTP Object Model
 
-The HTTP Object Model provides a representation of HTTP requests and responses in the VCL execution context. This document provides a reference for the HTTP Object Model API in Fastly.JS.
+In Fastly.JS the HTTP request and response are not separate, importable types — they are plain objects living on the per-request `VCLContext` produced by `createVCLContext()`. The shape is defined in [`src/vcl-compiler.ts`](../../src/vcl-compiler.ts), and these are the same objects VCL code reads and writes via `req.*`, `bereq.*`, `beresp.*`, `resp.*`, and `obj.*`.
 
-## Overview
+There is no `createRequest`, `createResponse`, `parseHeaders`, or `parseCookies` helper to import; if you need a context, call `createVCLContext()` and mutate the fields you care about.
 
-The HTTP Object Model consists of several components:
+## The five objects
 
-1. **Request Objects**: Represent client requests and backend requests
-2. **Response Objects**: Represent backend responses and client responses
-3. **Headers**: Represent HTTP headers
-4. **Cookies**: Represent HTTP cookies
+Every context exposes five HTTP-shaped objects, each with its own role:
 
-## Importing the HTTP Object Model
+| Object   | Direction | When it's populated                                            |
+|----------|-----------|---------------------------------------------------------------|
+| `req`    | client → proxy | Set up before `vcl_recv` from the inbound HTTP request   |
+| `bereq`  | proxy → backend | Built from `req` after `vcl_miss` / `vcl_pass`           |
+| `beresp` | backend → proxy | Filled in from the backend response, visible in `vcl_fetch`|
+| `resp`   | proxy → client | Mirrors `beresp` (or a cached entry) before `vcl_deliver` |
+| `obj`    | error / synthetic | Used by `error`, `synthetic`, and `vcl_error`           |
 
-```typescript
-import { 
-  createRequest, 
-  createResponse, 
-  parseHeaders, 
-  parseCookies 
-} from '../src/http-model';
-```
-
-## Basic Usage
+## Request: `req` and `bereq`
 
 ```typescript
-import { createRequest, createResponse } from '../src/http-model';
+req: {
+  url: string;                       // path + query, e.g. "/api/users?page=2"
+  method: string;                    // "GET", "POST", ...
+  http: Record<string, string>;      // request headers, lowercased keys
+  backend?: string;                  // selected backend name
+  restarts?: number;                 // 0 on the first pass, incremented per restart
+};
 
-// Create a request object
-const request = createRequest({
-  method: 'GET',
-  url: '/api/users',
-  headers: {
-    'Host': 'example.com',
-    'User-Agent': 'Mozilla/5.0',
-    'Cookie': 'session=abc123; theme=dark'
-  }
-});
-
-// Create a response object
-const response = createResponse({
-  status: 200,
-  headers: {
-    'Content-Type': 'application/json',
-    'Cache-Control': 'max-age=3600'
-  },
-  body: '{"users": []}'
-});
-```
-
-## HTTP Object Model API
-
-### createRequest(options?: RequestOptions): Request
-
-Creates a new HTTP request object.
-
-**Parameters:**
-- `options` (RequestOptions, optional): Options for the request
-
-**Returns:**
-- `Request`: A new HTTP request object
-
-**Example:**
-```typescript
-const request = createRequest({
-  method: 'GET',
-  url: '/api/users',
-  headers: {
-    'Host': 'example.com',
-    'User-Agent': 'Mozilla/5.0'
-  }
-});
-```
-
-### createResponse(options?: ResponseOptions): Response
-
-Creates a new HTTP response object.
-
-**Parameters:**
-- `options` (ResponseOptions, optional): Options for the response
-
-**Returns:**
-- `Response`: A new HTTP response object
-
-**Example:**
-```typescript
-const response = createResponse({
-  status: 200,
-  headers: {
-    'Content-Type': 'application/json'
-  },
-  body: '{"success": true}'
-});
-```
-
-### parseHeaders(headersString: string): Record<string, string>
-
-Parses a string of HTTP headers into a headers object.
-
-**Parameters:**
-- `headersString` (string): The headers string to parse
-
-**Returns:**
-- `Record<string, string>`: An object containing the parsed headers
-
-**Example:**
-```typescript
-const headers = parseHeaders(`
-  Host: example.com
-  User-Agent: Mozilla/5.0
-  Accept: text/html
-`);
-```
-
-### parseCookies(cookieString: string): Record<string, string>
-
-Parses a cookie string into a cookies object.
-
-**Parameters:**
-- `cookieString` (string): The cookie string to parse
-
-**Returns:**
-- `Record<string, string>`: An object containing the parsed cookies
-
-**Example:**
-```typescript
-const cookies = parseCookies('session=abc123; theme=dark');
-```
-
-### stringifyHeaders(headers: Record<string, string>): string
-
-Converts a headers object into a string of HTTP headers.
-
-**Parameters:**
-- `headers` (Record<string, string>): The headers object to stringify
-
-**Returns:**
-- `string`: A string containing the HTTP headers
-
-**Example:**
-```typescript
-const headersString = stringifyHeaders({
-  'Host': 'example.com',
-  'User-Agent': 'Mozilla/5.0',
-  'Accept': 'text/html'
-});
-```
-
-### stringifyCookies(cookies: Record<string, string>): string
-
-Converts a cookies object into a cookie string.
-
-**Parameters:**
-- `cookies` (Record<string, string>): The cookies object to stringify
-
-**Returns:**
-- `string`: A string containing the cookies
-
-**Example:**
-```typescript
-const cookieString = stringifyCookies({
-  'session': 'abc123',
-  'theme': 'dark'
-});
-```
-
-## Request Interface
-
-The `Request` interface represents an HTTP request:
-
-```typescript
-interface Request {
+bereq: {
+  url: string;                       // absolute URL sent to the backend
   method: string;
-  url: string;
-  path: string;
-  query: Record<string, string>;
-  headers: Record<string, string>;
-  cookies: Record<string, string>;
-  body: string;
-  remoteAddr: string;
-  remotePort: number;
-  scheme: string;
-  version: string;
-  [key: string]: any;
-}
+  http: Record<string, string>;
+};
 ```
 
-### Request Properties
+`req.url` is the path-and-query as seen by the proxy. `bereq.url` is the absolute URL that will be issued to the backend, with the chosen backend's host, port, and scheme baked in.
 
-- `method`: The HTTP method (e.g., "GET", "POST")
-- `url`: The full URL path including query string
-- `path`: The URL path without query string
-- `query`: An object containing the query parameters
-- `headers`: An object containing the HTTP headers
-- `cookies`: An object containing the cookies
-- `body`: The request body as a string
-- `remoteAddr`: The remote IP address
-- `remotePort`: The remote port
-- `scheme`: The URL scheme (e.g., "http", "https")
-- `version`: The HTTP version (e.g., "1.1")
+Header keys on `req.http` and `bereq.http` are stored lowercased. Setting headers from VCL works on whatever case you use — the runtime normalises lookups — but if you read these fields from JavaScript, expect lowercase keys.
 
-## Response Interface
-
-The `Response` interface represents an HTTP response:
+## Response: `beresp` and `resp`
 
 ```typescript
-interface Response {
+beresp: {
   status: number;
   statusText: string;
-  headers: Record<string, string>;
-  cookies: Record<string, string>;
-  body: string;
-  [key: string]: any;
+  http: Record<string, string>;
+  ttl: number;                       // seconds; 0 means "do not cache"
+  grace?: number;                    // seconds
+  stale_while_revalidate?: number;   // seconds
+  do_esi?: boolean;                  // when true, vcl_deliver triggers ESI processing
+};
+
+resp: {
+  status: number;
+  statusText: string;
+  http: Record<string, string>;
+};
+```
+
+`beresp` is what the backend returned (and what `vcl_fetch` runs against); `resp` is what will go to the client (and what `vcl_deliver` runs against). The proxy copies `beresp.http` into `resp.http` and adds the bookkeeping headers `X-Cache` and `X-Backend`. The response *body* is not stored on either object — it's an `ArrayBuffer` carried by the surrounding pipeline (or, for synthetic responses, by `obj.response`).
+
+## Errors and synthetic responses: `obj`
+
+```typescript
+obj: {
+  status: number;
+  response: string;       // body for synthetic responses and error pages
+  http: Record<string, string>;
+  hits: number;
+};
+```
+
+`obj` is the canvas used by `error 4xx "Reason";` and `synthetic { ... };`. The `vcl_error` subroutine reads and writes `obj.status`, `obj.response`, and `obj.http`; whatever it leaves there becomes the body delivered to the client when `vcl_error` returns `deliver`.
+
+## Headers
+
+Headers are plain JavaScript records. Both incoming directions normalise keys to lowercase before exposing them to VCL, so any of these will find a `Host` header set by the client:
+
+```vcl
+sub vcl_recv {
+  set req.http.X-Original-Host = req.http.host;       # case-insensitive lookup
+  set req.http.X-Original-Host = req.http.Host;       # also fine
 }
 ```
 
-### Response Properties
-
-- `status`: The HTTP status code
-- `statusText`: The HTTP status text
-- `headers`: An object containing the HTTP headers
-- `cookies`: An object containing the cookies
-- `body`: The response body as a string
-
-## VCL Context Integration
-
-The HTTP Object Model is integrated with the VCL context:
+Subfield syntax (`req.http.Foo:bar`) is recognised by the parser and mapped to substring lookups inside the header value via the header module — see `src/vcl-header.ts`. The standard library also exposes a programmatic interface on `context.std.header`:
 
 ```typescript
-interface VCLContext {
-  req: Request;       // Client request
-  bereq: Request;     // Backend request
-  beresp: Response;   // Backend response
-  resp: Response;     // Client response
-  obj: {
-    status: number;
-    response: string;
-    http: Record<string, string>;
-    [key: string]: any;
-  };
-  [key: string]: any;
+context.std.header.get(headers, "X-Token");          // -> string | null
+context.std.header.set(headers, "X-Token", "abc");
+context.std.header.remove(headers, "X-Token");
+context.std.header.filter(headers, "^X-Internal-");        // delete matches
+context.std.header.filter_except(headers, "^Cache-");      // keep matches
+```
+
+## Query strings
+
+Query parsing is exposed via `context.querystring` (mounted from `src/vcl-querystring.ts`) rather than as a parsed `req.query` field on the request object. From VCL:
+
+```vcl
+set req.url = querystring.set(req.url, "page", "2");
+set req.url = querystring.remove(req.url, "utm_source");
+set req.url = querystring.sort(req.url);
+```
+
+If you need the parsed parameters as a record from JavaScript, call `URL` on the path:
+
+```typescript
+const params = new URL(context.req.url, "http://localhost").searchParams;
+```
+
+## Cookies
+
+There is no separate `cookies` field on `req` or `resp`. Cookies travel in the regular `Cookie` and `Set-Cookie` headers and are read or written like any other header:
+
+```vcl
+sub vcl_recv {
+  if (req.http.Cookie ~ "session=([^;]+)") {
+    set req.http.X-Session = re.group.1;
+  }
 }
 ```
 
-## Working with Headers
+For more sophisticated parsing, use the regex helpers under `std` or fall back to JavaScript by reading `context.req.http.cookie` directly.
 
-Headers in the HTTP Object Model are case-insensitive:
+## Constructing a context from JavaScript
 
-```typescript
-// Set a header
-request.headers['Content-Type'] = 'application/json';
-
-// Get a header (case-insensitive)
-const contentType = request.headers['content-type'];  // "application/json"
-
-// Check if a header exists
-const hasHeader = 'content-type' in request.headers;  // true
-
-// Delete a header
-delete request.headers['Content-Type'];
-```
-
-## Working with Cookies
-
-Cookies in the HTTP Object Model are parsed from and serialized to the `Cookie` header:
+If you embed Fastly.JS as a library, build a context with `createVCLContext()` and mutate it directly:
 
 ```typescript
-// Set a cookie
-request.cookies['session'] = 'abc123';
+import { createVCLContext } from "../src/vcl";
 
-// Get a cookie
-const session = request.cookies['session'];  // "abc123"
+const context = createVCLContext();
+context.req.method = "POST";
+context.req.url = "/api/users";
+context.req.http = {
+  host: "example.com",
+  "content-type": "application/json",
+};
 
-// Check if a cookie exists
-const hasCookie = 'session' in request.cookies;  // true
-
-// Delete a cookie
-delete request.cookies['session'];
-
-// The Cookie header is updated automatically
-console.log(request.headers['Cookie']);  // Empty or other cookies
+context.client = { ip: "203.0.113.7" };
 ```
 
-## Working with Query Parameters
+Cloning is just `structuredClone`. There is no `cloneRequest` / `cloneResponse` helper — TypeScript's structural typing makes that unnecessary.
 
-Query parameters in the HTTP Object Model are parsed from and serialized to the URL:
+## See also
 
-```typescript
-// Set a query parameter
-request.query['page'] = '2';
-
-// Get a query parameter
-const page = request.query['page'];  // "2"
-
-// Check if a query parameter exists
-const hasParam = 'page' in request.query;  // true
-
-// Delete a query parameter
-delete request.query['page'];
-
-// The URL is updated automatically
-console.log(request.url);  // URL without the page parameter
-```
-
-## Advanced Usage
-
-### Custom Request Properties
-
-```typescript
-import { createRequest } from '../src/http-model';
-
-// Create a request with custom properties
-const request = createRequest({
-  method: 'GET',
-  url: '/api/users',
-  headers: {
-    'Host': 'example.com'
-  },
-  custom: {
-    userId: '123',
-    features: {
-      featureA: true,
-      featureB: false
-    }
-  }
-});
-
-// Access custom properties
-console.log(request.custom.userId);  // "123"
-console.log(request.custom.features.featureA);  // true
-```
-
-### Request and Response Transformation
-
-```typescript
-import { createRequest, createResponse, transformRequest } from '../src/http-model';
-
-// Create a request
-const request = createRequest({
-  method: 'GET',
-  url: '/api/users',
-  headers: {
-    'Host': 'example.com'
-  }
-});
-
-// Transform the request
-const transformedRequest = transformRequest(request, {
-  method: 'POST',
-  headers: {
-    'Content-Type': 'application/json'
-  },
-  body: '{"filter": "active"}'
-});
-
-// Create a response based on the request
-const response = createResponse({
-  status: 200,
-  headers: {
-    'Content-Type': 'application/json'
-  },
-  body: '{"users": []}'
-}, transformedRequest);
-```
-
-### Cloning Requests and Responses
-
-```typescript
-import { createRequest, createResponse, cloneRequest, cloneResponse } from '../src/http-model';
-
-// Create a request
-const request = createRequest({
-  method: 'GET',
-  url: '/api/users',
-  headers: {
-    'Host': 'example.com'
-  }
-});
-
-// Clone the request
-const clonedRequest = cloneRequest(request);
-
-// Modify the cloned request
-clonedRequest.method = 'POST';
-clonedRequest.headers['Content-Type'] = 'application/json';
-
-// Create a response
-const response = createResponse({
-  status: 200,
-  headers: {
-    'Content-Type': 'application/json'
-  },
-  body: '{"users": []}'
-});
-
-// Clone the response
-const clonedResponse = cloneResponse(response);
-
-// Modify the cloned response
-clonedResponse.status = 201;
-clonedResponse.body = '{"user": {"id": "123"}}';
-```
-
-## Conclusion
-
-The HTTP Object Model API provides a powerful way to work with HTTP requests and responses in Fastly.JS. It's the foundation of the VCL context and enables the simulation of HTTP traffic through the Fastly edge computing platform.
-
-For more information on the Caching System, see the [Caching System API Reference](./caching-system.md).
+- [VCL Runtime](./vcl-runtime.md) for the surrounding `VCLContext` and how subroutines are dispatched.
+- [Caching System](./caching-system.md) for how `beresp.ttl`, `grace`, and `stale_while_revalidate` interact with the cache map.
+- [VCL Variables reference](../reference/vcl-variables.md) for the full list of `req.*`, `bereq.*`, `beresp.*`, `resp.*`, and `obj.*` properties accessible from VCL.

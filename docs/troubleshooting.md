@@ -271,12 +271,12 @@ sub vcl_deliver {
 }
 ```
 
-### Verbose Mode
+### Verbose output
 
-Run Fastly.JS in verbose mode to get more detailed output:
+The proxy itself does not take a `--verbose` flag — every command-line argument is treated as a path to a VCL file. To see more detail at runtime, sprinkle `std.log(...)` calls through your VCL (they print to stderr prefixed with `[VCL]`) or run Bun with extra debug output:
 
 ```bash
-bun run index.ts --verbose my-vcl-file.vcl
+BUN_DEBUG_QUIET_LOGS=0 bun run index.ts my-vcl-file.vcl
 ```
 
 ### Using Multiple VCL Files

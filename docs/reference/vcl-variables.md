@@ -320,35 +320,15 @@ The port of the client.
 set req.http.X-Client-Port = client.port;
 ```
 
-### client.geo.country_code
+### client.geo.* (not implemented)
 
-The country code of the client's location.
+Fastly's standard `client.geo.country_code`, `client.geo.continent_code`, `client.geo.city`, and related fields are documented here for completeness but are **not currently implemented** in Fastly.JS. The runtime only populates `client.ip`; reading any `client.geo.*` field yields an empty value. To experiment with geo logic locally, set the relevant headers (e.g. `req.http.X-Country`) yourself in `vcl_recv` from a resolver of your own.
 
-**Example:**
 ```vcl
+# Standard Fastly syntax — recognised by the parser but evaluates to empty.
 if (client.geo.country_code == "US") {
   set req.http.X-Region = "NA";
 }
-```
-
-### client.geo.continent_code
-
-The continent code of the client's location.
-
-**Example:**
-```vcl
-if (client.geo.continent_code == "EU") {
-  set req.http.X-Region = "Europe";
-}
-```
-
-### client.geo.city
-
-The city of the client's location.
-
-**Example:**
-```vcl
-set req.http.X-City = client.geo.city;
 ```
 
 ## Server Variables (server.*)

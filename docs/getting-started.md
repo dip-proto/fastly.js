@@ -130,29 +130,27 @@ bun run index.ts common-settings.vcl backends.vcl caching-rules.vcl
 
 This will start the Fastly.JS proxy server with your VCL configuration. You should see output similar to the following:
 
-```bash
+```text
 Loading VCL files: my-first-vcl.vcl
-Loaded VCL files: my-first-vcl.vcl (1234 bytes)
-Parsed VCL files: 3 subroutines
-Compiled VCL files: 3 subroutines
+Initializing security module...
 Setting up backends...
-Backends configured: default
+Backends configured: default, main, api, static
+Directors configured: main_director, fallback_director
 HTTP Proxy server running at http://127.0.0.1:8000
-Default backend: example.com:80
 Using VCL files: my-first-vcl.vcl
 ```
 
-When using multiple VCL files, the output will show all the files that were loaded:
+The `default`, `main`, `api`, and `static` backends, along with the two directors, are pre-registered by `index.ts` itself so the bundled examples have something to talk to. Any `backend` blocks you declare in your VCL are layered on top of those.
 
-```bash
+When using multiple VCL files, the first line lists every file that was loaded:
+
+```text
 Loading VCL files: common-settings.vcl, backends.vcl, caching-rules.vcl
-Loaded VCL files: common-settings.vcl, backends.vcl, caching-rules.vcl (3456 bytes)
-Parsed VCL files: 5 subroutines
-Compiled VCL files: 5 subroutines
+Initializing security module...
 Setting up backends...
-Backends configured: default, api, static
+Backends configured: default, main, api, static
+Directors configured: main_director, fallback_director
 HTTP Proxy server running at http://127.0.0.1:8000
-Default backend: example.com:80
 Using VCL files: common-settings.vcl, backends.vcl, caching-rules.vcl
 ```
 

@@ -16,72 +16,32 @@ The Standard Library consists of several modules:
 8. **Ratelimit Functions**: Functions for rate limiting
 9. **WAF Functions**: Functions for web application firewall
 
-## Importing the Standard Library
+## How the standard library is exposed
+
+You almost never need to construct standard library modules yourself. The runtime wires them onto every `VCLContext` returned by `createVCLContext()`, and VCL code calls them as `std.foo`, `digest.foo`, `time.foo`, and so on. From JavaScript:
 
 ```typescript
-import { createStdModule } from './src/vcl-std';
-import { createDigestModule } from './src/vcl-digest';
-import { createTimeModule } from './src/vcl-time';
+import { createVCLContext } from "../src/vcl";
+
+const context = createVCLContext();
+
+context.std!.toupper("hello");        // "HELLO"
+context.std!.digest.hash_md5("hi");   // MD5 hash
+context.std!.time.now();              // Date.now() in ms
 ```
 
-## Basic Usage
+If you really do want to use a single module in isolation, the underlying factories live next to their implementations:
 
 ```typescript
-import { createStdModule } from './src/vcl-std';
-import { createDigestModule } from './src/vcl-digest';
-import { createTimeModule } from './src/vcl-time';
-
-// Create standard library module instances
-const std = createStdModule();
-const digest = createDigestModule();
-const time = createTimeModule();
-
-// Use standard library functions
-const upperCase = std.toupper('hello');  // "HELLO"
-const md5Hash = digest.hash_md5('hello');  // MD5 hash of "hello"
-const currentTime = time.now();  // Current time as Date
+import { createStdModule }    from "../src/vcl-std";
+import { createTimeModule }   from "../src/vcl-time";
+import { createMathModule }   from "../src/vcl-math";
+import { createTableModule }  from "../src/vcl-table";
+import { createHeaderModule } from "../src/vcl-header";
+import { DigestModule, CryptoModule } from "../src/vcl-digest";
 ```
 
-## Standard Library API
-
-### createStdModule(): StdModule
-
-Creates a new standard library module instance with string and utility functions.
-
-**Returns:**
-- `StdModule`: A new standard library module instance
-
-**Example:**
-```typescript
-const std = createStdModule();
-const length = std.strlen('hello');  // 5
-```
-
-### createDigestModule(): DigestModule
-
-Creates a new digest module instance with cryptographic functions.
-
-**Returns:**
-- `DigestModule`: A new digest module instance
-
-**Example:**
-```typescript
-const digest = createDigestModule();
-const hash = digest.hash_md5('hello');
-```
-
-### createTimeModule(): TimeModule
-
-Creates a new time module instance with date/time functions.
-
-**Returns:**
-- `TimeModule`: A new time module instance
-
-**Example:**
-```typescript
-const time = createTimeModule();
-const now = time.now();  // Returns Date object
-```
+`DigestModule` and `CryptoModule` are exported as ready-made objects, not factories — there is no `createDigestModule()` to call.
 
 ## String Functions
 
@@ -337,9 +297,9 @@ Decodes a base64-encoded string.
 const decoded = std.digest.base64_decode('aGVsbG8=');  // "hello"
 ```
 
-### std.digest.base64_encode(string: string): string
+### std.digest.base64(string: string): string
 
-Encodes a string as base64.
+Encodes a string as base64. (`std.base64` is the same function — both names are wired up.)
 
 **Parameters:**
 - `string` (string): The string to encode
@@ -349,8 +309,12 @@ Encodes a string as base64.
 
 **Example:**
 ```typescript
-const encoded = std.digest.base64_encode('hello');  // "aGVsbG8="
+const encoded = std.digest.base64('hello');  // "aGVsbG8="
 ```
+
+### Other digest helpers
+
+`std.digest` also exposes `hash_sha224`, `hash_sha384`, `hash_sha512`, `hash_xxh32`, `hash_xxh64`, `hash_crc32`, `hash_crc32b`, the `hmac_*` family (with `_base64` variants), `time_hmac_md5` and `time_hmac_sha256`, `secure_is_equal`, the URL-safe `base64url` / `base64url_nopad` encoders and decoders, `awsv4_hmac`, `rsa_verify`, and `ecdsa_verify`. Encryption is on `std.crypto`: `encrypt_base64`, `decrypt_base64`, `encrypt_hex`, `decrypt_hex`.
 
 ## Logging Functions
 
@@ -381,17 +345,21 @@ std.syslog(3, 'Error occurred');  // Error message
 
 ## Director Functions
 
-### std.director.add(name: string, type: string): void
+### std.director.add(name: string, type: string, options?): boolean
 
 Adds a director.
 
 **Parameters:**
 - `name` (string): The name of the director
-- `type` (string): The type of the director (e.g., "random", "round-robin", "hash", "client")
+- `type` (string): One of `"random"`, `"hash"`, `"client"`, `"fallback"`, `"chash"`. Round-robin behaviour is achieved by giving every backend the same weight in a `random` director.
+- `options` (object, optional): `{ quorum, retries }`. `quorum` is a percentage; if too few healthy backends remain, `select_backend` returns `null`.
+
+**Returns:**
+- `boolean`: `true` on success, `false` if the type is unknown.
 
 **Example:**
 ```typescript
-std.director.add('my_director', 'random');
+std.director.add('my_director', 'random', { quorum: 50, retries: 3 });
 ```
 
 ### std.director.add_backend(director: string, backend: string, weight?: number): void
@@ -425,20 +393,7 @@ const backend = std.director.select_backend('my_director');
 
 ## Geo Functions
 
-### std.geo.lookup(ip: string): GeoData
-
-Looks up geolocation data for an IP address.
-
-**Parameters:**
-- `ip` (string): The IP address to look up
-
-**Returns:**
-- `GeoData`: The geolocation data
-
-**Example:**
-```typescript
-const geo = std.geo.lookup('8.8.8.8');
-```
+Geolocation is **not currently implemented** in Fastly.JS. The `client` object only exposes `client.ip`; there is no `client.geo.*` data and no `std.geo.lookup` helper. VCL that references geo properties is parsed but evaluates to empty values at runtime. Plug your own resolver in by populating `context.client` from JavaScript before calling `executeVCL`.
 
 ## Ratelimit Functions
 
