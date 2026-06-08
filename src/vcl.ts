@@ -1,5 +1,5 @@
 import { buildDiagnostic, VCLDiagnosticError } from "./diagnostics";
-import { getPlatform, logError, logInfo, randomFloat, type VCLPlatform } from "./platform";
+import { getPlatform, logError, randomFloat, type VCLPlatform } from "./platform";
 import { AcceptModule } from "./vcl-accept";
 import { AddressModule } from "./vcl-address";
 import { BinaryModule } from "./vcl-binary";
@@ -177,7 +177,7 @@ export function createVCLContext(platform: VCLPlatform = getPlatform()): VCLCont
 
 	context.std = {
 		log: (message: string) => {
-			logInfo(`[VCL] ${message}`);
+			platform.log({ level: "info", message: `[VCL] ${message}` });
 		},
 
 		strftime: (_format: string, time: number) => new Date(time).toISOString(),

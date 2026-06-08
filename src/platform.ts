@@ -97,6 +97,16 @@ export function randomFloat(platform: VCLPlatform): number {
 	return u / 0x100000000;
 }
 
+// Hex of a hash digest — the one place the engine turns bytes into a hex string.
+export function hashHex(algorithm: HashAlgorithm, data: Uint8Array): string {
+	return Buffer.from(getPlatform().crypto.hash(algorithm, data)).toString("hex");
+}
+
+// A rate-limit window identifier: a timestamp plus a short random suffix.
+export function generateWindowId(platform: VCLPlatform): string {
+	return `window_${platform.now()}_${randomFloat(platform).toString(36).substring(2, 9)}`;
+}
+
 export function logInfo(message: string, detail?: unknown): void {
 	getPlatform().log({ level: "info", message: withDetail(message, detail) });
 }

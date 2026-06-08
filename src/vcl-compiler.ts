@@ -1,11 +1,4 @@
-import {
-	getCrypto,
-	getPlatform,
-	logError,
-	logInfo,
-	randomFloat,
-	type VCLPlatform,
-} from "./platform";
+import { hashHex, logError, logInfo, randomFloat, type VCLPlatform } from "./platform";
 import { createVCLContext } from "./vcl";
 import type {
 	VCLAddStatement,
@@ -130,7 +123,7 @@ export interface VCLContext {
 	tables: Record<string, VCLTable>;
 	client?: { ip: string };
 	re?: { groups?: Record<number, string> };
-	platform?: VCLPlatform;
+	platform: VCLPlatform;
 
 	// Local variables (declared with "declare local var.xxx TYPE;")
 	locals: Record<string, any>;
@@ -1338,7 +1331,10 @@ export class VCLCompiler {
 	}
 
 	private executeLogStatement(statement: VCLLogStatement, context: VCLContext): void {
-		logInfo(`[VCL] ${this.evaluateExpression(statement.message, context)}`);
+		context.platform.log({
+			level: "info",
+			message: `[VCL] ${this.evaluateExpression(statement.message, context)}`,
+		});
 	}
 
 	private executeSyntheticStatement(statement: VCLSyntheticStatement, context: VCLContext): void {
@@ -1483,7 +1479,7 @@ export class VCLCompiler {
 
 	private executeHashDataStatement(statement: VCLHashDataStatement, context: VCLContext): void {
 		const value = this.evaluateExpression(statement.value, context);
-		const hash = Buffer.from(getCrypto().hash("md5", Buffer.from(String(value)))).toString("hex");
+		const hash = hashHex("md5", Buffer.from(String(value)));
 		if (!context.hashData) context.hashData = [];
 		context.hashData.push(hash);
 	}
@@ -1565,7 +1561,7 @@ export class VCLCompiler {
 		}
 
 		if (functionName === "std.log") {
-			logInfo(`[VCL] ${args[0]}`);
+			context.platform.log({ level: "info", message: `[VCL] ${args[0]}` });
 			return null;
 		}
 
@@ -1769,7 +1765,7 @@ export class VCLCompiler {
 			if (numerator <= 0) return false;
 			if (denominator <= 0) return true;
 			if (context.std?.random?.bool) return context.std.random.bool(numerator, denominator);
-			const rv = Math.floor(randomFloat(context.platform ?? getPlatform()) * denominator) + 1;
+			const rv = Math.floor(randomFloat(context.platform) * denominator) + 1;
 			return rv <= numerator;
 		} else if (functionName === "randombool_seeded") {
 			const numerator = Math.floor(Number(args[0]));
@@ -1781,7 +1777,7 @@ export class VCLCompiler {
 		} else if (functionName === "randomint") {
 			const [from, to] = [Math.floor(Number(args[0])), Math.floor(Number(args[1]))];
 			if (from > to) return 0;
-			return Math.floor(randomFloat(context.platform ?? getPlatform()) * (to - from)) + from;
+			return Math.floor(randomFloat(context.platform) * (to - from)) + from;
 		} else if (functionName === "randomint_seeded") {
 			const [from, to] = [Math.floor(Number(args[0])), Math.floor(Number(args[1]))];
 			if (from > to) return 0;
@@ -1794,7 +1790,7 @@ export class VCLCompiler {
 			if (chars.length === 0) return "";
 			return Array.from(
 				{ length: Math.max(0, Math.floor(Number(args[0]))) },
-				() => chars[Math.floor(randomFloat(context.platform ?? getPlatform()) * chars.length)],
+				() => chars[Math.floor(randomFloat(context.platform) * chars.length)],
 			).join("");
 		} else if (functionName.startsWith("setcookie.")) {
 			const cookieFunction = functionName.substring(10);
@@ -1860,7 +1856,7 @@ export class VCLCompiler {
 		} else if (functionName === "resp.tarpit" || functionName === "early_hints") {
 			return null;
 		} else if (functionName === "fastly.hash") {
-			return Buffer.from(getCrypto().hash("sha256", Buffer.from(String(args[0])))).toString("hex");
+			return hashHex("sha256", Buffer.from(String(args[0])));
 		} else if (functionName === "fastly.try_select_shield") {
 			return false;
 		} else if (
@@ -1919,8 +1915,8 @@ export class VCLCompiler {
 		]);
 		if (VCL_ENUM_VALUES.has(name)) return name;
 
-		if (name === "now") return context.platform?.now() ?? Date.now();
-		if (name === "now.sec") return Math.floor((context.platform?.now() ?? Date.now()) / 1000);
+		if (name === "now") return context.platform.now();
+		if (name === "now.sec") return Math.floor(context.platform.now() / 1000);
 
 		if (parts.length >= 3 && idPart1 === "http") {
 			const headerName = parts.slice(2).join(".");
@@ -2034,7 +2030,7 @@ export class VCLCompiler {
 		if (name === "req.vcl") return ctx.req?.vcl || "local.1_0-00000000000000000000000000000000";
 		if (name === "req.vcl.md5") {
 			const vcl = ctx.req?.vcl || "local.1_0-00000000000000000000000000000000";
-			return Buffer.from(getCrypto().hash("md5", Buffer.from(vcl))).toString("hex");
+			return hashHex("md5", Buffer.from(vcl));
 		}
 		if (name === "req.vcl.generation") return 1;
 		if (name === "req.vcl.version") return 1;
@@ -2155,7 +2151,7 @@ export class VCLCompiler {
 		if (name === "obj.age") return ctx.obj?.age ?? 0;
 		if (name === "obj.grace") return ctx.obj?.grace ?? 0;
 		if (name === "obj.lastuse") return ctx.obj?.lastuse ?? 0;
-		if (name === "obj.entered") return ctx.obj?.entered ?? ctx.platform?.now() ?? Date.now();
+		if (name === "obj.entered") return ctx.obj?.entered ?? ctx.platform.now();
 		if (name === "obj.cacheable") return ctx.obj?.cacheable ?? true;
 		if (name === "obj.is_pci") return false;
 		if (name === "obj.stale_if_error") return ctx.obj?.stale_if_error ?? 0;
@@ -2221,8 +2217,7 @@ export class VCLCompiler {
 		if (name.startsWith("client.socket.")) return 0;
 
 		// server.* variables
-		if (name === "server.hostname")
-			return ctx.server?.hostname || ctx.platform?.hostname() || "localhost";
+		if (name === "server.hostname") return ctx.server?.hostname || ctx.platform.hostname();
 		if (name === "server.identity") return ctx.server?.identity || "localhost";
 		if (name === "server.datacenter") return ctx.server?.datacenter || "local";
 		if (name === "server.region") return ctx.server?.region || "local";
@@ -2253,24 +2248,22 @@ export class VCLCompiler {
 
 		// time.* variables
 		if (name === "time.start" || name === "time.start.sec")
-			return Math.floor((ctx.platform?.now() ?? Date.now()) / 1000);
-		if (name === "time.start.msec") return ctx.platform?.now() ?? Date.now();
-		if (name === "time.start.usec") return (ctx.platform?.now() ?? Date.now()) * 1000;
-		if (name === "time.start.msec_frac") return (ctx.platform?.now() ?? Date.now()) % 1000;
-		if (name === "time.start.usec_frac")
-			return ((ctx.platform?.now() ?? Date.now()) * 1000) % 1000000;
+			return Math.floor(ctx.platform.now() / 1000);
+		if (name === "time.start.msec") return ctx.platform.now();
+		if (name === "time.start.usec") return ctx.platform.now() * 1000;
+		if (name === "time.start.msec_frac") return ctx.platform.now() % 1000;
+		if (name === "time.start.usec_frac") return (ctx.platform.now() * 1000) % 1000000;
 		if (name === "time.elapsed" || name === "time.elapsed.sec") return 0;
 		if (name === "time.elapsed.msec") return 0;
 		if (name === "time.elapsed.usec") return 0;
 		if (name === "time.elapsed.msec_frac") return "000";
 		if (name === "time.elapsed.usec_frac") return "000000";
 		if (name === "time.end" || name === "time.end.sec")
-			return Math.floor((ctx.platform?.now() ?? Date.now()) / 1000);
-		if (name === "time.end.msec") return ctx.platform?.now() ?? Date.now();
-		if (name === "time.end.usec") return (ctx.platform?.now() ?? Date.now()) * 1000;
-		if (name === "time.end.msec_frac") return (ctx.platform?.now() ?? Date.now()) % 1000;
-		if (name === "time.end.usec_frac")
-			return ((ctx.platform?.now() ?? Date.now()) * 1000) % 1000000;
+			return Math.floor(ctx.platform.now() / 1000);
+		if (name === "time.end.msec") return ctx.platform.now();
+		if (name === "time.end.usec") return ctx.platform.now() * 1000;
+		if (name === "time.end.msec_frac") return ctx.platform.now() % 1000;
+		if (name === "time.end.usec_frac") return (ctx.platform.now() * 1000) % 1000000;
 		if (name === "time.to_first_byte") return 0;
 
 		// tls.client.* variables

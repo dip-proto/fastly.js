@@ -4,7 +4,7 @@
  * Implements various utility functions from Fastly VCL.
  */
 
-import { getCrypto, getPlatform, randomFloat } from "./platform";
+import { getPlatform, hashHex, randomFloat } from "./platform";
 
 const ESCAPE_MAP: Record<string, string> = {
 	"\\": "\\\\",
@@ -207,7 +207,7 @@ export const setcookie = {
 
 export const fastly = {
 	hash: async (input: string): Promise<string> => {
-		return Buffer.from(getCrypto().hash("sha256", Buffer.from(String(input)))).toString("hex");
+		return hashHex("sha256", Buffer.from(String(input)));
 	},
 
 	// No-op in local development
