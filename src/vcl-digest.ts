@@ -1,5 +1,11 @@
 import { xxHash32 } from "js-xxhash";
-import { getCrypto, getPlatform, type HashAlgorithm, type VCLPlatform } from "./platform";
+import {
+	getCrypto,
+	getPlatform,
+	type HashAlgorithm,
+	UnsupportedFeatureError,
+	type VCLPlatform,
+} from "./platform";
 
 type TOTPAlgorithm = "md5" | "sha1" | "sha256" | "sha512";
 
@@ -306,7 +312,8 @@ export function createDigestModule(boundPlatform?: VCLPlatform) {
 					Buffer.from(String(payload)),
 					sig,
 				);
-			} catch {
+			} catch (e) {
+				if (e instanceof UnsupportedFeatureError) throw e;
 				return false;
 			}
 		},
@@ -375,7 +382,8 @@ export function createDigestModule(boundPlatform?: VCLPlatform) {
 					Buffer.from(String(payload)),
 					sigBuf,
 				);
-			} catch {
+			} catch (e) {
+				if (e instanceof UnsupportedFeatureError) throw e;
 				return false;
 			}
 		},

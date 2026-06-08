@@ -14,7 +14,8 @@
 		"test:integration": "bun run test/run-integration-tests.ts",
 		"test:tables": "bun test ./test/table-functions-tests.ts ./test/direct-table-functions-tests.ts ./test/vcl-table-functions-tests.ts",
 		"test:browser": "bun run test/browser-bundle-smoke.test.ts",
-		"test:all": "bun run test && bun run test:root && bun run test:integration && bun run test:tables && bun run test:browser",
+		"test:compat": "bun test ./test/crypto-compat.test.ts",
+		"test:all": "bun run test && bun run test:root && bun run test:integration && bun run test:tables && bun run test:compat && bun run test:browser",
 		"lint": "biome lint .",
 		"format": "biome format --write .",
 		"check": "biome check --write .",
@@ -30,10 +31,10 @@
 		"typescript": "^5.9.3"
 	},
 	"dependencies": {
-		"@types/libsodium-wrappers": "^0.8.2",
+		"@noble/ciphers": "^2.2.0",
+		"@noble/hashes": "^2.2.0",
 		"@types/uuid": "^11.0.0",
 		"js-xxhash": "^5.0.1",
-		"libsodium-wrappers": "^0.8.2",
 		"uuid": "^13.0.0"
 	}
 }

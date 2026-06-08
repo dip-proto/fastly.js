@@ -38,6 +38,24 @@ export interface CryptoProvider {
 	): boolean;
 }
 
+// Thrown when a VCL feature is unavailable on the current platform — used by the
+// browser provider for RSA/ECDSA signature verification, which has no clean
+// synchronous implementation. It is loud on purpose: a debugging playground must
+// never present an unsupported verification as a result you can trust.
+export class UnsupportedFeatureError extends Error {
+	readonly feature: string;
+
+	constructor(feature: string, detail?: string) {
+		super(
+			detail
+				? `${feature} is not supported on this platform: ${detail}`
+				: `${feature} is not supported on this platform`,
+		);
+		this.name = "UnsupportedFeatureError";
+		this.feature = feature;
+	}
+}
+
 export type LogLevel = "debug" | "info" | "warn" | "error";
 
 export interface LogRecord {
