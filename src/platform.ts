@@ -89,6 +89,14 @@ function withDetail(message: string, detail: unknown): string {
 	return detail === undefined ? message : `${message} ${detail}`;
 }
 
+// A [0, 1) float derived from platform randomness, so randomness is pinnable
+// for reproducible playground runs instead of reaching for Math.random().
+export function randomFloat(platform: VCLPlatform): number {
+	const b = platform.randomBytes(4);
+	const u = ((b[0]! << 24) | (b[1]! << 16) | (b[2]! << 8) | b[3]!) >>> 0;
+	return u / 0x100000000;
+}
+
 export function logInfo(message: string, detail?: unknown): void {
 	getPlatform().log({ level: "info", message: withDetail(message, detail) });
 }

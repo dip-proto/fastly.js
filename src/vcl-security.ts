@@ -3,7 +3,7 @@
  * Provides WAF (Web Application Firewall) and rate limiting capabilities.
  */
 
-import { getPlatform, logInfo } from "./platform";
+import { getPlatform, logInfo, randomFloat } from "./platform";
 
 interface RateCounter {
 	count: number;
@@ -114,7 +114,7 @@ export const SecurityModule = {
 
 	ratelimit: {
 		open_window: (_context: any, windowSeconds: number): string => {
-			const windowId = `window_${getPlatform().now()}_${Math.random().toString(36).substring(2, 9)}`;
+			const windowId = `window_${getPlatform().now()}_${randomFloat(getPlatform()).toString(36).substring(2, 9)}`;
 			const windowMs = windowSeconds * 1000;
 
 			rateCounters.set(windowId, {

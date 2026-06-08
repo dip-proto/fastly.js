@@ -1,3 +1,4 @@
+import "../../src/platform-node";
 /**
  * VCL Test Suite
  *

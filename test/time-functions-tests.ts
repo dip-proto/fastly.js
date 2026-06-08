@@ -132,6 +132,32 @@ const timeFunctionsTests = {
 				},
 			],
 		},
+		// Test 3: now / now.sec resolve through the platform clock (regression)
+		{
+			name: "now and now.sec resolve to the platform clock",
+			vclSnippet: `
+        sub vcl_recv {
+          set req.http.X-Now = now;
+          set req.http.X-Now-Sec = now.sec;
+          return(lookup);
+        }
+      `,
+			run: async (context: VCLContext, subroutines: VCLSubroutines) => {
+				executeSubroutine(context, subroutines, "vcl_recv");
+			},
+			assertions: [
+				(context: VCLContext) => {
+					const nowMs = Number(context.req.http["X-Now"]);
+					const nowSec = Number(context.req.http["X-Now-Sec"]);
+					return assert(
+						Number.isFinite(nowMs) &&
+							nowMs > 1_000_000_000_000 &&
+							Math.floor(nowMs / 1000) === nowSec,
+						`Expected now/now.sec to be a numeric epoch, got ${context.req.http["X-Now"]} / ${context.req.http["X-Now-Sec"]}`,
+					);
+				},
+			],
+		},
 	],
 };
 

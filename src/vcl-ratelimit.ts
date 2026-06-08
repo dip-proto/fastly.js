@@ -9,7 +9,7 @@
  *   ratelimit.penaltybox_has(ID, STRING) -> BOOL
  */
 
-import { getPlatform } from "./platform";
+import { getPlatform, randomFloat } from "./platform";
 import { parseTimeValue } from "./vcl-time";
 
 interface RateCounter {
@@ -58,7 +58,7 @@ export const RateLimitModule = {
 
 	open_window(windowSeconds: number): string {
 		const now = getPlatform().now();
-		const windowId = `window_${now}_${Math.random().toString(36).substring(2, 9)}`;
+		const windowId = `window_${now}_${randomFloat(getPlatform()).toString(36).substring(2, 9)}`;
 		rateCounters.set(windowId, {
 			count: 0,
 			lastReset: now,

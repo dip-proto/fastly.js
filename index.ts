@@ -1,3 +1,4 @@
+import "./src/platform-node";
 import { existsSync, readFileSync } from "node:fs";
 import { createVCLContext, executeVCL, loadVCLContent } from "./src/vcl";
 import type { VCLContext, VCLSubroutines } from "./src/vcl-compiler";

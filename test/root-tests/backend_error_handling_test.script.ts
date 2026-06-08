@@ -1,3 +1,4 @@
+import "../../src/platform-node";
 /**
  * Test script for backend error handling
  */

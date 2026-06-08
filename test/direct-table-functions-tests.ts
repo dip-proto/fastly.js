@@ -1,3 +1,4 @@
+import "../src/platform-node";
 import { describe, expect, it } from "bun:test";
 import { createVCLContext } from "../src/vcl";
 

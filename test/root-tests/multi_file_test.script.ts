@@ -1,3 +1,4 @@
+import "../../src/platform-node";
 /**
  * Multi-file VCL Test
  *

@@ -1,3 +1,4 @@
+import "../src/platform-node";
 /**
  * Tests for miscellaneous VCL functions
  */

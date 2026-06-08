@@ -1,4 +1,11 @@
-import { getCrypto, logError, logInfo, type VCLPlatform } from "./platform";
+import {
+	getCrypto,
+	getPlatform,
+	logError,
+	logInfo,
+	randomFloat,
+	type VCLPlatform,
+} from "./platform";
 import { createVCLContext } from "./vcl";
 import type {
 	VCLAddStatement,
@@ -1762,7 +1769,7 @@ export class VCLCompiler {
 			if (numerator <= 0) return false;
 			if (denominator <= 0) return true;
 			if (context.std?.random?.bool) return context.std.random.bool(numerator, denominator);
-			const rv = Math.floor(Math.random() * denominator) + 1;
+			const rv = Math.floor(randomFloat(context.platform ?? getPlatform()) * denominator) + 1;
 			return rv <= numerator;
 		} else if (functionName === "randombool_seeded") {
 			const numerator = Math.floor(Number(args[0]));
@@ -1774,7 +1781,7 @@ export class VCLCompiler {
 		} else if (functionName === "randomint") {
 			const [from, to] = [Math.floor(Number(args[0])), Math.floor(Number(args[1]))];
 			if (from > to) return 0;
-			return Math.floor(Math.random() * (to - from)) + from;
+			return Math.floor(randomFloat(context.platform ?? getPlatform()) * (to - from)) + from;
 		} else if (functionName === "randomint_seeded") {
 			const [from, to] = [Math.floor(Number(args[0])), Math.floor(Number(args[1]))];
 			if (from > to) return 0;
@@ -1787,7 +1794,7 @@ export class VCLCompiler {
 			if (chars.length === 0) return "";
 			return Array.from(
 				{ length: Math.max(0, Math.floor(Number(args[0]))) },
-				() => chars[Math.floor(Math.random() * chars.length)],
+				() => chars[Math.floor(randomFloat(context.platform ?? getPlatform()) * chars.length)],
 			).join("");
 		} else if (functionName.startsWith("setcookie.")) {
 			const cookieFunction = functionName.substring(10);
@@ -1912,8 +1919,8 @@ export class VCLCompiler {
 		]);
 		if (VCL_ENUM_VALUES.has(name)) return name;
 
-		if (name === "now") return ctx.platform?.now() ?? Date.now();
-		if (name === "now.sec") return Math.floor((ctx.platform?.now() ?? Date.now()) / 1000);
+		if (name === "now") return context.platform?.now() ?? Date.now();
+		if (name === "now.sec") return Math.floor((context.platform?.now() ?? Date.now()) / 1000);
 
 		if (parts.length >= 3 && idPart1 === "http") {
 			const headerName = parts.slice(2).join(".");

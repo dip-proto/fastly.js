@@ -11,15 +11,14 @@ import {
 	validate,
 	version,
 } from "uuid";
-import { getPlatform } from "./platform";
+import { getPlatform, type VCLPlatform } from "./platform";
 
 const NAMESPACE_DNS = "6ba7b810-9dad-11d1-80b4-00c04fd430c8";
 const NAMESPACE_URL = "6ba7b811-9dad-11d1-80b4-00c04fd430c8";
 const NAMESPACE_OID = "6ba7b812-9dad-11d1-80b4-00c04fd430c8";
 const NAMESPACE_X500 = "6ba7b814-9dad-11d1-80b4-00c04fd430c8";
 
-function uuidv7(): string {
-	const platform = getPlatform();
+function uuidv7(platform: VCLPlatform): string {
 	const timestamp = BigInt(platform.now());
 	const bytes = platform.randomBytes(16);
 
@@ -40,76 +39,80 @@ function isVersion(uuid: string, expectedVersion: number): boolean {
 	return validate(String(uuid)) && version(String(uuid)) === expectedVersion;
 }
 
-export const UUIDModule = {
-	version3(namespace: string, name: string): string {
-		return uuidv3(String(name), String(namespace));
-	},
+export function createUUIDModule(platform?: VCLPlatform) {
+	return {
+		version3(namespace: string, name: string): string {
+			return uuidv3(String(name), String(namespace));
+		},
 
-	version4(): string {
-		return uuidv4();
-	},
+		version4(): string {
+			return uuidv4();
+		},
 
-	version5(namespace: string, name: string): string {
-		return uuidv5(String(name), String(namespace));
-	},
+		version5(namespace: string, name: string): string {
+			return uuidv5(String(name), String(namespace));
+		},
 
-	dns(name: string): string {
-		return uuidv5(String(name), NAMESPACE_DNS);
-	},
+		dns(name: string): string {
+			return uuidv5(String(name), NAMESPACE_DNS);
+		},
 
-	url(name: string): string {
-		return uuidv5(String(name), NAMESPACE_URL);
-	},
+		url(name: string): string {
+			return uuidv5(String(name), NAMESPACE_URL);
+		},
 
-	is_valid(uuid: string): boolean {
-		return validate(String(uuid));
-	},
+		is_valid(uuid: string): boolean {
+			return validate(String(uuid));
+		},
 
-	is_version3(uuid: string): boolean {
-		return isVersion(uuid, 3);
-	},
+		is_version3(uuid: string): boolean {
+			return isVersion(uuid, 3);
+		},
 
-	is_version4(uuid: string): boolean {
-		return isVersion(uuid, 4);
-	},
+		is_version4(uuid: string): boolean {
+			return isVersion(uuid, 4);
+		},
 
-	is_version5(uuid: string): boolean {
-		return isVersion(uuid, 5);
-	},
+		is_version5(uuid: string): boolean {
+			return isVersion(uuid, 5);
+		},
 
-	decode(uuid: string): Uint8Array | null {
-		if (!validate(String(uuid))) {
-			return null;
-		}
-		return parse(String(uuid));
-	},
+		decode(uuid: string): Uint8Array | null {
+			if (!validate(String(uuid))) {
+				return null;
+			}
+			return parse(String(uuid));
+		},
 
-	encode(binary: any): string {
-		if (typeof binary === "string") {
-			const values = binary.split(",").map(Number);
-			binary = new Uint8Array(values);
-		}
+		encode(binary: any): string {
+			if (typeof binary === "string") {
+				const values = binary.split(",").map(Number);
+				binary = new Uint8Array(values);
+			}
 
-		if (!(binary instanceof Uint8Array) || binary.length !== 16) {
-			return "";
-		}
+			if (!(binary instanceof Uint8Array) || binary.length !== 16) {
+				return "";
+			}
 
-		return stringify(binary);
-	},
+			return stringify(binary);
+		},
 
-	version7(): string {
-		return uuidv7();
-	},
+		version7(): string {
+			return uuidv7(platform ?? getPlatform());
+		},
 
-	is_version7(uuid: string): boolean {
-		return isVersion(uuid, 7);
-	},
+		is_version7(uuid: string): boolean {
+			return isVersion(uuid, 7);
+		},
 
-	oid(name: string): string {
-		return uuidv5(String(name), NAMESPACE_OID);
-	},
+		oid(name: string): string {
+			return uuidv5(String(name), NAMESPACE_OID);
+		},
 
-	x500(name: string): string {
-		return uuidv5(String(name), NAMESPACE_X500);
-	},
-};
+		x500(name: string): string {
+			return uuidv5(String(name), NAMESPACE_X500);
+		},
+	};
+}
+
+export const UUIDModule = createUUIDModule();

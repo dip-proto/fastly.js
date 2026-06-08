@@ -1,16 +1,15 @@
 import { buildDiagnostic, VCLDiagnosticError } from "./diagnostics";
-import { getPlatform, logError, logInfo, type VCLPlatform } from "./platform";
+import { getPlatform, logError, logInfo, randomFloat, type VCLPlatform } from "./platform";
 import { AcceptModule } from "./vcl-accept";
 import { AddressModule } from "./vcl-address";
 import { BinaryModule } from "./vcl-binary";
-import "./platform-node";
 import { VCLCompiler, type VCLContext, type VCLSubroutines } from "./vcl-compiler";
 import { toRawString } from "./vcl-value";
 
 // Re-export types
 export type { VCLContext, VCLSubroutines };
 
-import { CryptoModule, DigestModule } from "./vcl-digest";
+import { CryptoModule, createDigestModule } from "./vcl-digest";
 import { processESI } from "./vcl-esi";
 import { createHeaderModule } from "./vcl-header";
 import { createMathModule } from "./vcl-math";
@@ -22,7 +21,7 @@ import { createStdModule } from "./vcl-std";
 import { createTableModule } from "./vcl-table";
 import { createParseTimeDelta, createStrftime, createTimeModule } from "./vcl-time";
 import { UTF8Module } from "./vcl-utf8";
-import { UUIDModule } from "./vcl-uuid";
+import { createUUIDModule } from "./vcl-uuid";
 import { WAFModule } from "./vcl-waf";
 
 export function loadVCLContent(content: string): VCLSubroutines {
@@ -283,43 +282,7 @@ export function createVCLContext(platform: VCLPlatform = getPlatform()): VCLCont
 			}
 		},
 
-		digest: {
-			hash_md5: DigestModule.hash_md5,
-			hash_sha1: DigestModule.hash_sha1,
-			hash_sha224: DigestModule.hash_sha224,
-			hash_sha256: DigestModule.hash_sha256,
-			hash_sha384: DigestModule.hash_sha384,
-			hash_sha512: DigestModule.hash_sha512,
-			hash_crc32: DigestModule.hash_crc32,
-			hash_crc32b: DigestModule.hash_crc32b,
-			hash_xxh32: DigestModule.hash_xxh32,
-			hash_xxh64: DigestModule.hash_xxh64,
-			hash_sha1_from_base64: DigestModule.hash_sha1_from_base64,
-			hash_sha256_from_base64: DigestModule.hash_sha256_from_base64,
-			hash_sha512_from_base64: DigestModule.hash_sha512_from_base64,
-			hash_xxh32_from_base64: DigestModule.hash_xxh32_from_base64,
-			hash_xxh64_from_base64: DigestModule.hash_xxh64_from_base64,
-			hmac_md5: DigestModule.hmac_md5,
-			hmac_sha1: DigestModule.hmac_sha1,
-			hmac_sha256: DigestModule.hmac_sha256,
-			hmac_sha512: DigestModule.hmac_sha512,
-			hmac_md5_base64: DigestModule.hmac_md5_base64,
-			hmac_sha1_base64: DigestModule.hmac_sha1_base64,
-			hmac_sha256_base64: DigestModule.hmac_sha256_base64,
-			hmac_sha512_base64: DigestModule.hmac_sha512_base64,
-			time_hmac_md5: DigestModule.time_hmac_md5,
-			time_hmac_sha256: DigestModule.time_hmac_sha256,
-			secure_is_equal: DigestModule.secure_is_equal,
-			base64: DigestModule.base64,
-			base64_decode: DigestModule.base64_decode,
-			base64url: DigestModule.base64url,
-			base64url_decode: DigestModule.base64url_decode,
-			base64url_nopad: DigestModule.base64url_nopad,
-			base64url_nopad_decode: DigestModule.base64url_nopad_decode,
-			awsv4_hmac: DigestModule.awsv4_hmac,
-			rsa_verify: DigestModule.rsa_verify,
-			ecdsa_verify: DigestModule.ecdsa_verify,
-		},
+		digest: createDigestModule(platform),
 
 		crypto: {
 			encrypt_base64: CryptoModule.encrypt_base64,
@@ -544,7 +507,7 @@ export function createVCLContext(platform: VCLPlatform = getPlatform()): VCLCont
 				logError(`Invalid probability: ${probability}. Must be between 0 and 1.`);
 				return false;
 			}
-			return Math.random() < probability;
+			return randomFloat(platform) < probability;
 		},
 		randombool_seeded: (probability: number, seed: string): boolean => {
 			if (probability < 0 || probability > 1) {
@@ -559,7 +522,7 @@ export function createVCLContext(platform: VCLPlatform = getPlatform()): VCLCont
 				logError(`Invalid range: ${from} to ${to}. 'from' must be less than or equal to 'to'.`);
 				return from;
 			}
-			return Math.floor(Math.random() * (to - from + 1)) + from;
+			return Math.floor(randomFloat(platform) * (to - from + 1)) + from;
 		},
 		randomint_seeded: (from: number, to: number, seed: string): number => {
 			if (from > to) {
@@ -577,7 +540,7 @@ export function createVCLContext(platform: VCLPlatform = getPlatform()): VCLCont
 			const chars = charset || "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 			let result = "";
 			for (let i = 0; i < length; i++) {
-				result += chars.charAt(Math.floor(Math.random() * chars.length));
+				result += chars.charAt(Math.floor(randomFloat(platform) * chars.length));
 			}
 			return result;
 		},
@@ -759,23 +722,7 @@ export function createVCLContext(platform: VCLPlatform = getPlatform()): VCLCont
 		strpad: UTF8Module.strpad,
 	};
 
-	context.uuid = {
-		version3: UUIDModule.version3,
-		version4: UUIDModule.version4,
-		version5: UUIDModule.version5,
-		version7: UUIDModule.version7,
-		dns: UUIDModule.dns,
-		url: UUIDModule.url,
-		oid: UUIDModule.oid,
-		x500: UUIDModule.x500,
-		is_valid: UUIDModule.is_valid,
-		is_version3: UUIDModule.is_version3,
-		is_version4: UUIDModule.is_version4,
-		is_version5: UUIDModule.is_version5,
-		is_version7: UUIDModule.is_version7,
-		decode: UUIDModule.decode,
-		encode: UUIDModule.encode,
-	};
+	context.uuid = createUUIDModule(platform);
 
 	const simpleHash = (str: string): number => {
 		return Math.abs(
@@ -833,7 +780,7 @@ export function createVCLContext(platform: VCLPlatform = getPlatform()): VCLCont
 
 			if (director.type === "random") {
 				const totalWeight = healthyBackends.reduce((sum, b) => sum + b.weight, 0);
-				let random = Math.random() * totalWeight;
+				let random = randomFloat(platform) * totalWeight;
 				for (const b of healthyBackends) {
 					random -= b.weight;
 					if (random <= 0) return b.backend;

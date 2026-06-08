@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
+import "./platform-node";
 import { loadVCLContent } from "./vcl";
 import type { VCLSubroutines } from "./vcl-compiler";
 

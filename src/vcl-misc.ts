@@ -4,7 +4,7 @@
  * Implements various utility functions from Fastly VCL.
  */
 
-import { getCrypto } from "./platform";
+import { getCrypto, getPlatform, randomFloat } from "./platform";
 
 const ESCAPE_MAP: Record<string, string> = {
 	"\\": "\\\\",
@@ -137,21 +137,21 @@ export function subfield(s: string, name: string, separator: string = ";"): stri
 }
 
 export const random = {
-	bool: (): boolean => Math.random() < 0.5,
+	bool: (): boolean => randomFloat(getPlatform()) < 0.5,
 
 	// Note: JavaScript doesn't have built-in seeded random
-	bool_seeded: (_seed: number): boolean => Math.random() < 0.5,
+	bool_seeded: (_seed: number): boolean => randomFloat(getPlatform()) < 0.5,
 
 	int: (from: number, to: number): number => {
 		const min = Math.floor(from);
 		const max = Math.floor(to);
-		return Math.floor(Math.random() * (max - min)) + min;
+		return Math.floor(randomFloat(getPlatform()) * (max - min)) + min;
 	},
 
 	int_seeded: (_seed: number, from: number, to: number): number => {
 		const min = Math.floor(from);
 		const max = Math.floor(to);
-		return Math.floor(Math.random() * (max - min)) + min;
+		return Math.floor(randomFloat(getPlatform()) * (max - min)) + min;
 	},
 
 	str: (length: number): string => {
@@ -159,7 +159,7 @@ export const random = {
 		const len = Math.max(0, Math.floor(length));
 		let result = "";
 		for (let i = 0; i < len; i++) {
-			result += chars[Math.floor(Math.random() * chars.length)];
+			result += chars[Math.floor(randomFloat(getPlatform()) * chars.length)];
 		}
 		return result;
 	},
