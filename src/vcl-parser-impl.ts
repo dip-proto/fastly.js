@@ -100,11 +100,26 @@ export class VCLParser {
 					case "ratecounter":
 						program.ratecounters.push(this.parseRatecounterDeclaration());
 						break;
-					default:
-						break;
+					default: {
+						const kw = this.previous();
+						throw new Error(
+							`Unexpected keyword "${kw.value}" at top level at line ${kw.line}, column ${kw.column}`,
+						);
+					}
 				}
 			} else {
-				this.advance();
+				const tok = this.peek();
+				// VCL version declaration, e.g. `vcl 4.0;` — recognized but carries no
+				// semantics for the interpreter; consume it through its semicolon.
+				if (tok.value === "vcl") {
+					this.advance();
+					while (!this.isAtEnd() && this.peek().value !== ";") this.advance();
+					if (!this.isAtEnd()) this.advance();
+					continue;
+				}
+				throw new Error(
+					`Unexpected token "${tok.value}" at top level at line ${tok.line}, column ${tok.column}`,
+				);
 			}
 		}
 		return program;
@@ -347,6 +362,16 @@ export class VCLParser {
 					value = parseFloat(this.previous().value);
 				} else if (this.match(TokenType.IDENTIFIER) || this.match(TokenType.KEYWORD)) {
 					value = this.previous().value;
+				} else if (this.check(TokenType.PUNCTUATION, "{")) {
+					// Nested block value such as `.probe = { ... }`; consume it balanced.
+					this.advance();
+					let depth = 1;
+					while (depth > 0 && !this.isAtEnd()) {
+						if (this.check(TokenType.PUNCTUATION, "{")) depth++;
+						else if (this.check(TokenType.PUNCTUATION, "}")) depth--;
+						this.advance();
+					}
+					value = "{...}";
 				}
 				if (this.check(TokenType.PUNCTUATION, ";")) {
 					this.advance();
