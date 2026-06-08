@@ -234,7 +234,7 @@ export function createAssertModule(state: TestingState) {
 
 export function createTestingModule(
 	state: TestingState,
-	subroutines: Record<string, Function>,
+	subroutines: Record<string, (...args: any[]) => unknown>,
 	context: any,
 ) {
 	return {

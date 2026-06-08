@@ -151,7 +151,7 @@ export function strtol(s: string, base: number): number {
 	return Number.isNaN(result) ? 0 : result;
 }
 
-function expandReplacement(input: string, replacement: string, match: RegExpExecArray): string {
+function expandReplacement(_input: string, replacement: string, match: RegExpExecArray): string {
 	let result = "";
 	for (let i = 0; i < replacement.length; i++) {
 		if (replacement[i] !== "\\" || i + 1 >= replacement.length) {

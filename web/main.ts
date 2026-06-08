@@ -17,7 +17,7 @@ const fields = {
 	beBody: $<HTMLTextAreaElement>("be-body"),
 };
 
-function escape(s: string): string {
+function escapeHtml(s: string): string {
 	return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
@@ -39,7 +39,7 @@ function headerList(headers: Record<string, string>): string {
 	return rows
 		.map(
 			([k, v]) =>
-				`<div class="kv"><span class="k">${escape(k)}</span><span class="v">${escape(v)}</span></div>`,
+				`<div class="kv"><span class="k">${escapeHtml(k)}</span><span class="v">${escapeHtml(v)}</span></div>`,
 		)
 		.join("");
 }
@@ -114,7 +114,7 @@ function renderCacheTable() {
 			const state = now < e.expires ? "fresh" : now < e.staleUntil ? "stale" : "expired";
 			const age = Math.max(0, Math.floor((now - e.created) / 1000));
 			const ttl = Math.round((e.expires - e.created) / 1000);
-			return `<div class="cache-row"><span class="badge state-${state}">${state}</span><span class="ckey">${escape(key)}</span><span class="muted">ttl ${ttl}s · age ${age}s · ${e.resp.status}</span></div>`;
+			return `<div class="cache-row"><span class="badge state-${state}">${state}</span><span class="ckey">${escapeHtml(key)}</span><span class="muted">ttl ${ttl}s · age ${age}s · ${e.resp.status}</span></div>`;
 		})
 		.join("");
 }
@@ -126,12 +126,12 @@ function renderTrace(trace: SimulationResult["trace"], vcl: string) {
 			.map((e) => {
 				if (e.statement) {
 					const src = (lines[e.statement.line - 1] ?? "").trim();
-					return `<div class="trace-stmt"><span class="ln">${e.statement.line}</span>${escape(src)}</div>`;
+					return `<div class="trace-stmt"><span class="ln">${e.statement.line}</span>${escapeHtml(src)}</div>`;
 				}
 				if (e.returnAction) {
-					return `<div class="trace-ret">└ return(${escape(e.returnAction)})</div>`;
+					return `<div class="trace-ret">└ return(${escapeHtml(e.returnAction)})</div>`;
 				}
-				return `<div class="trace-sub">▸ ${escape(e.subroutine)}</div>`;
+				return `<div class="trace-sub">▸ ${escapeHtml(e.subroutine)}</div>`;
 			})
 			.join("") || '<span class="muted">(no trace)</span>';
 }
