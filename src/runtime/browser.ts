@@ -106,13 +106,12 @@ export async function runBrowserSimulation(options: SimulationOptions): Promise<
 	const cacheState = options.cacheState ?? new Map<string, CacheEntry>();
 	const platform = buildPlatform(options.platformOptions, trace, logs);
 
-	const previous = (() => {
-		try {
-			return getPlatform();
-		} catch {
-			return null;
-		}
-	})();
+	let previous: VCLPlatform | null = null;
+	try {
+		previous = getPlatform();
+	} catch {
+		// no platform registered yet — nothing to restore
+	}
 	setDefaultPlatform(platform);
 
 	try {

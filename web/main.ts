@@ -6,6 +6,17 @@ let cacheState = new Map<string, CacheEntry>();
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string): T => document.getElementById(id) as T;
 
+// The form inputs, resolved once so an id only appears in one place.
+const fields = {
+	vcl: $<HTMLTextAreaElement>("vcl"),
+	method: $<HTMLInputElement>("method"),
+	url: $<HTMLInputElement>("url"),
+	reqHeaders: $<HTMLTextAreaElement>("req-headers"),
+	beStatus: $<HTMLInputElement>("be-status"),
+	beHeaders: $<HTMLTextAreaElement>("be-headers"),
+	beBody: $<HTMLTextAreaElement>("be-body"),
+};
+
 function escape(s: string): string {
 	return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
@@ -47,24 +58,24 @@ interface PlaygroundState {
 
 function collectState(): PlaygroundState {
 	return {
-		vcl: $<HTMLTextAreaElement>("vcl").value,
-		method: $<HTMLInputElement>("method").value,
-		url: $<HTMLInputElement>("url").value,
-		reqHeaders: $<HTMLTextAreaElement>("req-headers").value,
-		beStatus: $<HTMLInputElement>("be-status").value,
-		beHeaders: $<HTMLTextAreaElement>("be-headers").value,
-		beBody: $<HTMLTextAreaElement>("be-body").value,
+		vcl: fields.vcl.value,
+		method: fields.method.value,
+		url: fields.url.value,
+		reqHeaders: fields.reqHeaders.value,
+		beStatus: fields.beStatus.value,
+		beHeaders: fields.beHeaders.value,
+		beBody: fields.beBody.value,
 	};
 }
 
 function applyState(s: PlaygroundState) {
-	$<HTMLTextAreaElement>("vcl").value = s.vcl;
-	$<HTMLInputElement>("method").value = s.method;
-	$<HTMLInputElement>("url").value = s.url;
-	$<HTMLTextAreaElement>("req-headers").value = s.reqHeaders;
-	$<HTMLInputElement>("be-status").value = s.beStatus;
-	$<HTMLTextAreaElement>("be-headers").value = s.beHeaders;
-	$<HTMLTextAreaElement>("be-body").value = s.beBody;
+	fields.vcl.value = s.vcl;
+	fields.method.value = s.method;
+	fields.url.value = s.url;
+	fields.reqHeaders.value = s.reqHeaders;
+	fields.beStatus.value = s.beStatus;
+	fields.beHeaders.value = s.beHeaders;
+	fields.beBody.value = s.beBody;
 }
 
 function encodeState(s: PlaygroundState): string {
@@ -166,7 +177,7 @@ function render(result: SimulationResult) {
 			...(cd.ageSeconds !== undefined ? { age: `${cd.ageSeconds}s` } : {}),
 		});
 
-		renderTrace(result.trace, $<HTMLTextAreaElement>("vcl").value);
+		renderTrace(result.trace, fields.vcl.value);
 		$("logs").textContent = result.logs.length ? result.logs.join("\n") : "(no logs)";
 	}
 
@@ -183,16 +194,16 @@ async function run() {
 	writeHash();
 	try {
 		const result = await runBrowserSimulation({
-			vcl: $<HTMLTextAreaElement>("vcl").value,
+			vcl: fields.vcl.value,
 			request: {
-				method: $<HTMLInputElement>("method").value || "GET",
-				url: $<HTMLInputElement>("url").value || "/",
-				headers: parseHeaderLines($<HTMLTextAreaElement>("req-headers").value),
+				method: fields.method.value || "GET",
+				url: fields.url.value || "/",
+				headers: parseHeaderLines(fields.reqHeaders.value),
 			},
 			backendResponse: {
-				status: Number($<HTMLInputElement>("be-status").value) || 200,
-				headers: parseHeaderLines($<HTMLTextAreaElement>("be-headers").value),
-				body: $<HTMLTextAreaElement>("be-body").value,
+				status: Number(fields.beStatus.value) || 200,
+				headers: parseHeaderLines(fields.beHeaders.value),
+				body: fields.beBody.value,
 			},
 			cacheState,
 		});
