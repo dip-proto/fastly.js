@@ -3,6 +3,8 @@
  * Provides WAF (Web Application Firewall) and rate limiting capabilities.
  */
 
+import { logInfo } from "./platform";
+
 interface RateCounter {
 	count: number;
 	lastReset: number;
@@ -47,7 +49,7 @@ export const SecurityModule = {
 		},
 
 		log: (_context: any, message: string): void => {
-			console.log(`[WAF] ${message}`);
+			logInfo(`[WAF] ${message}`);
 		},
 
 		rate_limit: (_context: any, key: string, limit: number, window: number): boolean => {

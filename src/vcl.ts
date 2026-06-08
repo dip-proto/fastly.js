@@ -1,6 +1,8 @@
+import { getPlatform, logError, logInfo, type VCLPlatform } from "./platform";
 import { AcceptModule } from "./vcl-accept";
 import { AddressModule } from "./vcl-address";
 import { BinaryModule } from "./vcl-binary";
+import "./platform-node";
 import { VCLCompiler, type VCLContext, type VCLSubroutines } from "./vcl-compiler";
 import { toRawString } from "./vcl-value";
 
@@ -32,8 +34,8 @@ export function loadVCLContent(content: string): VCLSubroutines {
 		return compiler.compile();
 	} catch (error) {
 		const err = error as Error;
-		console.error(`Error loading VCL content: ${err.message}`);
-		console.error(err.stack);
+		logError(`Error loading VCL content: ${err.message}`);
+		logError(err.stack);
 		throw error;
 	}
 }
@@ -60,13 +62,14 @@ export function executeVCLByName(
 		return result;
 	} catch (error) {
 		const err = error as Error;
-		console.error(`Error executing subroutine ${name}: ${err.message}`);
+		logError(`Error executing subroutine ${name}: ${err.message}`);
 		return "";
 	}
 }
 
-export function createVCLContext(): VCLContext {
+export function createVCLContext(platform: VCLPlatform = getPlatform()): VCLContext {
 	const context: VCLContext = {
+		platform,
 		req: {
 			url: "",
 			method: "",
@@ -163,7 +166,7 @@ export function createVCLContext(): VCLContext {
 		} else {
 			offsetMs = parseInt(offset, 10);
 			if (Number.isNaN(offsetMs)) {
-				console.error(`Invalid time offset: ${offset}`);
+				logError(`Invalid time offset: ${offset}`);
 				return 0;
 			}
 		}
@@ -173,13 +176,13 @@ export function createVCLContext(): VCLContext {
 
 	context.std = {
 		log: (message: string) => {
-			console.log(`[VCL] ${message}`);
+			logInfo(`[VCL] ${message}`);
 		},
 
 		strftime: (_format: string, time: number) => new Date(time).toISOString(),
 
 		time: {
-			now: () => Date.now(),
+			now: () => platform.now(),
 			add: (time: number, offset: string | number): number => {
 				const offsetMs = parseTimeOffset(offset);
 				return offsetMs === 0 && typeof offset === "string" ? time : time + offsetMs;
@@ -188,13 +191,13 @@ export function createVCLContext(): VCLContext {
 			is_after: (time1: number, time2: number): boolean => time1 > time2,
 			hex_to_time: (hex: string): number => {
 				if (!hex.match(/^[0-9A-Fa-f]+$/)) {
-					console.error(`Invalid hex timestamp: ${hex}`);
-					return Date.now();
+					logError(`Invalid hex timestamp: ${hex}`);
+					return platform.now();
 				}
 				const timestamp = parseInt(hex, 16);
 				if (Number.isNaN(timestamp)) {
-					console.error(`Invalid hex timestamp: ${hex}`);
-					return Date.now();
+					logError(`Invalid hex timestamp: ${hex}`);
+					return platform.now();
 				}
 				return timestamp * 1000;
 			},
@@ -222,7 +225,7 @@ export function createVCLContext(): VCLContext {
 			try {
 				return String(str).replace(new RegExp(regex), replacement);
 			} catch (e) {
-				console.error(`Invalid regex: ${regex}`, e);
+				logError(`Invalid regex: ${regex}`, e);
 				return str;
 			}
 		},
@@ -230,7 +233,7 @@ export function createVCLContext(): VCLContext {
 			try {
 				return String(str).replace(new RegExp(regex, "g"), replacement);
 			} catch (e) {
-				console.error(`Invalid regex: ${regex}`, e);
+				logError(`Invalid regex: ${regex}`, e);
 				return str;
 			}
 		},
@@ -254,7 +257,7 @@ export function createVCLContext(): VCLContext {
 			try {
 				return Buffer.from(String(str), "base64").toString("utf-8");
 			} catch (e) {
-				console.error(`Invalid base64 string: ${str}`, e);
+				logError(`Invalid base64 string: ${str}`, e);
 				return "";
 			}
 		},
@@ -273,7 +276,7 @@ export function createVCLContext(): VCLContext {
 					.replace(/_/g, "/");
 				return Buffer.from(padded, "base64").toString("utf-8");
 			} catch (e) {
-				console.error(`Invalid base64url string: ${str}`, e);
+				logError(`Invalid base64url string: ${str}`, e);
 				return "";
 			}
 		},
@@ -347,7 +350,7 @@ export function createVCLContext(): VCLContext {
 						if (regex.test(key)) delete headers[key];
 					}
 				} catch (e) {
-					console.error(`Invalid regex pattern for header.filter: ${pattern}`, e);
+					logError(`Invalid regex pattern for header.filter: ${pattern}`, e);
 				}
 			},
 			filter_except: (headers: Record<string, string>, pattern: string) => {
@@ -358,7 +361,7 @@ export function createVCLContext(): VCLContext {
 						if (!keysToKeep.has(key)) delete headers[key];
 					}
 				} catch (e) {
-					console.error(`Invalid regex pattern for header.filter_except: ${pattern}`, e);
+					logError(`Invalid regex pattern for header.filter_except: ${pattern}`, e);
 				}
 			},
 		},
@@ -536,14 +539,14 @@ export function createVCLContext(): VCLContext {
 	context.std.random = {
 		randombool: (probability: number): boolean => {
 			if (probability < 0 || probability > 1) {
-				console.error(`Invalid probability: ${probability}. Must be between 0 and 1.`);
+				logError(`Invalid probability: ${probability}. Must be between 0 and 1.`);
 				return false;
 			}
 			return Math.random() < probability;
 		},
 		randombool_seeded: (probability: number, seed: string): boolean => {
 			if (probability < 0 || probability > 1) {
-				console.error(`Invalid probability: ${probability}. Must be between 0 and 1.`);
+				logError(`Invalid probability: ${probability}. Must be between 0 and 1.`);
 				return false;
 			}
 			const hash = context.std!.digest.hash_sha256(String(seed));
@@ -551,18 +554,14 @@ export function createVCLContext(): VCLContext {
 		},
 		randomint: (from: number, to: number): number => {
 			if (from > to) {
-				console.error(
-					`Invalid range: ${from} to ${to}. 'from' must be less than or equal to 'to'.`,
-				);
+				logError(`Invalid range: ${from} to ${to}. 'from' must be less than or equal to 'to'.`);
 				return from;
 			}
 			return Math.floor(Math.random() * (to - from + 1)) + from;
 		},
 		randomint_seeded: (from: number, to: number, seed: string): number => {
 			if (from > to) {
-				console.error(
-					`Invalid range: ${from} to ${to}. 'from' must be less than or equal to 'to'.`,
-				);
+				logError(`Invalid range: ${from} to ${to}. 'from' must be less than or equal to 'to'.`);
 				return from;
 			}
 			const hash = context.std!.digest.hash_sha256(String(seed));
@@ -570,7 +569,7 @@ export function createVCLContext(): VCLContext {
 		},
 		randomstr: (length: number, charset?: string): string => {
 			if (length <= 0) {
-				console.error(`Invalid length: ${length}. Must be greater than 0.`);
+				logError(`Invalid length: ${length}. Must be greater than 0.`);
 				return "";
 			}
 			const chars = charset || "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
@@ -685,7 +684,7 @@ export function createVCLContext(): VCLContext {
 				try {
 					return new RegExp(value);
 				} catch (e) {
-					console.error(`Invalid regex pattern: ${value}`, e);
+					logError(`Invalid regex pattern: ${value}`, e);
 					return defaultRegex();
 				}
 			}
@@ -789,7 +788,7 @@ export function createVCLContext(): VCLContext {
 		add: (name: string, type: string, options: any = {}) => {
 			const validTypes = ["random", "hash", "client", "fallback", "chash"];
 			if (!validTypes.includes(type)) {
-				console.error(`Invalid director type: ${type}`);
+				logError(`Invalid director type: ${type}`);
 				return false;
 			}
 			context.directors[name] = {
@@ -863,7 +862,7 @@ export function createVCLContext(): VCLContext {
 	const stdModule = createStdModule();
 	const mathModule = createMathModule();
 	const tableModule = createTableModule();
-	const timeModule = createTimeModule();
+	const timeModule = createTimeModule(platform);
 	const headerModule = createHeaderModule();
 
 	// Merge std module functions with existing context.std
@@ -1084,7 +1083,7 @@ export function executeVCL(
 		const result = subroutine(context);
 		return result ?? "";
 	} catch (error) {
-		console.error(`Error executing subroutine ${subroutineName}:`, error);
+		logError(`Error executing subroutine ${subroutineName}:`, error);
 		return "error";
 	}
 }

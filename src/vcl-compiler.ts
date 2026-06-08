@@ -1,5 +1,4 @@
-import * as nodeCrypto from "node:crypto";
-import * as nodeOs from "node:os";
+import { getCrypto, logError, logInfo, type VCLPlatform } from "./platform";
 import { createVCLContext } from "./vcl";
 import type {
 	VCLAddStatement,
@@ -124,6 +123,7 @@ export interface VCLContext {
 	tables: Record<string, VCLTable>;
 	client?: { ip: string };
 	re?: { groups?: Record<number, string> };
+	platform?: VCLPlatform;
 
 	// Local variables (declared with "declare local var.xxx TYPE;")
 	locals: Record<string, any>;
@@ -463,7 +463,7 @@ export interface VCLSubroutines {
 	[key: string]: ((context: VCLContext) => string | void) | undefined;
 }
 export const VCLStdLib = {
-	log: (message: string) => console.log(`[VCL] ${message}`),
+	log: (message: string) => logInfo(`[VCL] ${message}`),
 	time: {
 		parse: (timeStr: string): number => Date.parse(timeStr),
 		format: (time: number, _format: string): string => new Date(time).toISOString(),
@@ -475,7 +475,7 @@ export const VCLStdLib = {
 			try {
 				return new RegExp(pattern).test(str);
 			} catch {
-				console.error(`Invalid regex pattern: ${pattern}`);
+				logError(`Invalid regex pattern: ${pattern}`);
 				return false;
 			}
 		},
@@ -724,7 +724,7 @@ export class VCLCompiler {
 							// Otherwise, continue with the next statement
 							continue;
 						} else {
-							console.error(`Label not found: ${labelName}`);
+							logError(`Label not found: ${labelName}`);
 							// Continue with the next statement
 							i++;
 							continue;
@@ -755,7 +755,7 @@ export class VCLCompiler {
 				};
 				return defaultReturns[subroutine.name] || "";
 			} catch (error) {
-				console.error(`Error executing subroutine ${subroutine.name}:`, error);
+				logError(`Error executing subroutine ${subroutine.name}:`, error);
 				const errorReturns: Record<string, string> = {
 					vcl_recv: "error",
 					vcl_hash: "error",
@@ -1323,7 +1323,7 @@ export class VCLCompiler {
 	}
 
 	private executeLogStatement(statement: VCLLogStatement, context: VCLContext): void {
-		console.log(`[VCL] ${this.evaluateExpression(statement.message, context)}`);
+		logInfo(`[VCL] ${this.evaluateExpression(statement.message, context)}`);
 	}
 
 	private executeSyntheticStatement(statement: VCLSyntheticStatement, context: VCLContext): void {
@@ -1384,7 +1384,7 @@ export class VCLCompiler {
 	): string | undefined {
 		const sub = this.program.subroutines.find((s) => s.name === statement.subroutineName);
 		if (!sub) {
-			console.error(`Unknown subroutine: ${statement.subroutineName}`);
+			logError(`Unknown subroutine: ${statement.subroutineName}`);
 			return undefined;
 		}
 
@@ -1468,7 +1468,7 @@ export class VCLCompiler {
 
 	private executeHashDataStatement(statement: VCLHashDataStatement, context: VCLContext): void {
 		const value = this.evaluateExpression(statement.value, context);
-		const hash = nodeCrypto.createHash("md5").update(String(value)).digest("hex");
+		const hash = Buffer.from(getCrypto().hash("md5", Buffer.from(String(value)))).toString("hex");
 		if (!context.hashData) context.hashData = [];
 		context.hashData.push(hash);
 	}
@@ -1550,7 +1550,7 @@ export class VCLCompiler {
 		}
 
 		if (functionName === "std.log") {
-			console.log(`[VCL] ${args[0]}`);
+			logInfo(`[VCL] ${args[0]}`);
 			return null;
 		}
 
@@ -1845,7 +1845,7 @@ export class VCLCompiler {
 		} else if (functionName === "resp.tarpit" || functionName === "early_hints") {
 			return null;
 		} else if (functionName === "fastly.hash") {
-			return nodeCrypto.createHash("sha256").update(String(args[0])).digest("hex");
+			return Buffer.from(getCrypto().hash("sha256", Buffer.from(String(args[0])))).toString("hex");
 		} else if (functionName === "fastly.try_select_shield") {
 			return false;
 		} else if (
@@ -1867,7 +1867,7 @@ export class VCLCompiler {
 			if (cryptoModule && typeof cryptoModule[fn] === "function") return cryptoModule[fn](...args);
 		}
 
-		console.error(`Unknown function call: ${functionName}`);
+		logError(`Unknown function call: ${functionName}`);
 		return null;
 	}
 
@@ -1904,8 +1904,8 @@ export class VCLCompiler {
 		]);
 		if (VCL_ENUM_VALUES.has(name)) return name;
 
-		if (name === "now") return Date.now();
-		if (name === "now.sec") return Math.floor(Date.now() / 1000);
+		if (name === "now") return ctx.platform?.now() ?? Date.now();
+		if (name === "now.sec") return Math.floor((ctx.platform?.now() ?? Date.now()) / 1000);
 
 		if (parts.length >= 3 && idPart1 === "http") {
 			const headerName = parts.slice(2).join(".");
@@ -2019,7 +2019,7 @@ export class VCLCompiler {
 		if (name === "req.vcl") return ctx.req?.vcl || "local.1_0-00000000000000000000000000000000";
 		if (name === "req.vcl.md5") {
 			const vcl = ctx.req?.vcl || "local.1_0-00000000000000000000000000000000";
-			return nodeCrypto.createHash("md5").update(vcl).digest("hex");
+			return Buffer.from(getCrypto().hash("md5", Buffer.from(vcl))).toString("hex");
 		}
 		if (name === "req.vcl.generation") return 1;
 		if (name === "req.vcl.version") return 1;
@@ -2140,7 +2140,7 @@ export class VCLCompiler {
 		if (name === "obj.age") return ctx.obj?.age ?? 0;
 		if (name === "obj.grace") return ctx.obj?.grace ?? 0;
 		if (name === "obj.lastuse") return ctx.obj?.lastuse ?? 0;
-		if (name === "obj.entered") return ctx.obj?.entered ?? Date.now();
+		if (name === "obj.entered") return ctx.obj?.entered ?? ctx.platform?.now() ?? Date.now();
 		if (name === "obj.cacheable") return ctx.obj?.cacheable ?? true;
 		if (name === "obj.is_pci") return false;
 		if (name === "obj.stale_if_error") return ctx.obj?.stale_if_error ?? 0;
@@ -2206,7 +2206,8 @@ export class VCLCompiler {
 		if (name.startsWith("client.socket.")) return 0;
 
 		// server.* variables
-		if (name === "server.hostname") return ctx.server?.hostname || nodeOs.hostname();
+		if (name === "server.hostname")
+			return ctx.server?.hostname || ctx.platform?.hostname() || "localhost";
 		if (name === "server.identity") return ctx.server?.identity || "localhost";
 		if (name === "server.datacenter") return ctx.server?.datacenter || "local";
 		if (name === "server.region") return ctx.server?.region || "local";
@@ -2236,21 +2237,25 @@ export class VCLCompiler {
 		if (name.startsWith("fastly_info.h2.")) return 0;
 
 		// time.* variables
-		if (name === "time.start" || name === "time.start.sec") return Math.floor(Date.now() / 1000);
-		if (name === "time.start.msec") return Date.now();
-		if (name === "time.start.usec") return Date.now() * 1000;
-		if (name === "time.start.msec_frac") return Date.now() % 1000;
-		if (name === "time.start.usec_frac") return (Date.now() * 1000) % 1000000;
+		if (name === "time.start" || name === "time.start.sec")
+			return Math.floor((ctx.platform?.now() ?? Date.now()) / 1000);
+		if (name === "time.start.msec") return ctx.platform?.now() ?? Date.now();
+		if (name === "time.start.usec") return (ctx.platform?.now() ?? Date.now()) * 1000;
+		if (name === "time.start.msec_frac") return (ctx.platform?.now() ?? Date.now()) % 1000;
+		if (name === "time.start.usec_frac")
+			return ((ctx.platform?.now() ?? Date.now()) * 1000) % 1000000;
 		if (name === "time.elapsed" || name === "time.elapsed.sec") return 0;
 		if (name === "time.elapsed.msec") return 0;
 		if (name === "time.elapsed.usec") return 0;
 		if (name === "time.elapsed.msec_frac") return "000";
 		if (name === "time.elapsed.usec_frac") return "000000";
-		if (name === "time.end" || name === "time.end.sec") return Math.floor(Date.now() / 1000);
-		if (name === "time.end.msec") return Date.now();
-		if (name === "time.end.usec") return Date.now() * 1000;
-		if (name === "time.end.msec_frac") return Date.now() % 1000;
-		if (name === "time.end.usec_frac") return (Date.now() * 1000) % 1000000;
+		if (name === "time.end" || name === "time.end.sec")
+			return Math.floor((ctx.platform?.now() ?? Date.now()) / 1000);
+		if (name === "time.end.msec") return ctx.platform?.now() ?? Date.now();
+		if (name === "time.end.usec") return (ctx.platform?.now() ?? Date.now()) * 1000;
+		if (name === "time.end.msec_frac") return (ctx.platform?.now() ?? Date.now()) % 1000;
+		if (name === "time.end.usec_frac")
+			return ((ctx.platform?.now() ?? Date.now()) * 1000) % 1000000;
 		if (name === "time.to_first_byte") return 0;
 
 		// tls.client.* variables
@@ -2392,7 +2397,7 @@ export class VCLCompiler {
 
 	private evaluateUnaryExpression(expression: VCLUnaryExpression, context: VCLContext): any {
 		if (!expression?.operand) {
-			console.error("Invalid unary expression:", expression);
+			logError("Invalid unary expression:", expression);
 			return false;
 		}
 		const operand = this.evaluateExpression(expression.operand, context);
@@ -2404,13 +2409,13 @@ export class VCLCompiler {
 			return !operand;
 		}
 		if (expression.operator === "-") return -operand;
-		console.error(`Unknown unary operator: ${expression.operator}`);
+		logError(`Unknown unary operator: ${expression.operator}`);
 		return operand;
 	}
 
 	private evaluateBinaryExpression(expression: VCLBinaryExpression, context: VCLContext): any {
 		if (!expression?.left || !expression?.right) {
-			console.error("Invalid binary expression:", expression);
+			logError("Invalid binary expression:", expression);
 			return false;
 		}
 
@@ -2478,7 +2483,7 @@ export class VCLCompiler {
 			case "||":
 				return left || right;
 			default:
-				console.error(`Unknown operator: ${expression.operator}`);
+				logError(`Unknown operator: ${expression.operator}`);
 				return false;
 		}
 	}
@@ -2497,7 +2502,7 @@ export class VCLCompiler {
 			}
 			return negate;
 		} catch {
-			console.error(`Invalid regex pattern: ${right}`);
+			logError(`Invalid regex pattern: ${right}`);
 			return negate;
 		}
 	}
@@ -2522,15 +2527,13 @@ export class VCLCompiler {
 			const cidrType = this.getIPType(cidrIp);
 
 			if (!ipType || !cidrType || ipType !== cidrType) {
-				console.error(
-					`IP type mismatch or invalid IP: ${ip} (${ipType}) vs ${cidrIp} (${cidrType})`,
-				);
+				logError(`IP type mismatch or invalid IP: ${ip} (${ipType}) vs ${cidrIp} (${cidrType})`);
 				return false;
 			}
 
 			const maxSubnet = ipType === "ipv4" ? 32 : 128;
 			if (cidrSubnet < 0 || cidrSubnet > maxSubnet) {
-				console.error(`Invalid ${ipType} subnet mask: ${cidrSubnet}`);
+				logError(`Invalid ${ipType} subnet mask: ${cidrSubnet}`);
 				return false;
 			}
 
@@ -2545,7 +2548,7 @@ export class VCLCompiler {
 				ipBinary.substring(0, cidrSubnet) === cidrBinary.substring(0, cidrSubnet)
 			);
 		} catch (e) {
-			console.error(`Error checking CIDR match: ${e}`);
+			logError(`Error checking CIDR match: ${e}`);
 			return false;
 		}
 	}

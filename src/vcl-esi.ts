@@ -3,6 +3,7 @@
  * Parses and processes ESI tags in HTML content per the Fastly VCL specification.
  */
 
+import { logError } from "./platform";
 import type { VCLContext } from "./vcl";
 
 export enum ESITagType {
@@ -167,7 +168,7 @@ function processIncludeTag(tag: ESITag, context: VCLContext): string {
 		return processESI(includedContent, context);
 	} catch (error) {
 		const err = error as Error;
-		console.error(`Error processing ESI include: ${err.message}`);
+		logError(`Error processing ESI include: ${err.message}`);
 		return "";
 	}
 }

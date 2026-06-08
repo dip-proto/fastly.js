@@ -1,24 +1,20 @@
-import * as crypto from "node:crypto";
 import { xxHash32 } from "js-xxhash";
-import sodium from "libsodium-wrappers";
+import { getCrypto, getPlatform, type HashAlgorithm } from "./platform";
 
-// Initialize libsodium (it's async, but we ensure it's ready before use)
-let sodiumReady = false;
-const sodiumInit = sodium.ready.then(() => {
-	sodiumReady = true;
-});
-
-type HashAlgorithm = "md5" | "sha1" | "sha224" | "sha256" | "sha384" | "sha512";
 type TOTPAlgorithm = "md5" | "sha1" | "sha256" | "sha512";
+
+function toHex(b: Uint8Array): string {
+	return Buffer.from(b).toString("hex");
+}
 
 function generateTOTP(base64Secret: string, period: number, algorithm: TOTPAlgorithm): string {
 	const keyBytes = Buffer.from(String(base64Secret), "base64");
-	const counter = Math.floor(Date.now() / 1000 / period);
+	const counter = Math.floor(getPlatform().now() / 1000 / period);
 	const counterBuf = Buffer.alloc(8);
 	counterBuf.writeUInt32BE(Math.floor(counter / 0x100000000), 0);
 	counterBuf.writeUInt32BE(counter >>> 0, 4);
 
-	const hmacResult = crypto.createHmac(algorithm, keyBytes).update(counterBuf).digest();
+	const hmacResult = getCrypto().hmac(algorithm, keyBytes, counterBuf);
 	const offset = hmacResult[hmacResult.length - 1]! & 0x0f;
 	const code =
 		((hmacResult[offset]! & 0x7f) << 24) |
@@ -27,8 +23,8 @@ function generateTOTP(base64Secret: string, period: number, algorithm: TOTPAlgor
 		(hmacResult[offset + 3]! & 0xff);
 
 	const otp = (code % 1000000).toString().padStart(6, "0");
-	const finalHash = crypto.createHash(algorithm).update(otp).digest();
-	return finalHash.toString("base64");
+	const finalHash = getCrypto().hash(algorithm, Buffer.from(otp));
+	return Buffer.from(finalHash).toString("base64");
 }
 
 type CipherAlgorithm =
@@ -42,32 +38,14 @@ type CipherAlgorithm =
 	| "aes-192-ctr"
 	| "aes-256-ctr";
 
-// Use libsodium for SHA-256 and SHA-512 when available, fall back to node:crypto
 function hash(algorithm: HashAlgorithm, input: string): string {
-	if (sodiumReady) {
-		const data = new TextEncoder().encode(String(input));
-		if (algorithm === "sha256") {
-			return Buffer.from(sodium.crypto_hash_sha256(data)).toString("hex");
-		}
-		if (algorithm === "sha512") {
-			return Buffer.from(sodium.crypto_hash_sha512(data)).toString("hex");
-		}
-	}
-	return crypto.createHash(algorithm).update(String(input)).digest("hex");
+	return toHex(getCrypto().hash(algorithm, Buffer.from(String(input))));
 }
 
 function hashFromBase64(algorithm: HashAlgorithm, input: string): string {
 	try {
 		const decoded = Buffer.from(String(input), "base64");
-		if (sodiumReady) {
-			if (algorithm === "sha256") {
-				return Buffer.from(sodium.crypto_hash_sha256(decoded)).toString("hex");
-			}
-			if (algorithm === "sha512") {
-				return Buffer.from(sodium.crypto_hash_sha512(decoded)).toString("hex");
-			}
-		}
-		return crypto.createHash(algorithm).update(decoded).digest("hex");
+		return toHex(getCrypto().hash(algorithm, decoded));
 	} catch {
 		return "";
 	}
@@ -80,23 +58,8 @@ function hmac(
 	encoding: "hex" | "base64",
 ): string | null {
 	if (key === "") return null;
-	if (sodiumReady) {
-		const keyBytes = new TextEncoder().encode(String(key));
-		const data = new TextEncoder().encode(String(input));
-		if (algorithm === "sha256") {
-			const state = sodium.crypto_auth_hmacsha256_init(keyBytes);
-			sodium.crypto_auth_hmacsha256_update(state, data);
-			const result = sodium.crypto_auth_hmacsha256_final(state);
-			return Buffer.from(result).toString(encoding);
-		}
-		if (algorithm === "sha512") {
-			const state = sodium.crypto_auth_hmacsha512_init(keyBytes);
-			sodium.crypto_auth_hmacsha512_update(state, data);
-			const result = sodium.crypto_auth_hmacsha512_final(state);
-			return Buffer.from(result).toString(encoding);
-		}
-	}
-	return crypto.createHmac(algorithm, String(key)).update(String(input)).digest(encoding);
+	const result = getCrypto().hmac(algorithm, Buffer.from(String(key)), Buffer.from(String(input)));
+	return Buffer.from(result).toString(encoding);
 }
 
 function crc32(input: string): string {
@@ -136,8 +99,6 @@ function crc32b(input: string): string {
 	buf.writeUInt32LE(crc, 0);
 	return buf.toString("hex");
 }
-
-export { sodiumInit };
 
 export const DigestModule = {
 	hash_md5: (input: string): string => hash("md5", input),
@@ -228,14 +189,8 @@ export const DigestModule = {
 		if (keyStr === "") return null;
 		try {
 			const key = Buffer.from(keyStr, "base64");
-			if (sodiumReady) {
-				const data = new TextEncoder().encode(String(input));
-				const state = sodium.crypto_auth_hmacsha256_init(key);
-				sodium.crypto_auth_hmacsha256_update(state, data);
-				const result = sodium.crypto_auth_hmacsha256_final(state);
-				return `0x${Buffer.from(result).toString("hex")}`;
-			}
-			return `0x${crypto.createHmac("sha256", key).update(String(input)).digest("hex")}`;
+			const result = getCrypto().hmac("sha256", key, Buffer.from(String(input)));
+			return `0x${Buffer.from(result).toString("hex")}`;
 		} catch {
 			return "";
 		}
@@ -246,10 +201,7 @@ export const DigestModule = {
 			const bufA = Buffer.from(String(a));
 			const bufB = Buffer.from(String(b));
 			if (bufA.length !== bufB.length) return false;
-			if (sodiumReady) {
-				return sodium.memcmp(bufA, bufB);
-			}
-			return crypto.timingSafeEqual(bufA, bufB);
+			return getCrypto().timingSafeEqual(bufA, bufB);
 		} catch {
 			return false;
 		}
@@ -306,8 +258,7 @@ export const DigestModule = {
 		service: string,
 		stringToSign: string,
 	): string => {
-		// AWS v4 uses HMAC-SHA256 throughout - use libsodium when available
-		let signature: Buffer = Buffer.from(`AWS4${String(key)}`);
+		let signature: Uint8Array = Buffer.from(`AWS4${String(key)}`);
 		const parts = [
 			String(dateStamp),
 			String(region),
@@ -316,16 +267,9 @@ export const DigestModule = {
 			String(stringToSign),
 		];
 		for (const part of parts) {
-			if (sodiumReady) {
-				const data = new TextEncoder().encode(part);
-				const state = sodium.crypto_auth_hmacsha256_init(signature);
-				sodium.crypto_auth_hmacsha256_update(state, data);
-				signature = Buffer.from(sodium.crypto_auth_hmacsha256_final(state));
-			} else {
-				signature = crypto.createHmac("sha256", signature).update(part).digest() as Buffer;
-			}
+			signature = getCrypto().hmac("sha256", signature, Buffer.from(part));
 		}
-		return signature.toString("hex").toLowerCase();
+		return Buffer.from(signature).toString("hex").toLowerCase();
 	},
 
 	rsa_verify: (
@@ -343,16 +287,17 @@ export const DigestModule = {
 				case "standard":
 					sig = Buffer.from(String(signature), "base64");
 					break;
-				case "url":
-				case "url_nopad":
 				default:
 					sig = Buffer.from(String(signature).replace(/-/g, "+").replace(/_/g, "/"), "base64");
 					break;
 			}
 
-			const verifier = crypto.createVerify(`RSA-${algo.toUpperCase()}`);
-			verifier.update(String(payload));
-			return verifier.verify(String(publicKey), sig);
+			return getCrypto().verifySignature(
+				`RSA-${algo.toUpperCase()}`,
+				String(publicKey),
+				Buffer.from(String(payload)),
+				sig,
+			);
 		} catch {
 			return false;
 		}
@@ -375,13 +320,8 @@ export const DigestModule = {
 				case "standard":
 					sigBuf = Buffer.from(String(signature), "base64");
 					break;
-				case "url":
-				case "url_nopad":
 				default:
-					sigBuf = Buffer.from(
-						String(signature).replace(/-/g, "+").replace(/_/g, "/"),
-						"base64",
-					);
+					sigBuf = Buffer.from(String(signature).replace(/-/g, "+").replace(/_/g, "/"), "base64");
 					break;
 			}
 
@@ -421,9 +361,12 @@ export const DigestModule = {
 				sigBuf = derSig;
 			}
 
-			const verifier = crypto.createVerify(algo);
-			verifier.update(String(payload));
-			return verifier.verify(String(publicKey), sigBuf);
+			return getCrypto().verifySignature(
+				algo,
+				String(publicKey),
+				Buffer.from(String(payload)),
+				sigBuf,
+			);
 		} catch {
 			return false;
 		}
@@ -446,31 +389,14 @@ function cryptoEncrypt(
 	padding: string,
 	keyHex: string,
 	ivHex: string,
-	plainData: Buffer,
-): Buffer | null {
-	try {
-		const keyBuf = Buffer.from(String(keyHex), "hex");
-		const ivBuf = Buffer.from(String(ivHex), "hex");
-		const m = String(mode).toLowerCase();
-		const algo = getCipherAlgorithm(cipher, m);
-		if (!algo) return null;
-
-		if (m === "gcm") {
-			const cipherInst = crypto.createCipheriv(algo, keyBuf, ivBuf) as crypto.CipherGCM;
-			const encrypted = Buffer.concat([cipherInst.update(plainData), cipherInst.final()]);
-			const tag = cipherInst.getAuthTag();
-			return Buffer.concat([encrypted, tag]);
-		}
-
-		const cipherInst = crypto.createCipheriv(algo, keyBuf, ivBuf);
-		if (String(padding).toLowerCase() === "nopad") {
-			cipherInst.setAutoPadding(false);
-		}
-		const encrypted = Buffer.concat([cipherInst.update(plainData), cipherInst.final()]);
-		return encrypted;
-	} catch {
-		return null;
-	}
+	plainData: Uint8Array,
+): Uint8Array | null {
+	const keyBuf = Buffer.from(String(keyHex), "hex");
+	const ivBuf = Buffer.from(String(ivHex), "hex");
+	const algo = getCipherAlgorithm(cipher, String(mode).toLowerCase());
+	if (!algo) return null;
+	const noPad = String(padding).toLowerCase() === "nopad";
+	return getCrypto().encrypt(algo, keyBuf, ivBuf, plainData, noPad);
 }
 
 function cryptoDecrypt(
@@ -479,35 +405,14 @@ function cryptoDecrypt(
 	padding: string,
 	keyHex: string,
 	ivHex: string,
-	cipherData: Buffer,
-): Buffer | null {
-	try {
-		const keyBuf = Buffer.from(String(keyHex), "hex");
-		const ivBuf = Buffer.from(String(ivHex), "hex");
-		const m = String(mode).toLowerCase();
-		const algo = getCipherAlgorithm(cipher, m);
-		if (!algo) return null;
-
-		if (m === "gcm") {
-			const tagLength = 16;
-			if (cipherData.length < tagLength) return null;
-			const encrypted = cipherData.subarray(0, cipherData.length - tagLength);
-			const tag = cipherData.subarray(cipherData.length - tagLength);
-			const decipher = crypto.createDecipheriv(algo, keyBuf, ivBuf) as crypto.DecipherGCM;
-			decipher.setAuthTag(tag);
-			const decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()]);
-			return decrypted;
-		}
-
-		const decipher = crypto.createDecipheriv(algo, keyBuf, ivBuf);
-		if (String(padding).toLowerCase() === "nopad") {
-			decipher.setAutoPadding(false);
-		}
-		const decrypted = Buffer.concat([decipher.update(cipherData), decipher.final()]);
-		return decrypted;
-	} catch {
-		return null;
-	}
+	cipherData: Uint8Array,
+): Uint8Array | null {
+	const keyBuf = Buffer.from(String(keyHex), "hex");
+	const ivBuf = Buffer.from(String(ivHex), "hex");
+	const algo = getCipherAlgorithm(cipher, String(mode).toLowerCase());
+	if (!algo) return null;
+	const noPad = String(padding).toLowerCase() === "nopad";
+	return getCrypto().decrypt(algo, keyBuf, ivBuf, cipherData, noPad);
 }
 
 export const CryptoModule = {
@@ -521,7 +426,7 @@ export const CryptoModule = {
 	): string => {
 		const data = Buffer.from(String(plaintext), "base64");
 		const result = cryptoEncrypt(cipher, mode, padding, key, iv, data);
-		return result ? result.toString("base64") : "";
+		return result ? Buffer.from(result).toString("base64") : "";
 	},
 
 	decrypt_base64: (
@@ -534,7 +439,7 @@ export const CryptoModule = {
 	): string => {
 		const data = Buffer.from(String(ciphertext), "base64");
 		const result = cryptoDecrypt(cipher, mode, padding, key, iv, data);
-		return result ? result.toString("base64") : "";
+		return result ? Buffer.from(result).toString("base64") : "";
 	},
 
 	encrypt_hex: (
@@ -547,7 +452,7 @@ export const CryptoModule = {
 	): string => {
 		const data = Buffer.from(String(plaintext), "hex");
 		const result = cryptoEncrypt(cipher, mode, padding, key, iv, data);
-		return result ? result.toString("hex") : "";
+		return result ? Buffer.from(result).toString("hex") : "";
 	},
 
 	decrypt_hex: (
@@ -560,6 +465,6 @@ export const CryptoModule = {
 	): string => {
 		const data = Buffer.from(String(ciphertext), "hex");
 		const result = cryptoDecrypt(cipher, mode, padding, key, iv, data);
-		return result ? result.toString("hex") : "";
+		return result ? Buffer.from(result).toString("hex") : "";
 	},
 };

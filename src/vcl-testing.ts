@@ -346,7 +346,8 @@ export function createTestingModule(
 			}
 		},
 		get_env: (name: any) => {
-			const val = process.env[String(normalizeValue(name))];
+			const key = String(normalizeValue(name));
+			const val = context.platform ? context.platform.env(key) : process.env[key];
 			return val !== undefined ? val : VCLString.notset();
 		},
 		return_value: () => state._returnValue,

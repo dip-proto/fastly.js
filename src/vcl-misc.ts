@@ -4,6 +4,8 @@
  * Implements various utility functions from Fastly VCL.
  */
 
+import { getCrypto } from "./platform";
+
 const ESCAPE_MAP: Record<string, string> = {
 	"\\": "\\\\",
 	'"': '\\"',
@@ -205,8 +207,7 @@ export const setcookie = {
 
 export const fastly = {
 	hash: async (input: string): Promise<string> => {
-		const crypto = await import("node:crypto");
-		return crypto.createHash("sha256").update(String(input)).digest("hex");
+		return Buffer.from(getCrypto().hash("sha256", Buffer.from(String(input)))).toString("hex");
 	},
 
 	// No-op in local development

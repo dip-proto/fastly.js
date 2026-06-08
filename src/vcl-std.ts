@@ -1,3 +1,4 @@
+import { logInfo } from "./platform";
 import {
 	cstr_escape,
 	json_escape,
@@ -296,7 +297,7 @@ export function createStdModule(): StdModule {
 		integer2time: (n: number): Date => new Date(n),
 
 		log: (message: string): void => {
-			console.log(`[VCL] ${message}`);
+			logInfo(`[VCL] ${message}`);
 		},
 
 		substr: substrImpl,

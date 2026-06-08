@@ -2,6 +2,8 @@
  * VCL WAF Module - Web Application Firewall functionality
  */
 
+import { logInfo } from "./platform";
+
 interface RateLimitBucket {
 	tokens: number;
 	lastRefill: number;
@@ -28,18 +30,18 @@ export const WAFModule = {
 	},
 
 	allow(): void {
-		console.log("[WAF] Request explicitly allowed");
+		logInfo("[WAF] Request explicitly allowed");
 	},
 
 	block(status: number, message: string): void {
-		console.log(`[WAF] Request blocked with status ${status}: ${message}`);
+		logInfo(`[WAF] Request blocked with status ${status}: ${message}`);
 		throw new Error(`${status} ${message}`);
 	},
 
 	log(message: string): void {
 		const logEntry = `${new Date().toISOString()} [WAF] ${message}`;
 		wafLogs.push(logEntry);
-		console.log(logEntry);
+		logInfo(logEntry);
 	},
 
 	rate_limit(key: string, limit: number, window: number): boolean {

@@ -11,6 +11,7 @@ import {
 	validate,
 	version,
 } from "uuid";
+import { getPlatform } from "./platform";
 
 const NAMESPACE_DNS = "6ba7b810-9dad-11d1-80b4-00c04fd430c8";
 const NAMESPACE_URL = "6ba7b811-9dad-11d1-80b4-00c04fd430c8";
@@ -18,12 +19,9 @@ const NAMESPACE_OID = "6ba7b812-9dad-11d1-80b4-00c04fd430c8";
 const NAMESPACE_X500 = "6ba7b814-9dad-11d1-80b4-00c04fd430c8";
 
 function uuidv7(): string {
-	const timestamp = BigInt(Date.now());
-	const bytes = new Uint8Array(16);
-	if (typeof globalThis.crypto?.getRandomValues !== "function") {
-		throw new Error("UUID generation requires a Web Crypto getRandomValues implementation");
-	}
-	globalThis.crypto.getRandomValues(bytes);
+	const platform = getPlatform();
+	const timestamp = BigInt(platform.now());
+	const bytes = platform.randomBytes(16);
 
 	bytes[0] = Number((timestamp >> 40n) & 0xffn);
 	bytes[1] = Number((timestamp >> 32n) & 0xffn);

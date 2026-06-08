@@ -3,7 +3,7 @@
  * Provides CSRF token generation and validation for the VCL implementation.
  */
 
-import { createHash } from "node:crypto";
+import { getCrypto } from "./platform";
 import type { VCLContext } from "./vcl-compiler";
 
 export function generateCSRFToken(context: VCLContext, secret: string): string {
@@ -11,9 +11,13 @@ export function generateCSRFToken(context: VCLContext, secret: string): string {
 	const userAgent = context.req.http["User-Agent"] || "";
 	// Use time module's hex property if available, otherwise use current timestamp
 	const timeModule = context.time as { hex?: string } | undefined;
-	const timestamp = timeModule?.hex ?? Date.now().toString(16);
+	const timestamp = timeModule?.hex ?? (context.platform?.now() ?? Date.now()).toString(16);
 
-	return createHash("sha256").update(`${clientIp}${userAgent}${secret}${timestamp}`).digest("hex");
+	const digest = getCrypto().hash(
+		"sha256",
+		Buffer.from(`${clientIp}${userAgent}${secret}${timestamp}`),
+	);
+	return Buffer.from(digest).toString("hex");
 }
 
 export function validateCSRFToken(context: VCLContext, token: string, secret: string): boolean {

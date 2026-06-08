@@ -103,9 +103,10 @@ export function parseTimeValue(str: string): number {
 	return num * (TIME_UNITS[unit] || 1);
 }
 
-export function createTimeModule(): TimeModule {
+export function createTimeModule(platform?: { now(): number }): TimeModule {
+	const now = () => platform?.now() ?? Date.now();
 	return {
-		now: (): Date => new Date(),
+		now: (): Date => new Date(now()),
 
 		add: (time: Date, duration: number): Date => new Date(time.getTime() + duration),
 
@@ -136,7 +137,7 @@ export function createTimeModule(): TimeModule {
 
 		interval_elapsed_ratio: (start: Date, interval: number): number => {
 			if (interval <= 0) return 0;
-			const elapsed = Date.now() - start.getTime();
+			const elapsed = now() - start.getTime();
 			return Math.min(1, Math.max(0, elapsed / interval));
 		},
 	};
