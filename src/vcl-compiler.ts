@@ -1,4 +1,11 @@
-import { hashHex, logError, logInfo, randomFloat, type VCLPlatform } from "./platform";
+import {
+	hashHex,
+	logError,
+	logInfo,
+	randomFloat,
+	UnsupportedFeatureError,
+	type VCLPlatform,
+} from "./platform";
 import { createVCLContext } from "./vcl";
 import type {
 	VCLAddStatement,
@@ -755,6 +762,7 @@ export class VCLCompiler {
 				};
 				return defaultReturns[subroutine.name] || "";
 			} catch (error) {
+				if (error instanceof UnsupportedFeatureError) throw error;
 				logError(`Error executing subroutine ${subroutine.name}:`, error);
 				const errorReturns: Record<string, string> = {
 					vcl_recv: "error",

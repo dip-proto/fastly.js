@@ -1,5 +1,11 @@
 import { buildDiagnostic, VCLDiagnosticError } from "./diagnostics";
-import { getPlatform, logError, randomFloat, type VCLPlatform } from "./platform";
+import {
+	getPlatform,
+	logError,
+	randomFloat,
+	UnsupportedFeatureError,
+	type VCLPlatform,
+} from "./platform";
 import { AcceptModule } from "./vcl-accept";
 import { AddressModule } from "./vcl-address";
 import { BinaryModule } from "./vcl-binary";
@@ -62,6 +68,7 @@ export function executeVCLByName(
 
 		return result;
 	} catch (error) {
+		if (error instanceof UnsupportedFeatureError) throw error;
 		const err = error as Error;
 		logError(`Error executing subroutine ${name}: ${err.message}`);
 		return "";
@@ -1032,6 +1039,7 @@ export function executeVCL(
 		const result = subroutine(context);
 		return result ?? "";
 	} catch (error) {
+		if (error instanceof UnsupportedFeatureError) throw error;
 		logError(`Error executing subroutine ${subroutineName}:`, error);
 		return "error";
 	}
