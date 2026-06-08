@@ -2,7 +2,7 @@
  * VCL WAF Module - Web Application Firewall functionality
  */
 
-import { logInfo } from "./platform";
+import { getPlatform, logInfo } from "./platform";
 
 interface RateLimitBucket {
 	tokens: number;
@@ -45,7 +45,7 @@ export const WAFModule = {
 	},
 
 	rate_limit(key: string, limit: number, window: number): boolean {
-		const now = Date.now();
+		const now = getPlatform().now();
 
 		if (!rateLimitBuckets.has(key)) {
 			rateLimitBuckets.set(key, {
@@ -76,7 +76,7 @@ export const WAFModule = {
 		}
 
 		const bucket = rateLimitBuckets.get(key)!;
-		const now = Date.now();
+		const now = getPlatform().now();
 		const timeElapsed = now - bucket.lastRefill;
 		const tokensToAdd = timeElapsed * bucket.refillRate;
 		const currentTokens = Math.min(bucket.maxTokens, bucket.tokens + tokensToAdd);

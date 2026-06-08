@@ -566,7 +566,7 @@ export class VCLCompiler {
 		subroutine: VCLSubroutine,
 		initialContext?: VCLContext,
 	): (context: VCLContext) => string {
-		return (context: VCLContext) => {
+		const run = (context: VCLContext): string => {
 			// Merge the initial context (with ACLs) into the current context
 			if (initialContext?.acls) {
 				context.acls = { ...initialContext.acls, ...context.acls };
@@ -771,6 +771,14 @@ export class VCLCompiler {
 				};
 				return errorReturns[subroutine.name] || "";
 			}
+		};
+
+		return (context: VCLContext): string => {
+			const sub = subroutine.name;
+			context.platform?.onTrace?.({ phase: sub, subroutine: sub });
+			const action = run(context);
+			context.platform?.onTrace?.({ phase: sub, subroutine: sub, returnAction: action });
+			return action;
 		};
 	}
 

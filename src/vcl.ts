@@ -1,3 +1,4 @@
+import { buildDiagnostic, VCLDiagnosticError } from "./diagnostics";
 import { getPlatform, logError, logInfo, type VCLPlatform } from "./platform";
 import { AcceptModule } from "./vcl-accept";
 import { AddressModule } from "./vcl-address";
@@ -33,10 +34,11 @@ export function loadVCLContent(content: string): VCLSubroutines {
 		const compiler = new VCLCompiler(ast);
 		return compiler.compile();
 	} catch (error) {
-		const err = error as Error;
-		logError(`Error loading VCL content: ${err.message}`);
-		logError(err.stack);
-		throw error;
+		if (error instanceof VCLDiagnosticError) throw error;
+		const diagnostic = buildDiagnostic(error as Error, content);
+		logError(`Error loading VCL content: ${diagnostic.message}`);
+		if (diagnostic.sourceFrame) logError(diagnostic.sourceFrame);
+		throw new VCLDiagnosticError(diagnostic);
 	}
 }
 

@@ -10,7 +10,9 @@ function splitUrl(url: string): [string, string] {
 
 function parseQueryString(queryString: string): URLSearchParams {
 	const [, qs] = splitUrl(queryString);
-	return new URLSearchParams(qs || (queryString.startsWith("?") ? queryString.substring(1) : queryString));
+	return new URLSearchParams(
+		qs || (queryString.startsWith("?") ? queryString.substring(1) : queryString),
+	);
 }
 
 function rebuildUrl(url: string, newQs: string): string {

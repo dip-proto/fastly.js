@@ -3,7 +3,7 @@
  * Provides WAF (Web Application Firewall) and rate limiting capabilities.
  */
 
-import { logInfo } from "./platform";
+import { getPlatform, logInfo } from "./platform";
 
 interface RateCounter {
 	count: number;
@@ -54,7 +54,7 @@ export const SecurityModule = {
 
 		rate_limit: (_context: any, key: string, limit: number, window: number): boolean => {
 			const windowMs = window * 1000;
-			const now = Date.now();
+			const now = getPlatform().now();
 			const bucketKey = `rate_${key}`;
 
 			let counter = rateCounters.get(bucketKey);
@@ -103,7 +103,7 @@ export const SecurityModule = {
 				return 0;
 			}
 
-			const now = Date.now();
+			const now = getPlatform().now();
 			if (now - counter.lastReset > counter.window) {
 				return counter.count;
 			}
@@ -114,12 +114,12 @@ export const SecurityModule = {
 
 	ratelimit: {
 		open_window: (_context: any, windowSeconds: number): string => {
-			const windowId = `window_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+			const windowId = `window_${getPlatform().now()}_${Math.random().toString(36).substring(2, 9)}`;
 			const windowMs = windowSeconds * 1000;
 
 			rateCounters.set(windowId, {
 				count: 0,
-				lastReset: Date.now(),
+				lastReset: getPlatform().now(),
 				window: windowMs,
 			});
 
@@ -127,7 +127,7 @@ export const SecurityModule = {
 		},
 
 		ratecounter_increment: (_context: any, counterName: string, incrementBy: number = 1): void => {
-			const now = Date.now();
+			const now = getPlatform().now();
 			const counter = rateCounters.get(counterName) || {
 				count: 0,
 				lastReset: now,
@@ -139,7 +139,7 @@ export const SecurityModule = {
 		},
 
 		check_rate: (_context: any, counterName: string, ratePerSecond: number): boolean => {
-			const now = Date.now();
+			const now = getPlatform().now();
 			const counter = rateCounters.get(counterName);
 
 			if (!counter) {
@@ -161,11 +161,11 @@ export const SecurityModule = {
 				const windowKey = `${counterName}_${spec.seconds ?? 0}s`;
 				const counter = rateCounters.get(windowKey) || {
 					count: 0,
-					lastReset: Date.now(),
+					lastReset: getPlatform().now(),
 					window: (spec.seconds ?? 0) * 1000,
 				};
 
-				const now = Date.now();
+				const now = getPlatform().now();
 				if (now - counter.lastReset > counter.window) {
 					counter.count = 0;
 					counter.lastReset = now;
@@ -192,7 +192,7 @@ export const SecurityModule = {
 				penaltyBoxes.set(penaltyboxName, penaltyBox);
 			}
 
-			const expiresAt = Date.now() + duration * 1000;
+			const expiresAt = getPlatform().now() + duration * 1000;
 			penaltyBox.set(identifier, { identifier, expiresAt });
 		},
 
@@ -207,7 +207,7 @@ export const SecurityModule = {
 				return false;
 			}
 
-			const now = Date.now();
+			const now = getPlatform().now();
 			if (now > entry.expiresAt) {
 				penaltyBox.delete(identifier);
 				return false;

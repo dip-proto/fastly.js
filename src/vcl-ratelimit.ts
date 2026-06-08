@@ -9,6 +9,7 @@
  *   ratelimit.penaltybox_has(ID, STRING) -> BOOL
  */
 
+import { getPlatform } from "./platform";
 import { parseTimeValue } from "./vcl-time";
 
 interface RateCounter {
@@ -28,7 +29,7 @@ const penaltyBoxes = new Map<string, Map<string, PenaltyBoxEntry>>();
 const DEFAULT_WINDOW_MS = 60000;
 
 function getOrCreateCounter(name: string, windowMs: number = DEFAULT_WINDOW_MS): RateCounter {
-	const now = Date.now();
+	const now = getPlatform().now();
 	let counter = rateCounters.get(name);
 
 	if (!counter) {
@@ -56,7 +57,7 @@ export const RateLimitModule = {
 	},
 
 	open_window(windowSeconds: number): string {
-		const now = Date.now();
+		const now = getPlatform().now();
 		const windowId = `window_${now}_${Math.random().toString(36).substring(2, 9)}`;
 		rateCounters.set(windowId, {
 			count: 0,
@@ -153,7 +154,7 @@ export const RateLimitModule = {
 
 		penaltyBox.set(identifier, {
 			identifier,
-			expiresAt: Date.now() + toSeconds(duration) * 1000,
+			expiresAt: getPlatform().now() + toSeconds(duration) * 1000,
 		});
 	},
 
@@ -172,7 +173,7 @@ export const RateLimitModule = {
 			return false;
 		}
 
-		if (entry.expiresAt <= Date.now()) {
+		if (entry.expiresAt <= getPlatform().now()) {
 			penaltyBox.delete(identifier);
 			return false;
 		}
