@@ -35,15 +35,14 @@ sub vcl_recv {
     
     # Second restart: Validate and normalize token
     if (req.restarts == 1 && req.http.X-Auth-Token) {
-        # Remove any whitespace from token
-        if (req.http.X-Auth-Token ~ "^\s+|\s+$") {
-            set req.http.X-Auth-Token = regsub(req.http.X-Auth-Token, "^\s+|\s+$", "");
-            set req.http.X-Restart-Reason = "token_whitespace_cleanup";
-            restart;
-        }
-        
-        # Set Authorization header with Bearer token
+        # Strip any surrounding whitespace from the token
+        set req.http.X-Auth-Token = regsub(req.http.X-Auth-Token, "^\s+|\s+$", "");
+
+        # Set Authorization header with Bearer token, then restart so the
+        # next pass can validate it and assign a role
         set req.http.Authorization = "Bearer " + req.http.X-Auth-Token;
+        set req.http.X-Restart-Reason = "token_whitespace_cleanup";
+        restart;
     }
     
     # Third restart: Token validation and role assignment

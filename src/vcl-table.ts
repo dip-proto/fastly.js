@@ -5,15 +5,10 @@
  * Reference: https://developer.fastly.com/reference/vcl/functions/table/
  */
 
-export interface TableEntry {
-	key: string;
-	value: any;
-}
-
 export interface Table {
 	name: string;
 	type?: string;
-	entries: TableEntry[];
+	entries: Record<string, any>;
 }
 
 export interface Tables {
@@ -39,11 +34,7 @@ const IPV6_REGEX = /^([0-9a-fA-F]{0,4}:){2,7}[0-9a-fA-F]{0,4}$/;
 function findInTable(tables: Tables, tableName: string, key: string): any | undefined {
 	const table = tables[tableName];
 	if (!table) return undefined;
-
-	for (const entry of table.entries) {
-		if (entry.key === key) return entry.value;
-	}
-	return undefined;
+	return Object.hasOwn(table.entries, key) ? table.entries[key] : undefined;
 }
 
 function parseTimeUnit(str: string, defaultValue: number): number {

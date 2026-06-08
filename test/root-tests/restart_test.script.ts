@@ -2,7 +2,8 @@
  * Test for restart functionality in VCL
  */
 
-import { createVCLContext, executeVCL, loadVCL } from "../../src/vcl";
+import { createVCLContext, executeVCL } from "../../src/vcl";
+import { loadVCL } from "../../src/node-loader";
 
 // Load the VCL file
 console.log("Loading VCL file...");

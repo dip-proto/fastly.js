@@ -2,7 +2,8 @@
  * Integration test for authentication with token validation using restart
  */
 
-import { createVCLContext, executeVCL, loadVCL } from "../../src/vcl";
+import { createVCLContext, executeVCL } from "../../src/vcl";
+import { loadVCL } from "../../src/node-loader";
 
 // Load the VCL file
 console.log("Loading authentication VCL file...");
@@ -128,11 +129,6 @@ function runTests() {
 
 			console.log(`vcl_recv returned: ${recvResult}`);
 
-			if (context.req.http["X-Restart-Reason"]) {
-				restartReasons.push(context.req.http["X-Restart-Reason"]);
-				console.log(`Restart reason: ${context.req.http["X-Restart-Reason"]}`);
-			}
-
 			// Handle error action
 			if (recvResult === "error") {
 				console.log(`Error triggered: ${context.obj.status} - ${context.obj.response}`);
@@ -145,6 +141,12 @@ function runTests() {
 
 			// Handle restart action
 			if (recvResult === "restart") {
+				// Record the reason for this restart
+				if (context.req.http["X-Restart-Reason"]) {
+					restartReasons.push(context.req.http["X-Restart-Reason"]);
+					console.log(`Restart reason: ${context.req.http["X-Restart-Reason"]}`);
+				}
+
 				// Increment the restart counter
 				restartCount++;
 				context.req.restarts = restartCount;

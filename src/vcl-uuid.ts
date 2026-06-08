@@ -2,7 +2,6 @@
  * VCL UUID Module - UUID generation, validation, and conversion
  */
 
-import * as crypto from "node:crypto";
 import {
 	parse,
 	stringify,
@@ -21,7 +20,7 @@ const NAMESPACE_X500 = "6ba7b814-9dad-11d1-80b4-00c04fd430c8";
 function uuidv7(): string {
 	const timestamp = BigInt(Date.now());
 	const bytes = new Uint8Array(16);
-	crypto.getRandomValues(bytes);
+	globalThis.crypto.getRandomValues(bytes);
 
 	bytes[0] = Number((timestamp >> 40n) & 0xffn);
 	bytes[1] = Number((timestamp >> 32n) & 0xffn);

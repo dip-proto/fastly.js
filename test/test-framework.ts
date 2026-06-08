@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { createVCLContext, executeVCL, loadVCL } from "../src/vcl";
+import { createVCLContext, executeVCL } from "../src/vcl";
+import { loadVCL } from "../src/node-loader";
 import type { VCLContext, VCLSubroutines } from "../src/vcl-compiler";
 
 export interface TestResult {

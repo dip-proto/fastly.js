@@ -1,4 +1,3 @@
-import { existsSync, readFileSync } from "node:fs";
 import { AcceptModule } from "./vcl-accept";
 import { AddressModule } from "./vcl-address";
 import { BinaryModule } from "./vcl-binary";
@@ -37,14 +36,6 @@ export function loadVCLContent(content: string): VCLSubroutines {
 		console.error(err.stack);
 		throw error;
 	}
-}
-
-export function loadVCL(filePath: string): VCLSubroutines {
-	if (!existsSync(filePath)) {
-		throw new Error(`VCL file not found: ${filePath}`);
-	}
-	const content = readFileSync(filePath, "utf-8");
-	return loadVCLContent(content);
 }
 
 export function executeVCLByName(

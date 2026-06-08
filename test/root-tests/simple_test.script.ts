@@ -4,7 +4,8 @@
  * This script tests the VCL parser and execution with a simple VCL file.
  */
 
-import { createVCLContext, executeVCL, loadVCL } from "../../src/vcl";
+import { createVCLContext, executeVCL } from "../../src/vcl";
+import { loadVCL } from "../../src/node-loader";
 
 // Load the VCL file
 console.log("Loading VCL file...");

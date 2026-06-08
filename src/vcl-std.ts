@@ -1,4 +1,3 @@
-import * as path from "node:path";
 import {
 	cstr_escape,
 	json_escape,
@@ -12,6 +11,25 @@ import {
 	xml_escape,
 } from "./vcl-strings";
 import { toRawString } from "./vcl-value";
+
+function posixSplit(p: string): [string, number] {
+	let end = p.length;
+	while (end > 1 && p[end - 1] === "/") end--;
+	const s = p.slice(0, end);
+	return [s, s.lastIndexOf("/")];
+}
+
+function posixBasename(p: string): string {
+	const [s, idx] = posixSplit(p);
+	return idx === -1 ? s : s.slice(idx + 1);
+}
+
+function posixDirname(p: string): string {
+	const [s, idx] = posixSplit(p);
+	if (idx === -1) return ".";
+	if (idx === 0) return "/";
+	return s.slice(0, idx);
+}
 
 export interface StdModule {
 	strlen: (s: string) => number;
@@ -188,14 +206,14 @@ export function createStdModule(): StdModule {
 			if (str === "." || str === "") return ".";
 			if (str === "..") return "..";
 			if (str === "/") return "/";
-			return path.basename(str.replace(/\/$/, ""));
+			return posixBasename(str);
 		},
 
 		dirname: (s: string): string => {
 			const str = String(s);
 			if (str === "." || str === "" || str === "..") return ".";
 			if (str === "/") return "/";
-			return path.dirname(str.replace(/\/$/, ""));
+			return posixDirname(str);
 		},
 
 		atoi: (s: string): number => {

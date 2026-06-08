@@ -668,7 +668,7 @@ export class VCLLexer {
 			if (this.input[this.position] === "\\" && this.position + 1 < this.input.length) {
 				this.advance();
 				const escChar = this.input[this.position] ?? "";
-				content += escapes[escChar] ?? ("\\" + escChar);
+				content += escapes[escChar] ?? "\\" + escChar;
 				this.advance();
 				continue;
 			}
@@ -694,15 +694,19 @@ export class VCLLexer {
 		const startLine = this.line;
 		const startColumn = this.column;
 		this.advance();
-		let braceCount = 1;
-		while (this.position < this.input.length && braceCount > 0) {
-			if (this.input[this.position] === "{") braceCount++;
-			else if (this.input[this.position] === "}") braceCount--;
-			if (this.input[this.position] === "\n") {
-				this.line++;
-				this.column = 1;
+		const longStringEnd =
+			this.input[this.position] === '"' ? this.input.indexOf('"}', this.position + 1) : -1;
+		if (longStringEnd !== -1) {
+			while (this.position <= longStringEnd + 1) {
+				this.advanceTrackingLine();
 			}
-			this.advance();
+		} else {
+			let braceCount = 1;
+			while (this.position < this.input.length && braceCount > 0) {
+				if (this.input[this.position] === "{") braceCount++;
+				else if (this.input[this.position] === "}") braceCount--;
+				this.advanceTrackingLine();
+			}
 		}
 		this.tokens.push({
 			type: TokenType.STRING,
@@ -823,6 +827,14 @@ export class VCLLexer {
 	private advance(): void {
 		this.position++;
 		this.column++;
+	}
+
+	private advanceTrackingLine(): void {
+		if (this.input[this.position] === "\n") {
+			this.line++;
+			this.column = 1;
+		}
+		this.advance();
 	}
 }
 

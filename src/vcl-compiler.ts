@@ -1,3 +1,5 @@
+import * as nodeCrypto from "node:crypto";
+import * as nodeOs from "node:os";
 import { createVCLContext } from "./vcl";
 import type {
 	VCLAddStatement,
@@ -29,6 +31,7 @@ import type {
 	VCLUnaryExpression,
 	VCLUnsetStatement,
 } from "./vcl-parser";
+import { regsuball as regsuballImpl, regsub as regsubImpl } from "./vcl-strings";
 import {
 	isNotSet,
 	toConcatPart,
@@ -1465,8 +1468,7 @@ export class VCLCompiler {
 
 	private executeHashDataStatement(statement: VCLHashDataStatement, context: VCLContext): void {
 		const value = this.evaluateExpression(statement.value, context);
-		const crypto = require("node:crypto");
-		const hash = crypto.createHash("md5").update(String(value)).digest("hex");
+		const hash = nodeCrypto.createHash("md5").update(String(value)).digest("hex");
 		if (!context.hashData) context.hashData = [];
 		context.hashData.push(hash);
 	}
@@ -1626,23 +1628,11 @@ export class VCLCompiler {
 			}
 		} else if (functionName === "regsub") {
 			if (args.length === 3) {
-				try {
-					const regex = new RegExp(args[1]);
-					return String(args[0]).replace(regex, args[2]);
-				} catch (e) {
-					console.error(`Invalid regex pattern: ${args[1]}`, e);
-					return args[0];
-				}
+				return regsubImpl(String(args[0]), String(args[1]), String(args[2]));
 			}
 		} else if (functionName === "regsuball") {
 			if (args.length === 3) {
-				try {
-					const regex = new RegExp(args[1], "g");
-					return String(args[0]).replace(regex, args[2]);
-				} catch (e) {
-					console.error(`Invalid regex pattern: ${args[1]}`, e);
-					return args[0];
-				}
+				return regsuballImpl(String(args[0]), String(args[1]), String(args[2]));
 			}
 		} else if (functionName.startsWith("math.")) {
 			const fn = functionName.substring(5);
@@ -1855,7 +1845,7 @@ export class VCLCompiler {
 		} else if (functionName === "resp.tarpit" || functionName === "early_hints") {
 			return null;
 		} else if (functionName === "fastly.hash") {
-			return require("node:crypto").createHash("sha256").update(String(args[0])).digest("hex");
+			return nodeCrypto.createHash("sha256").update(String(args[0])).digest("hex");
 		} else if (functionName === "fastly.try_select_shield") {
 			return false;
 		} else if (
@@ -2029,7 +2019,7 @@ export class VCLCompiler {
 		if (name === "req.vcl") return ctx.req?.vcl || "local.1_0-00000000000000000000000000000000";
 		if (name === "req.vcl.md5") {
 			const vcl = ctx.req?.vcl || "local.1_0-00000000000000000000000000000000";
-			return require("node:crypto").createHash("md5").update(vcl).digest("hex");
+			return nodeCrypto.createHash("md5").update(vcl).digest("hex");
 		}
 		if (name === "req.vcl.generation") return 1;
 		if (name === "req.vcl.version") return 1;
@@ -2216,7 +2206,7 @@ export class VCLCompiler {
 		if (name.startsWith("client.socket.")) return 0;
 
 		// server.* variables
-		if (name === "server.hostname") return ctx.server?.hostname || require("node:os").hostname();
+		if (name === "server.hostname") return ctx.server?.hostname || nodeOs.hostname();
 		if (name === "server.identity") return ctx.server?.identity || "localhost";
 		if (name === "server.datacenter") return ctx.server?.datacenter || "local";
 		if (name === "server.region") return ctx.server?.region || "local";

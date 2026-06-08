@@ -4,7 +4,8 @@
  * with different VCL files and scenarios.
  */
 
-import { createVCLContext, executeVCL, loadVCL } from "../../src/vcl";
+import { createVCLContext, executeVCL } from "../../src/vcl";
+import { loadVCL } from "../../src/node-loader";
 
 // Test cases for restart functionality
 interface RestartTestCase {

@@ -2,7 +2,8 @@
  * Integration test for A/B testing using restart
  */
 
-import { createVCLContext, executeVCL, loadVCL } from "../../src/vcl";
+import { createVCLContext, executeVCL } from "../../src/vcl";
+import { loadVCL } from "../../src/node-loader";
 
 // Load the VCL file
 console.log("Loading A/B testing VCL file...");

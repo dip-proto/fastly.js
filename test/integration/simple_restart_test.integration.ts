@@ -2,7 +2,8 @@
  * Integration test for simple restart functionality
  */
 
-import { createVCLContext, loadVCL } from "../../src/vcl";
+import { createVCLContext } from "../../src/vcl";
+import { loadVCL } from "../../src/node-loader";
 
 // Load the VCL file
 console.log("Loading simple restart VCL file...");
