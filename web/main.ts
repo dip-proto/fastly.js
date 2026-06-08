@@ -6,6 +6,10 @@ let cacheState = new Map<string, CacheEntry>();
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string): T => document.getElementById(id) as T;
 
+function escape(s: string): string {
+	return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
 function parseHeaderLines(text: string): Record<string, string> {
 	const out: Record<string, string> = {};
 	for (const line of text.split("\n")) {
@@ -16,10 +20,6 @@ function parseHeaderLines(text: string): Record<string, string> {
 		out[key] = line.slice(idx + 1).trim();
 	}
 	return out;
-}
-
-function escape(s: string): string {
-	return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
 function headerList(headers: Record<string, string>): string {
@@ -33,8 +33,96 @@ function headerList(headers: Record<string, string>): string {
 		.join("");
 }
 
+// --- shareable state -------------------------------------------------------
+
+interface PlaygroundState {
+	vcl: string;
+	method: string;
+	url: string;
+	reqHeaders: string;
+	beStatus: string;
+	beHeaders: string;
+	beBody: string;
+}
+
+function collectState(): PlaygroundState {
+	return {
+		vcl: $<HTMLTextAreaElement>("vcl").value,
+		method: $<HTMLInputElement>("method").value,
+		url: $<HTMLInputElement>("url").value,
+		reqHeaders: $<HTMLTextAreaElement>("req-headers").value,
+		beStatus: $<HTMLInputElement>("be-status").value,
+		beHeaders: $<HTMLTextAreaElement>("be-headers").value,
+		beBody: $<HTMLTextAreaElement>("be-body").value,
+	};
+}
+
+function applyState(s: PlaygroundState) {
+	$<HTMLTextAreaElement>("vcl").value = s.vcl;
+	$<HTMLInputElement>("method").value = s.method;
+	$<HTMLInputElement>("url").value = s.url;
+	$<HTMLTextAreaElement>("req-headers").value = s.reqHeaders;
+	$<HTMLInputElement>("be-status").value = s.beStatus;
+	$<HTMLTextAreaElement>("be-headers").value = s.beHeaders;
+	$<HTMLTextAreaElement>("be-body").value = s.beBody;
+}
+
+function encodeState(s: PlaygroundState): string {
+	return btoa(unescape(encodeURIComponent(JSON.stringify(s))));
+}
+
+function decodeState(hash: string): PlaygroundState | null {
+	try {
+		const parsed = JSON.parse(decodeURIComponent(escape(atob(hash))));
+		if (parsed && typeof parsed.vcl === "string") return parsed;
+	} catch {
+		// corrupt/invalid hash — fall back to defaults
+	}
+	return null;
+}
+
+function writeHash() {
+	history.replaceState(null, "", `#${encodeState(collectState())}`);
+}
+
+// --- rendering -------------------------------------------------------------
+
 function setCacheBadge() {
-	$("cache-count").textContent = `${cacheState.size} entr${cacheState.size === 1 ? "y" : "ies"}`;
+	$("cache-count").textContent = `${cacheState.size}`;
+}
+
+function renderCacheTable() {
+	const box = $("cache-table");
+	if (cacheState.size === 0) {
+		box.innerHTML = '<span class="muted">empty</span>';
+		return;
+	}
+	const now = Date.now();
+	box.innerHTML = [...cacheState.entries()]
+		.map(([key, e]) => {
+			const state = now < e.expires ? "fresh" : now < e.staleUntil ? "stale" : "expired";
+			const age = Math.max(0, Math.floor((now - e.created) / 1000));
+			const ttl = Math.round((e.expires - e.created) / 1000);
+			return `<div class="cache-row"><span class="badge state-${state}">${state}</span><span class="ckey">${escape(key)}</span><span class="muted">ttl ${ttl}s · age ${age}s · ${e.resp.status}</span></div>`;
+		})
+		.join("");
+}
+
+function renderTrace(trace: SimulationResult["trace"], vcl: string) {
+	const lines = vcl.split("\n");
+	$("trace").innerHTML =
+		trace
+			.map((e) => {
+				if (e.statement) {
+					const src = (lines[e.statement.line - 1] ?? "").trim();
+					return `<div class="trace-stmt"><span class="ln">${e.statement.line}</span>${escape(src)}</div>`;
+				}
+				if (e.returnAction) {
+					return `<div class="trace-ret">└ return(${escape(e.returnAction)})</div>`;
+				}
+				return `<div class="trace-sub">▸ ${escape(e.subroutine)}</div>`;
+			})
+			.join("") || '<span class="muted">(no trace)</span>';
 }
 
 function render(result: SimulationResult) {
@@ -46,7 +134,8 @@ function render(result: SimulationResult) {
 		errBox.style.display = "block";
 		if (result.diagnostics.length > 0) {
 			const d = result.diagnostics[0]!;
-			$("error-kind").textContent = "Compile error";
+			const loc = d.line !== undefined ? ` · Line ${d.line}, Column ${d.column}` : "";
+			$("error-kind").textContent = `Compile error${loc}`;
 			$("error-message").textContent = d.message;
 			$("error-frame").textContent = d.sourceFrame ?? "";
 			$("error-frame").style.display = d.sourceFrame ? "block" : "none";
@@ -77,24 +166,21 @@ function render(result: SimulationResult) {
 			...(cd.ageSeconds !== undefined ? { age: `${cd.ageSeconds}s` } : {}),
 		});
 
-		$("trace").innerHTML =
-			result.trace
-				.map((e) => {
-					const arrow = e.returnAction ? ` → ${escape(e.returnAction)}` : "";
-					return `<div class="trace-row">${escape(e.subroutine)}<span class="muted">${arrow}</span></div>`;
-				})
-				.join("") || '<span class="muted">(no trace)</span>';
-
+		renderTrace(result.trace, $<HTMLTextAreaElement>("vcl").value);
 		$("logs").textContent = result.logs.length ? result.logs.join("\n") : "(no logs)";
 	}
 
+	renderCacheTable();
 	setCacheBadge();
 }
+
+// --- actions ---------------------------------------------------------------
 
 async function run() {
 	const button = $<HTMLButtonElement>("run");
 	button.disabled = true;
 	button.textContent = "Running…";
+	writeHash();
 	try {
 		const result = await runBrowserSimulation({
 			vcl: $<HTMLTextAreaElement>("vcl").value,
@@ -120,9 +206,44 @@ async function run() {
 
 function clearCache() {
 	cacheState = new Map();
+	renderCacheTable();
 	setCacheBadge();
 }
 
+function flash(el: HTMLElement, text: string) {
+	const prev = el.textContent;
+	el.textContent = text;
+	setTimeout(() => {
+		el.textContent = prev;
+	}, 1200);
+}
+
+async function copyLink() {
+	writeHash();
+	try {
+		await navigator.clipboard.writeText(location.href);
+		flash($("share"), "Copied!");
+	} catch {
+		flash($("share"), "URL updated");
+	}
+}
+
+const DEFAULTS = collectState();
+
+function resetExample() {
+	applyState(DEFAULTS);
+	clearCache();
+	history.replaceState(null, "", location.pathname);
+}
+
+// --- boot ------------------------------------------------------------------
+
+const restored = location.hash.length > 1 ? decodeState(location.hash.slice(1)) : null;
+if (restored) applyState(restored);
+
 $("run").addEventListener("click", run);
 $("clear").addEventListener("click", clearCache);
+$("reset").addEventListener("click", resetExample);
+$("share").addEventListener("click", copyLink);
 setCacheBadge();
+renderCacheTable();

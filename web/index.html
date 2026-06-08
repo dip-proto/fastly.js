@@ -104,7 +104,24 @@
 			.outcome-error { background: #45191c; color: #ff8d8d; }
 			#errors { display: none; border-color: #5a2025; }
 			#error-kind { color: #ff8d8d; font-weight: 700; }
-			.pill { font-size: 11px; color: var(--muted); }
+			#error-frame { margin-top: 10px; border-left: 2px solid #5a2025; padding-left: 10px; }
+			.pill { font-size: 11px; color: var(--muted); margin-left: auto; }
+			.state-fresh { background: #16432a; color: #6ee7a0; }
+			.state-stale { background: #3a2f12; color: #f5cd6b; }
+			.state-expired { background: #45191c; color: #ff8d8d; }
+			.cache-row { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 12px; }
+			.cache-row .ckey { font-family: var(--mono); color: var(--text); }
+			.trace-sub { font-family: var(--mono); font-size: 12px; color: var(--accent); margin-top: 4px; }
+			.trace-stmt { font-family: var(--mono); font-size: 12px; color: var(--text); padding-left: 16px; }
+			.trace-stmt .ln {
+				display: inline-block;
+				min-width: 26px;
+				color: var(--muted);
+				text-align: right;
+				margin-right: 8px;
+				user-select: none;
+			}
+			.trace-ret { font-family: var(--mono); font-size: 12px; color: #6ee7a0; padding-left: 16px; }
 		</style>
 	</head>
 	<body>
@@ -151,7 +168,9 @@ sub vcl_deliver {
 					<div class="actions">
 						<button id="run">Run</button>
 						<button id="clear" class="secondary">Clear cache</button>
-						<span class="pill">cache: <span id="cache-count">0 entries</span></span>
+						<button id="reset" class="secondary">Reset example</button>
+						<button id="share" class="secondary">Copy link</button>
+						<span class="pill">cache: <span id="cache-count">0</span></span>
 					</div>
 				</div>
 			</div>
@@ -173,6 +192,10 @@ sub vcl_deliver {
 						<h2>Cache decision</h2>
 						<div><span class="badge" id="cache-outcome">—</span></div>
 						<div id="cache-detail" style="margin-top: 8px"></div>
+					</div>
+					<div class="card">
+						<h2>Cache contents</h2>
+						<div id="cache-table"><span class="muted">empty</span></div>
 					</div>
 					<div class="card">
 						<h2>Trace</h2>

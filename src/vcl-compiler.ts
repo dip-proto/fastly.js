@@ -514,6 +514,7 @@ function parseTimeValue(value: string): number {
 
 export class VCLCompiler {
 	private program: VCLProgram;
+	private currentSubroutine = "";
 
 	constructor(program: VCLProgram) {
 		this.program = program;
@@ -783,14 +784,27 @@ export class VCLCompiler {
 
 		return (context: VCLContext): string => {
 			const sub = subroutine.name;
+			const previousSub = this.currentSubroutine;
+			this.currentSubroutine = sub;
 			context.platform?.onTrace?.({ phase: sub, subroutine: sub });
-			const action = run(context);
-			context.platform?.onTrace?.({ phase: sub, subroutine: sub, returnAction: action });
-			return action;
+			try {
+				const action = run(context);
+				context.platform?.onTrace?.({ phase: sub, subroutine: sub, returnAction: action });
+				return action;
+			} finally {
+				this.currentSubroutine = previousSub;
+			}
 		};
 	}
 
 	private executeStatement(statement: VCLStatement, context: VCLContext): string | undefined {
+		if (context.platform?.onTrace && statement.location) {
+			context.platform.onTrace({
+				phase: this.currentSubroutine,
+				subroutine: this.currentSubroutine,
+				statement: { line: statement.location.line, column: statement.location.column },
+			});
+		}
 		switch (statement.type) {
 			case "IfStatement":
 				return this.executeIfStatement(statement as VCLIfStatement, context);
