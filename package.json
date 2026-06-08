@@ -16,6 +16,8 @@
 		"test:browser": "bun run test/browser-bundle-smoke.test.ts",
 		"test:compat": "bun test ./test/crypto-compat.test.ts",
 		"test:sim": "bun test ./test/browser-simulation.test.ts",
+		"web:build": "bun build web/main.ts --target=browser --outdir web/dist",
+		"web": "bun run web:build && bun run web/serve.ts",
 		"test:all": "bun run test && bun run test:root && bun run test:integration && bun run test:tables && bun run test:compat && bun run test:sim && bun run test:browser",
 		"lint": "biome lint .",
 		"format": "biome format --write .",
@@ -35,6 +37,7 @@
 		"@noble/ciphers": "^2.2.0",
 		"@noble/hashes": "^2.2.0",
 		"@types/uuid": "^11.0.0",
+		"buffer": "^6.0.3",
 		"js-xxhash": "^5.0.1",
 		"uuid": "^13.0.0"
 	}

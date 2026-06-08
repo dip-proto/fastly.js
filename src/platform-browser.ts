@@ -3,6 +3,7 @@ import { hmac as nobleHmac } from "@noble/hashes/hmac.js";
 import { md5, sha1 } from "@noble/hashes/legacy.js";
 import { sha224, sha256, sha384, sha512 } from "@noble/hashes/sha2.js";
 import type { CHash } from "@noble/hashes/utils.js";
+import { Buffer as BufferPolyfill } from "buffer";
 import {
 	type CryptoProvider,
 	type HashAlgorithm,
@@ -93,5 +94,12 @@ export const browserPlatform: VCLPlatform = {
 		}
 	},
 };
+
+// The engine still uses Buffer pervasively (hex/base64 encoding). Browsers have
+// no global Buffer, so provide the pure-JS polyfill. Migrating these call sites
+// to Uint8Array is tracked as later cleanup.
+if (typeof (globalThis as { Buffer?: unknown }).Buffer === "undefined") {
+	(globalThis as { Buffer?: unknown }).Buffer = BufferPolyfill;
+}
 
 setDefaultPlatform(browserPlatform);
