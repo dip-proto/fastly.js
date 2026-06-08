@@ -447,6 +447,7 @@ export class VCLParser {
 	}
 
 	private parseStatement(): VCLStatement {
+		const startToken = this.peek();
 		// Check for label (identifier followed by colon)
 		if (this.check(TokenType.IDENTIFIER)) {
 			const nextToken = this.peek(1);
@@ -501,6 +502,8 @@ export class VCLParser {
 					return this.parseCallStatement();
 				case "synthetic":
 					return this.parseSyntheticStatement();
+				case "hash_data":
+					return this.parseHashDataStatement();
 				case "log":
 					return this.parseBareLogStatement();
 				case "esi":
@@ -565,12 +568,9 @@ export class VCLParser {
 			}
 		}
 
-		while (!this.check(TokenType.PUNCTUATION, ";") && !this.isAtEnd()) this.advance();
-		if (!this.isAtEnd()) this.advance();
-		return {
-			type: "Statement",
-			location: { line: this.previous().line, column: this.previous().column },
-		};
+		throw new Error(
+			`Unexpected statement "${startToken.value}" at line ${startToken.line}, column ${startToken.column}`,
+		);
 	}
 
 	private parseDeclareStatement(): VCLStatement {
