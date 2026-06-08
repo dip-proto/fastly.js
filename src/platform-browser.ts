@@ -67,7 +67,7 @@ const webCrypto: CryptoProvider = {
 		}
 	},
 
-	verifySignature(): boolean {
+	verifySignature(): never {
 		throw new UnsupportedFeatureError(
 			"RSA/ECDSA signature verification",
 			"no synchronous implementation is available in the browser",

@@ -29,7 +29,10 @@ export interface CryptoProvider {
 		noPadding: boolean,
 	): Uint8Array | null;
 	// RSA/ECDSA signature verification against a PEM public key. `algorithm` is a
-	// node verifier name such as "RSA-SHA256" or "sha256".
+	// node verifier name such as "RSA-SHA256" or "sha256". Returns false for a
+	// failed verification, but throws UnsupportedFeatureError on platforms with no
+	// synchronous implementation (the browser) — callers must let that propagate
+	// rather than treat it as a failed verification.
 	verifySignature(
 		algorithm: string,
 		publicKeyPem: string,
