@@ -32,6 +32,7 @@ For comprehensive documentation, tutorials, and examples, please visit the [docu
 - Director Management: Implement load balancing across multiple backends
 - Goto Statements: Control flow with goto statements and labels
 - Request Restart: Support for restarting requests with the restart statement
+- Browser Playground: A self-contained VCL simulator that runs entirely in the browser, with request/response tracing, cache inspection, and shareable links
 
 ## Requirements
 
@@ -188,19 +189,19 @@ Create a file named `waf-protection.vcl` with the following content:
 sub vcl_recv {
   # Block SQL injection attempts
   if (waf.detect_attack(req.url, "sql")) {
-    waf.log("SQL injection attempt detected in URL: " + req.url);
+    set req.http.X-WAF-Log = waf.log("SQL injection attempt detected in URL: " + req.url);
     error 403 "Forbidden";
   }
 
   # Block XSS attempts
   if (waf.detect_attack(req.http.User-Agent, "xss")) {
-    waf.log("XSS attempt detected in User-Agent: " + req.http.User-Agent);
+    set req.http.X-WAF-Log = waf.log("XSS attempt detected in User-Agent: " + req.http.User-Agent);
     error 403 "Forbidden";
   }
 
-  # Rate limit by client IP (10 requests per 5 seconds)
-  if (!waf.rate_limit(client.ip, 10, 5)) {
-    waf.log("Rate limit exceeded for IP: " + client.ip);
+  # Rate limit by client IP (no more than 100 requests per 60 seconds)
+  if (!waf.rate_limit(client.ip, 100, 60)) {
+    set req.http.X-WAF-Log = waf.log("Rate limit exceeded for IP: " + client.ip);
     error 429 "Too Many Requests";
   }
 
