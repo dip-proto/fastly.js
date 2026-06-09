@@ -243,22 +243,21 @@ bun run index.ts waf-protection.vcl
 Create a file named `rate-limiting.vcl` with the following content:
 
 ```vcl
+# Declare the rate counter and penalty box this VCL uses
+ratecounter requests {}
+penaltybox rate_violators {}
+
 sub vcl_recv {
-  # Open a rate counter window with a 60-second duration
-  set req.http.X-Window-ID = std.ratelimit.open_window(60);
-
-  # Increment a counter for this client IP
-  set req.http.X-Counter = std.ratelimit.ratecounter_increment(client.ip, 1);
-
-  # Check if the client has exceeded 10 requests per 5 seconds
-  if (std.ratelimit.check_rates(client.ip, "10:5,100:60,1000:3600")) {
-    # Add the client to a penalty box for 60 seconds
-    std.ratelimit.penaltybox_add("rate_violators", client.ip, 60);
+  # Count this request against the client's rate. check_rate increments the
+  # "requests" counter by 1 over a 60-second window, and if the client crosses
+  # 100 requests in that window it drops them into the "rate_violators" penalty
+  # box for 300 seconds. It returns true the moment the threshold is exceeded.
+  if (ratelimit.check_rate(client.ip, requests, 100, 60, 1, rate_violators, 300s)) {
     error 429 "Too Many Requests";
   }
 
-  # Check if the client is in the penalty box
-  if (std.ratelimit.penaltybox_has("rate_violators", client.ip)) {
+  # Reject anyone already serving time in the penalty box
+  if (ratelimit.penaltybox_has(rate_violators, client.ip)) {
     error 429 "Too Many Requests";
   }
 
@@ -533,44 +532,77 @@ sub vcl_recv {
 
 This configuration will route requests to different backends based on the URL path.
 
-## Testing
+### Web Playground
 
-Run the test suite to verify VCL functionality:
+Fastly.JS also ships as a browser playground: a VCL simulator that runs the exact
+same request pipeline as the CLI, entirely client-side. There is no proxying or
+network access — you supply the VCL, the request, and a synthetic backend
+response, and the simulator shows you what the engine does with them.
+
+Build the playground and serve it locally:
 
 ```bash
-bun run test/run-tests.ts
+bun run web
 ```
 
-This will execute all test suites, including:
+This builds `web/main.ts` for the browser and starts a static server (open the
+URL it prints). From there you can:
 
-- Basic VCL syntax tests
-- Standard library function tests
-- Caching behavior tests
-- Backend error handling tests
-- Random functions tests
-- Accept header functions tests
-- Address functions tests
-- Binary data functions tests
-- Digest functions tests
-- Query string functions tests
-- UUID functions tests
-- WAF functions tests
-- Rate limiting functions tests
-- ESI functions tests
-- Goto statement tests
-- Request restart tests
-- Real-world VCL tests
+- Edit VCL, the request, and the backend response, then run the pipeline and see
+  the resulting response, the cache decision, a statement-level execution trace,
+  any `log` output, and structured parse diagnostics.
+- Inspect the in-memory cache and watch a request go from MISS to HIT across runs.
+- Share a session: the VCL, request, and backend response are encoded into the
+  URL hash, so copying the link reproduces the exact run.
 
-All tests are currently passing, indicating that the implementation is working correctly.
+To produce a standalone, minified copy you can drop on any static host:
+
+```bash
+bun run web:dist
+```
+
+The result lands in `web/site/`. Because the simulator has no host crypto, RSA
+and JWT signature verification are deliberately unsupported in the browser and
+surface a loud "unsupported feature" error rather than a silent failure.
+
+## Testing
+
+Run the main test suite to verify VCL functionality:
+
+```bash
+bun run test
+```
+
+This executes the standard suite, covering basic VCL syntax, standard library
+functions, caching behavior, backend error handling, random/accept/address/binary
+/digest/query-string/UUID/WAF/rate-limiting/ESI functions, goto statements,
+request restarts, and real-world VCL configurations.
+
+To run everything, including the root, integration, table, crypto-compatibility,
+browser-simulation, and browser-bundle suites:
+
+```bash
+bun run test:all
+```
+
+Individual suites are available as `test:basic`, `test:stdlib`, `test:caching`,
+`test:backend`, `test:root`, `test:integration`, `test:tables`, `test:compat`,
+`test:sim`, and `test:browser` (see `package.json` for the full list).
 
 ## Project Structure
 
+- `index.ts`: CLI entry point — the Bun proxy server that loads VCL, configures the example backends, and drives the request pipeline against a real backend
 - `src/`: Core implementation files
-  - `vcl.ts`: Main VCL interface for loading and executing VCL files; also exports the runtime types (`VCLContext`, `VCLSubroutines`)
+  - `vcl.ts`: Main VCL interface for loading and executing VCL files; also exports `createVCLContext` and the runtime types (`VCLContext`, `VCLSubroutines`)
+  - `node-loader.ts`: Node-only `loadVCL` helper that reads VCL from the filesystem (kept out of the engine graph so the browser build stays free of `node:fs`)
   - `vcl-parser.ts`: VCL lexer, AST node definitions, and the high-level `parseVCL` entry point
   - `vcl-parser-impl.ts`: Recursive-descent parser implementation
   - `vcl-compiler.ts`: Compiles a parsed VCL program into executable JavaScript functions; defines the runtime context and standard library shape
+  - `runtime/pipeline.ts`: The host-agnostic request lifecycle (`runPipeline`) shared by the CLI and the browser simulator — recv/restart loop, hash, hit/miss/pass, fetch, deliver, cache store, and error handling
+  - `runtime/browser.ts`: `runBrowserSimulation`, the headless simulator the playground is built on
+  - `platform.ts`, `platform-node.ts`, `platform-browser.ts`: The `VCLPlatform`/`CryptoProvider` host interface and its Node and browser implementations (crypto, clock, randomness, hostname, env, logging)
   - `vcl-*.ts`: Individual standard library modules (digest, strings, time, querystring, address, accept, ratelimit, waf, etc.)
+- `web/`: The browser playground — a static single-page VCL simulator (`main.ts`, `index.html`, `serve.ts`, `dist.ts`)
 - `test/`: Test suites and framework
 - `fastly-vcl/`: Documentation and specifications for Fastly VCL
   - `vcl-functions/`: Detailed documentation for all VCL functions
@@ -595,8 +627,6 @@ The project implements all core VCL functionality for local development and test
 1. Complete VCL Syntax: All standard VCL statements and expressions, including control flow with if/else and goto/labels
 2. Full Standard Library: Comprehensive implementation of all VCL standard library functions
 3. Advanced Features: Caching, multiple backends, error handling, ESI, directors, security features, and more
-
-See the `TODO.md` file for a detailed roadmap and current implementation status.
 
 ## Contributing
 
