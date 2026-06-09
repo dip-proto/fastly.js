@@ -565,6 +565,16 @@ export class VCLParser {
 						column: this.previous().column,
 					},
 				};
+			} else if (this.check(TokenType.PUNCTUATION, "(")) {
+				// A bare function call is a valid statement for void builtins such as
+				// ratelimit.penaltybox_add(...) or h2.disable_header_compression().
+				const expression = this.parseFunctionCall(token);
+				this.consume(TokenType.PUNCTUATION, "Expected ';' after function call statement");
+				return {
+					type: "ExpressionStatement",
+					expression,
+					location: { line: token.line, column: token.column },
+				};
 			}
 		}
 
@@ -946,54 +956,16 @@ export class VCLParser {
 			} as any;
 		}
 
-		// In VCL, synthetic statements can have different formats:
-		// 1. synthetic "simple string";
-		// 2. synthetic {"multi-line string"};
-
-		let content = "";
-
-		// Check if the next token is a string
-		if (this.match(TokenType.STRING)) {
-			content = this.previous().value;
-
-			// Remove quotes
-			if (content.startsWith('"') && content.endsWith('"')) {
-				content = content.slice(1, -1);
-			}
-		}
-		// Check if the next token is an opening brace
-		else if (this.match(TokenType.PUNCTUATION, "{")) {
-			// Collect tokens until we find a closing brace
-			let braceCount = 1;
-			let syntheticContent = "";
-
-			while (braceCount > 0 && !this.isAtEnd()) {
-				if (this.match(TokenType.PUNCTUATION, "{")) {
-					braceCount++;
-					syntheticContent += "{";
-				} else if (this.match(TokenType.PUNCTUATION, "}")) {
-					braceCount--;
-					if (braceCount > 0) {
-						syntheticContent += "}";
-					}
-				} else {
-					syntheticContent += `${this.advance().value} `;
-				}
-			}
-
-			content = syntheticContent.trim();
-		} else {
-			throw new Error(
-				`Expected string or '{' after synthetic at line ${this.peek().line}, column ${this.peek().column}`,
-			);
-		}
-
-		// Consume the semicolon
+		// The synthetic body is a full expression in Fastly VCL, so it can be a
+		// single string, a {"..."} long string, or any concatenation of strings and
+		// variables such as {"Error "} + obj.status + {": "} + obj.response.
+		const expression = this.parseExpression();
 		this.consume(TokenType.PUNCTUATION, "Expected ';' after synthetic statement");
 
 		return {
 			type: "SyntheticStatement",
-			content,
+			content: "",
+			expression,
 			location: {
 				line: token.line,
 				column: token.column,
@@ -1213,7 +1185,12 @@ export class VCLParser {
 	private parseDirectorDeclaration(): VCLDirectorDeclaration {
 		const token = this.previous();
 		const nameToken = this.consumeName("Expected director name");
-		const directorType = this.consume(TokenType.IDENTIFIER, "Expected director type").value;
+		// The director type is usually a plain identifier, but "hash" is also a
+		// keyword, so accept either token kind here.
+		if (!this.check(TokenType.IDENTIFIER) && !this.check(TokenType.KEYWORD)) {
+			this.error("Expected director type");
+		}
+		const directorType = this.advance().value;
 		this.consume(TokenType.PUNCTUATION, "Expected '{' after director type");
 
 		const properties: VCLBackendProperty[] = [];
@@ -1638,9 +1615,11 @@ export class VCLParser {
 		if (this.match(TokenType.STRING)) {
 			const token = this.previous();
 
-			// Remove quotes
+			// Remove quotes (including the {"..."} long-string delimiters)
 			let value = token.value;
-			if (value.startsWith('"') && value.endsWith('"')) {
+			if (value.startsWith('{"') && value.endsWith('"}')) {
+				value = value.slice(2, -2);
+			} else if (value.startsWith('"') && value.endsWith('"')) {
 				value = value.slice(1, -1);
 			} else if (value.startsWith("'") && value.endsWith("'")) {
 				value = value.slice(1, -1);

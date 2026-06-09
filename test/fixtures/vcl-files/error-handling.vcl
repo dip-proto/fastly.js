@@ -26,7 +26,7 @@ sub vcl_error {
 
   # Create a simple synthetic response
   set obj.http.Content-Type = "text/plain";
-  synthetic {"Error " + obj.status + ": " + obj.response};
+  synthetic "Error " + obj.status + ": " + obj.response;
 
   return(deliver);
 }

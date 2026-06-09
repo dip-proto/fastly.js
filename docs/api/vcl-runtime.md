@@ -2,15 +2,14 @@
 
 The VCL runtime is what actually runs your VCL code once it has been parsed and compiled. It owns the execution context, the standard library, and the small piece of glue that dispatches into individual subroutines like `vcl_recv` or `vcl_fetch`.
 
-In Fastly.JS the runtime entry points all live in [`src/vcl.ts`](../../src/vcl.ts) — there is no separate `vcl-runtime.ts` module. The HTTP request pipeline that ties everything together is implemented in [`index.ts`](../../index.ts) at the project root, which is the best place to look for a working example.
+In Fastly.JS the runtime entry points all live in [`src/vcl.ts`](../../src/vcl.ts) — there is no separate `vcl-runtime.ts` module. The HTTP request pipeline that ties everything together is implemented in [`src/runtime/pipeline.ts`](../../src/runtime/pipeline.ts) (exported as `runPipeline`); [`index.ts`](../../index.ts) is the CLI that drives it, and is the best place to look for a working example.
 
 ## Importing the runtime
 
-Everything you need to load and run VCL is exported from `src/vcl`:
+Most of what you need to load and run VCL is exported from `src/vcl`. The one exception is `loadVCL`, which reads a file from disk and therefore lives in `src/node-loader`:
 
 ```typescript
 import {
-  loadVCL,
   loadVCLContent,
   createVCLContext,
   executeVCL,
@@ -18,6 +17,7 @@ import {
   type VCLContext,
   type VCLSubroutines,
 } from "../src/vcl";
+import { loadVCL } from "../src/node-loader";
 ```
 
 `VCLContext` and `VCLSubroutines` are re-exported from `src/vcl-compiler.ts` for convenience.
@@ -25,7 +25,8 @@ import {
 ## Basic usage
 
 ```typescript
-import { loadVCL, createVCLContext, executeVCL } from "../src/vcl";
+import { createVCLContext, executeVCL } from "../src/vcl";
+import { loadVCL } from "../src/node-loader";
 
 const subroutines = loadVCL("./filter.vcl");
 
@@ -50,7 +51,7 @@ console.log(context.resp.http);   // response headers
 
 ### `loadVCL(filePath: string): VCLSubroutines`
 
-Reads a VCL file from disk, lexes, parses, and compiles it into a map of executable subroutines. Throws if the file does not exist.
+Exported from `src/node-loader`. Reads a VCL file from disk, lexes, parses, and compiles it into a map of executable subroutines. Throws if the file does not exist.
 
 ### `loadVCLContent(content: string): VCLSubroutines`
 

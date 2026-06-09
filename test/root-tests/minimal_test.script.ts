@@ -2,8 +2,8 @@
  * Minimal VCL Test
  */
 
-import { createVCLContext, executeVCL } from "../../src/vcl";
 import { loadVCL } from "../../src/node-loader";
+import { createVCLContext, executeVCL } from "../../src/vcl";
 
 // Load the VCL file
 console.log("Loading VCL file...");

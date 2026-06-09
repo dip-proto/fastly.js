@@ -384,7 +384,7 @@ Sets the value of a local variable.
 **Example:**
 ```vcl
 set var.is_mobile = (req.http.User-Agent ~ "Mobile");
-set var.device_type = var.is_mobile ? "mobile" : "desktop";
+set var.device_type = if(var.is_mobile, "mobile", "desktop");
 set var.request_count = 1;
 ```
 

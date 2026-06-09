@@ -14,6 +14,7 @@ import type {
 	VCLDeclareStatement,
 	VCLErrorStatement,
 	VCLExpression,
+	VCLExpressionStatement,
 	VCLFunctionCall,
 	VCLGotoStatement,
 	VCLHashDataStatement,
@@ -855,6 +856,9 @@ export class VCLCompiler {
 			case "DeclareStatement":
 				this.executeDeclareStatement(statement as VCLDeclareStatement, context);
 				return undefined;
+			case "ExpressionStatement":
+				this.evaluateExpression((statement as VCLExpressionStatement).expression, context);
+				return undefined;
 			default:
 				return;
 		}
@@ -1361,7 +1365,10 @@ export class VCLCompiler {
 
 	private executeSyntheticStatement(statement: VCLSyntheticStatement, context: VCLContext): void {
 		context.obj.http["Content-Type"] = "text/html; charset=utf-8";
-		context.obj.response = statement.content;
+		context.obj.response =
+			statement.expression !== undefined
+				? String(this.evaluateExpression(statement.expression, context))
+				: statement.content;
 	}
 
 	private executeSyntheticBase64Statement(

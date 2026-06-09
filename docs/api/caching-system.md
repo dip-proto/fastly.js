@@ -64,7 +64,7 @@ Setting `beresp.ttl = 0s` disables caching for that response.
 
 ## Cache entry shape
 
-Each entry stored in the map has the following shape (defined inline in `index.ts`):
+Each entry stored in the map has the following shape (the `CacheEntry` interface is defined and exported in [`src/runtime/pipeline.ts`](../../src/runtime/pipeline.ts)):
 
 ```typescript
 type CacheEntry = {

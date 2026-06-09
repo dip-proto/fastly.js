@@ -34,24 +34,28 @@ backend server3 {
 
 ## Director types
 
-`std.director.add(name, type, options?)` accepts five director types: `"random"`, `"hash"`, `"client"`, `"fallback"`, and `"chash"`. Round-robin behaviour is achieved by giving every backend the same weight in a `random` director; weighted balancing is the same idea with non-uniform weights.
+A director is declared with `director <name> <type> { ... }` and supports five
+types: `random`, `hash`, `client`, `fallback`, and `chash`. To send traffic
+through a director, assign it to `req.backend` just like a plain backend.
+Round-robin behaviour is achieved by giving every backend the same weight in a
+`random` director; weighted balancing is the same idea with non-uniform weights.
 
 ## Random / round-robin balancing
 
 Equal weights yield (statistically) uniform distribution across backends:
 
 ```vcl
-# Define a director that picks backends uniformly at random
-std.director.add("balanced_director", "random");
-
-# Add backends with equal weights — equivalent to round-robin
-std.director.add_backend("balanced_director", "server1", 1);
-std.director.add_backend("balanced_director", "server2", 1);
-std.director.add_backend("balanced_director", "server3", 1);
+# A director that picks backends uniformly at random.
+# Equal weights make this equivalent to round-robin.
+director balanced_director random {
+  { .backend = server1; .weight = 1; }
+  { .backend = server2; .weight = 1; }
+  { .backend = server3; .weight = 1; }
+}
 
 sub vcl_recv {
-  # Set the backend to the director
-  set req.backend = std.director.select_backend("balanced_director").name;
+  # Route the request through the director
+  set req.backend = balanced_director;
 
   return(lookup);
 }
@@ -59,20 +63,19 @@ sub vcl_recv {
 
 ## Weighted load balancing
 
-To bias traffic towards specific backends, vary the weight argument passed to `add_backend`:
+To bias traffic towards specific backends, vary the per-backend weight:
 
 ```vcl
 # A weighted random director
-std.director.add("weighted_director", "random");
-
-# Add backends with different weights
-std.director.add_backend("weighted_director", "server1", 3);  # 3x weight
-std.director.add_backend("weighted_director", "server2", 2);  # 2x weight
-std.director.add_backend("weighted_director", "server3", 1);  # 1x weight
+director weighted_director random {
+  { .backend = server1; .weight = 3; }  # 3x weight
+  { .backend = server2; .weight = 2; }  # 2x weight
+  { .backend = server3; .weight = 1; }  # 1x weight
+}
 
 sub vcl_recv {
-  # Set the backend to the director
-  set req.backend = std.director.select_backend("weighted_director").name;
+  # Route the request through the director
+  set req.backend = weighted_director;
 
   return(lookup);
 }
@@ -108,16 +111,16 @@ backend server2 {
   }
 }
 
-# Define a director for health-check based load balancing
-std.director.add("health_director", "random");
-
-# Add backends to the director
-std.director.add_backend("health_director", "server1", 1);
-std.director.add_backend("health_director", "server2", 1);
+# A director over the health-checked backends. Unhealthy backends are
+# skipped automatically when the director picks a target.
+director health_director random {
+  { .backend = server1; .weight = 1; }
+  { .backend = server2; .weight = 1; }
+}
 
 sub vcl_recv {
-  # Set the backend to the director
-  set req.backend = std.director.select_backend("health_director").name;
+  # Route the request through the director
+  set req.backend = health_director;
   
   return(lookup);
 }
@@ -215,33 +218,36 @@ backend server3 {
   .port = "80";
 }
 
-# Define a director for API load balancing (weighted random selection)
-std.director.add("api_director", "random");
-std.director.add_backend("api_director", "server1", 3);
+# A director for API load balancing (weighted random selection)
+director api_director random {
+  { .backend = server1; .weight = 3; }
+}
 
-# Define a director for static content load balancing
-std.director.add("static_director", "random");
-std.director.add_backend("static_director", "server2", 1);
+# A director for static content load balancing
+director static_director random {
+  { .backend = server2; .weight = 1; }
+}
 
-# Define a director for default content load balancing
-std.director.add("default_director", "random");
-std.director.add_backend("default_director", "server3", 1);
+# A director for default content load balancing
+director default_director random {
+  { .backend = server3; .weight = 1; }
+}
 
 sub vcl_recv {
   # Route based on content type
   if (req.url ~ "^/api/") {
     # Use the API director for API requests
-    set req.backend = std.director.select_backend("api_director").name;
+    set req.backend = api_director;
     set req.http.X-Backend-Type = "API";
   }
   else if (req.url ~ "\.(jpg|jpeg|png|gif|css|js)$") {
     # Use the static director for static content
-    set req.backend = std.director.select_backend("static_director").name;
+    set req.backend = static_director;
     set req.http.X-Backend-Type = "Static";
   }
   else {
     # Use the default director for everything else
-    set req.backend = std.director.select_backend("default_director").name;
+    set req.backend = default_director;
     set req.http.X-Backend-Type = "Default";
   }
   

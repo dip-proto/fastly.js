@@ -23,6 +23,7 @@ export type VCLNodeType =
 	| "LabelStatement"
 	| "RestartStatement"
 	| "DeclareStatement"
+	| "ExpressionStatement"
 	| "IncludeStatement"
 	| "ImportStatement"
 	| "BackendDeclaration"
@@ -118,7 +119,8 @@ export type VCLStatementType =
 	| "GotoStatement"
 	| "LabelStatement"
 	| "RestartStatement"
-	| "DeclareStatement";
+	| "DeclareStatement"
+	| "ExpressionStatement";
 
 export interface VCLEmptyStatement extends VCLNode {
 	type: "Statement";
@@ -208,6 +210,12 @@ export interface VCLLogStatement extends VCLNode {
 export interface VCLSyntheticStatement extends VCLNode {
 	type: "SyntheticStatement";
 	content: string;
+	expression?: VCLExpression;
+}
+
+export interface VCLExpressionStatement extends VCLNode {
+	type: "ExpressionStatement";
+	expression: VCLExpression;
 }
 
 export interface VCLHashDataStatement extends VCLNode {
@@ -251,7 +259,8 @@ export type VCLStatement =
 	| VCLGotoStatement
 	| VCLLabelStatement
 	| VCLRestartStatement
-	| VCLDeclareStatement;
+	| VCLDeclareStatement
+	| VCLExpressionStatement;
 
 export interface VCLIncludeStatement extends VCLNode {
 	type: "IncludeStatement";
@@ -510,6 +519,13 @@ export class VCLLexer {
 
 			if (char === "{") {
 				const prevToken = this.tokens[this.tokens.length - 1];
+				// A Fastly long string {"..."} can appear anywhere an expression can,
+				// so concatenations like {"a"} + obj.status + {"b"} tokenize correctly.
+				if (this.peek() === '"') {
+					this.tokenizeLongString();
+					continue;
+				}
+				// The non-standard synthetic {expr} brace form is still scanned as one token.
 				if (prevToken?.type === TokenType.KEYWORD && prevToken.value === "synthetic") {
 					this.tokenizeSyntheticBlock();
 					continue;
@@ -683,6 +699,23 @@ export class VCLLexer {
 		this.tokens.push({
 			type: TokenType.STRING,
 			value: quote + content + quote,
+			line: startLine,
+			column: startColumn,
+			position: start,
+		});
+	}
+
+	private tokenizeLongString(): void {
+		const start = this.position;
+		const startLine = this.line;
+		const startColumn = this.column;
+		this.advance();
+		const end = this.input.indexOf('"}', this.position + 1);
+		const stop = end === -1 ? this.input.length : end + 2;
+		while (this.position < stop) this.advanceTrackingLine();
+		this.tokens.push({
+			type: TokenType.STRING,
+			value: this.input.substring(start, this.position),
 			line: startLine,
 			column: startColumn,
 			position: start,

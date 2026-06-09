@@ -52,6 +52,10 @@ Detailed documentation for specific features:
 - [Goto Statements](./goto.md)
 - [Restart Functionality](./reference/restart.md)
 
+### Web Playground
+
+Fastly.JS also ships as a browser playground: a self-contained VCL simulator that runs the same request pipeline as the CLI, entirely client-side with no proxying. It shows the response, the cache decision, an execution trace, logs, and diagnostics, and lets you share a session through the URL hash. Launch it with `bun run web`. RSA and JWT signature verification are not available in the browser.
+
 ### API Reference
 
 Documentation for the JavaScript/TypeScript API:
@@ -79,7 +83,8 @@ Common issues and solutions, debugging techniques, and performance optimization 
 
 ## Contributing
 
-We welcome contributions to Fastly.JS! Please see the [Contributing Guide](../CONTRIBUTING.md) for more information.
+Contributions to Fastly.JS are welcome. Fork the repository, create a feature
+branch, add tests for your change, and open a pull request.
 
 ## License
 

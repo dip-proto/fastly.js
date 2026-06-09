@@ -12,7 +12,7 @@ VCL operators are organized into several categories:
 4. **String Operators**: Manipulate strings
 5. **Assignment Operators**: Assign values to variables
 6. **Bitwise Operators**: Perform bitwise operations
-7. **Ternary Operator**: Conditional expression
+7. **Conditional Expression**: Choose a value with the `if()` function
 
 ## Arithmetic Operators
 
@@ -487,20 +487,19 @@ value1 >> value2
 set var.result = 4 >> 1;  // 2
 ```
 
-## Ternary Operator
+## Conditional Expression
 
-### Conditional Expression (? :)
-
-Returns one of two values based on a condition.
+VCL has no `? :` ternary operator. To pick between two values based on a
+condition, use the `if()` function instead.
 
 **Syntax:**
 ```vcl
-condition ? value_if_true : value_if_false
+if(condition, value_if_true, value_if_false)
 ```
 
 **Example:**
 ```vcl
-set var.device_type = req.http.User-Agent ~ "Mobile" ? "mobile" : "desktop";
+set var.device_type = if(req.http.User-Agent ~ "Mobile", "mobile", "desktop");
 ```
 
 ## Operator Precedence
@@ -520,8 +519,7 @@ Operators in VCL are evaluated in the following order of precedence (from highes
 11. Regular expression operators `~`, `!~`, `~*`, `!~*`
 12. Logical AND `&&`
 13. Logical OR `||`
-14. Ternary operator `? :`
-15. Assignment operators `=`, `+=`, `-=`, `*=`, `/=`, `%=`
+14. Assignment operators `=`, `+=`, `-=`, `*=`, `/=`, `%=`
 
 ## Examples
 

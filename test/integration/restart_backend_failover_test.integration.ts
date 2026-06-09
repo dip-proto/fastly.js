@@ -2,8 +2,8 @@
  * Integration test for backend failover using restart
  */
 
-import { createVCLContext, executeVCL } from "../../src/vcl";
 import { loadVCL } from "../../src/node-loader";
+import { createVCLContext, executeVCL } from "../../src/vcl";
 
 // Load the VCL file
 console.log("Loading backend failover VCL file...");

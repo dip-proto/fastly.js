@@ -84,22 +84,21 @@ sub vcl_recv {
 Rate limiting prevents abuse by limiting the number of requests a client can make in a given time period:
 
 ```vcl
+# Declare the rate counter and penalty box this VCL uses
+ratecounter requests {}
+penaltybox rate_violators {}
+
 sub vcl_recv {
-  # Open a rate counter window with a 60-second duration
-  set req.http.X-Window-ID = std.ratelimit.open_window(60);
-  
-  # Increment a counter for this client IP
-  set req.http.X-Counter = std.ratelimit.ratecounter_increment(client.ip, 1);
-  
-  # Check if the client has exceeded 10 requests per 5 seconds
-  if (std.ratelimit.check_rates(client.ip, "10:5,100:60,1000:3600")) {
-    # Add the client to a penalty box for 60 seconds
-    std.ratelimit.penaltybox_add("rate_violators", client.ip, 60);
+  # Count this request and check the rate in one call: increment the "requests"
+  # counter by 1 over a 60-second window, and once the client passes 100 requests
+  # in that window, drop them into the "rate_violators" penalty box for 300
+  # seconds. check_rate returns true the moment the threshold is crossed.
+  if (ratelimit.check_rate(client.ip, requests, 100, 60, 1, rate_violators, 300s)) {
     error 429 "Too Many Requests";
   }
   
-  # Check if the client is in the penalty box
-  if (std.ratelimit.penaltybox_has("rate_violators", client.ip)) {
+  # Reject anyone already serving time in the penalty box
+  if (ratelimit.penaltybox_has(rate_violators, client.ip)) {
     error 429 "Too Many Requests";
   }
   
@@ -171,6 +170,10 @@ acl allowed_ips {
   "10.0.0.1";
 }
 
+# Rate counter and penalty box for the API rate limit
+ratecounter api_requests {}
+penaltybox api_violators {}
+
 sub vcl_recv {
   # Step 1: IP-based access control for admin area
   if (req.url ~ "^/admin" && client.ip !~ allowed_ips) {
@@ -182,16 +185,9 @@ sub vcl_recv {
     error 403 "This content is only available in the US";
   }
   
-  # Step 3: Rate limiting for API endpoints
+  # Step 3: Rate limiting for API endpoints (100 requests per 60 seconds)
   if (req.url ~ "^/api/") {
-    # Open a rate counter window with a 60-second duration
-    set req.http.X-Window-ID = std.ratelimit.open_window(60);
-    
-    # Increment a counter for this client IP
-    set req.http.X-Counter = std.ratelimit.ratecounter_increment(client.ip, 1);
-    
-    # Check if the client has exceeded 10 requests per 5 seconds
-    if (std.ratelimit.check_rates(client.ip, "10:5,100:60,1000:3600")) {
+    if (ratelimit.check_rate(client.ip, api_requests, 100, 60, 1, api_violators, 300s)) {
       error 429 "Too Many Requests";
     }
   }

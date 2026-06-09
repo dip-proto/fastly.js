@@ -40,7 +40,7 @@ set req.http.X-Test = "value";
 
 **Solution**:
 
-1. Check the [TECHNICAL_DETAILS.md](../TECHNICAL_DETAILS.md) file for a list of supported and unsupported features.
+1. Check the [API documentation](api/) for implementation details on which features are supported.
 2. If the feature is not supported, you may need to find an alternative approach or wait for a future release.
 3. Consider contributing to the project by implementing the missing feature.
 
@@ -258,7 +258,7 @@ sub vcl_deliver {
   set resp.http.X-Request-Host = req.http.host;
 
   # Add cache information
-  set resp.http.X-Cache = obj.hits > 0 ? "HIT" : "MISS";
+  set resp.http.X-Cache = if(obj.hits > 0, "HIT", "MISS");
   set resp.http.X-Cache-Hits = obj.hits;
 
   # Add backend information
@@ -308,5 +308,3 @@ If you find a bug or have a feature request, please consider contributing to the
 2. Create a new branch for your changes
 3. Make your changes and add tests
 4. Submit a pull request
-
-See the [Contributing Guide](../CONTRIBUTING.md) for more information.

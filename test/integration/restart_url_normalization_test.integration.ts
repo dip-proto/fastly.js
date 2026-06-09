@@ -2,8 +2,8 @@
  * Integration test for URL normalization using restart
  */
 
-import { createVCLContext, executeVCL } from "../../src/vcl";
 import { loadVCL } from "../../src/node-loader";
+import { createVCLContext, executeVCL } from "../../src/vcl";
 
 // Load the VCL file
 console.log("Loading URL normalization VCL file...");

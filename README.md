@@ -189,19 +189,19 @@ Create a file named `waf-protection.vcl` with the following content:
 sub vcl_recv {
   # Block SQL injection attempts
   if (waf.detect_attack(req.url, "sql")) {
-    set req.http.X-WAF-Log = waf.log("SQL injection attempt detected in URL: " + req.url);
+    waf.log("SQL injection attempt detected in URL: " + req.url);
     error 403 "Forbidden";
   }
 
   # Block XSS attempts
   if (waf.detect_attack(req.http.User-Agent, "xss")) {
-    set req.http.X-WAF-Log = waf.log("XSS attempt detected in User-Agent: " + req.http.User-Agent);
+    waf.log("XSS attempt detected in User-Agent: " + req.http.User-Agent);
     error 403 "Forbidden";
   }
 
   # Rate limit by client IP (no more than 100 requests per 60 seconds)
   if (!waf.rate_limit(client.ip, 100, 60)) {
-    set req.http.X-WAF-Log = waf.log("Rate limit exceeded for IP: " + client.ip);
+    waf.log("Rate limit exceeded for IP: " + client.ip);
     error 429 "Too Many Requests";
   }
 

@@ -154,6 +154,16 @@ HTTP Proxy server running at http://127.0.0.1:8000
 Using VCL files: common-settings.vcl, backends.vcl, caching-rules.vcl
 ```
 
+## Trying VCL in the Browser
+
+If you would rather experiment without running the proxy, Fastly.JS ships a browser playground that runs the same pipeline entirely client-side. Start it with:
+
+```bash
+bun run web
+```
+
+This builds the simulator and serves it locally. You can paste in VCL and a request, then watch the response, the cache decision, an execution trace, and the logs, and share a session through the URL hash. Note that RSA and JWT signature verification are not available in the browser.
+
 ## Testing Your VCL Configuration
 
 Now that your proxy server is running, you can test it by sending requests to it. Open your browser and navigate to:

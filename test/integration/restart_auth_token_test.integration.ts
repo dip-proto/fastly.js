@@ -2,8 +2,8 @@
  * Integration test for authentication with token validation using restart
  */
 
-import { createVCLContext, executeVCL } from "../../src/vcl";
 import { loadVCL } from "../../src/node-loader";
+import { createVCLContext, executeVCL } from "../../src/vcl";
 
 // Load the VCL file
 console.log("Loading authentication VCL file...");

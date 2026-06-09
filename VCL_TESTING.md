@@ -53,7 +53,8 @@ The VCL parser is still under development and may not correctly parse all VCL co
 ### Example
 
 ```typescript
-import { loadVCL, createVCLContext, executeVCL } from './src/vcl';
+import { createVCLContext, executeVCL } from './src/vcl';
+import { loadVCL } from './src/node-loader';
 
 // Load the VCL file
 const subroutines = loadVCL('./test.vcl');
@@ -78,27 +79,28 @@ console.log(context.req.http);
 
 ## Test Files
 
-The following test files are available:
+The test suites live under `test/`. Some of the entry points are:
 
-- `vcl_test_examples.ts`: Examples of using the VCL implementation with the direct JavaScript API.
-- `vcl_test_suite.ts`: A comprehensive test suite for the VCL implementation using the direct JavaScript API.
-- `vcl_parser_test.ts`: Tests for the VCL parser.
-- `simple_test.ts`: A simple test for the VCL parser.
-- `minimal_test.ts`: A minimal test for the VCL parser.
+- `test/run-tests.ts`: The default runner that drives the core suites (basic VCL, stdlib, caching, backend errors).
+- `test/run-integration-tests.ts`: End-to-end integration tests under `test/integration/`.
+- `test/run-root-tests.ts`: The root-level scenarios under `test/root-tests/`.
+- `test/parser-tests.ts`: Tests for the VCL parser.
+- `test/basic-vcl-tests.ts`, `test/stdlib-tests.ts`, `test/caching-tests.ts`: Focused suites you can run on their own.
 
 ## Running Tests
 
-To run the tests, use the following commands:
+The test entry points are wired up as `package.json` scripts, so you run them through `bun run`:
 
 ```bash
-# Run the examples
-bun run vcl_test_examples.ts
+# Run the core test suites
+bun run test
 
-# Run the test suite
-bun run vcl_test_suite.ts
+# Run everything (core suites, integration, tables, crypto compat, browser)
+bun run test:all
 
-# Run the parser tests
-bun run vcl_parser_test.ts
+# Run an individual suite
+bun run test:integration
+bun run test:caching
 ```
 
 ## Known Issues
