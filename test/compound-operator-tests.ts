@@ -64,7 +64,31 @@ const compoundOperatorTests = {
 			],
 		},
 
-		// Test 3: Basic assignment still works
+		// Test 3: Multi-fragment append resolves the concatenation
+		{
+			name: "Multi-fragment concatenation with +=",
+			vclSnippet: `
+        sub vcl_recv {
+          set req.http.X-Parts = "1";
+          set req.http.X-Parts += "2";
+          set req.http.X-Parts += "3" "4";
+          return(lookup);
+        }
+      `,
+			run: async (context: VCLContext, subroutines: VCLSubroutines) => {
+				executeSubroutine(context, subroutines, "vcl_recv");
+			},
+			assertions: [
+				(context: VCLContext) => {
+					return assert(
+						context.req.http["X-Parts"] === "1234",
+						`Expected X-Parts to be '1234', got '${context.req.http["X-Parts"]}'`,
+					);
+				},
+			],
+		},
+
+		// Test 4: Basic assignment still works
 		{
 			name: "Basic assignment with =",
 			vclSnippet: `

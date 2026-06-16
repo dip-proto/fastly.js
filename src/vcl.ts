@@ -10,6 +10,7 @@ import { AcceptModule } from "./vcl-accept";
 import { AddressModule } from "./vcl-address";
 import { BinaryModule } from "./vcl-binary";
 import { VCLCompiler, type VCLContext, type VCLSubroutines } from "./vcl-compiler";
+import { VCLLimitExceededError } from "./vcl-limits";
 import { toRawString } from "./vcl-value";
 
 // Re-export types
@@ -40,6 +41,7 @@ export function loadVCLContent(content: string): VCLSubroutines {
 		return compiler.compile();
 	} catch (error) {
 		if (error instanceof VCLDiagnosticError) throw error;
+		if (error instanceof VCLLimitExceededError) throw error;
 		const diagnostic = buildDiagnostic(error as Error, content);
 		logError(`Error loading VCL content: ${diagnostic.message}`);
 		if (diagnostic.sourceFrame) logError(diagnostic.sourceFrame);
@@ -69,6 +71,7 @@ export function executeVCLByName(
 		return result;
 	} catch (error) {
 		if (error instanceof UnsupportedFeatureError) throw error;
+		if (error instanceof VCLLimitExceededError) throw error;
 		const err = error as Error;
 		logError(`Error executing subroutine ${name}: ${err.message}`);
 		return "";
@@ -1040,6 +1043,7 @@ export function executeVCL(
 		return result ?? "";
 	} catch (error) {
 		if (error instanceof UnsupportedFeatureError) throw error;
+		if (error instanceof VCLLimitExceededError) throw error;
 		logError(`Error executing subroutine ${subroutineName}:`, error);
 		return "error";
 	}

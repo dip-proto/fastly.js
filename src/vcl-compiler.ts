@@ -7,6 +7,11 @@ import {
 	type VCLPlatform,
 } from "./platform";
 import { createVCLContext } from "./vcl";
+import {
+	checkCallTreeLimit,
+	MAX_REQUEST_WORKSPACE_SIZE,
+	VCLLimitExceededError,
+} from "./vcl-limits";
 import type {
 	VCLAddStatement,
 	VCLBinaryExpression,
@@ -135,6 +140,11 @@ export interface VCLContext {
 
 	// Local variables (declared with "declare local var.xxx TYPE;")
 	locals: Record<string, any>;
+
+	// Bytes consumed assembling request headers into the per-request workspace.
+	// Fastly never reclaims it within a request, not even across restarts, so this
+	// only ever grows once set.
+	workspaceBytes?: number;
 
 	// Fastly-specific properties
 	fastly?: {
@@ -524,6 +534,10 @@ export class VCLCompiler {
 	compile(): VCLSubroutines {
 		const subroutines: VCLSubroutines = {};
 
+		// Reject a program whose inlined call graph would blow Fastly's limit
+		// before doing any other work, the same way activation would.
+		checkCallTreeLimit(this.program.subroutines);
+
 		// Initialize the context
 		const context = createVCLContext();
 
@@ -765,6 +779,7 @@ export class VCLCompiler {
 				return defaultReturns[subroutine.name] || "";
 			} catch (error) {
 				if (error instanceof UnsupportedFeatureError) throw error;
+				if (error instanceof VCLLimitExceededError) throw error;
 				logError(`Error executing subroutine ${subroutine.name}:`, error);
 				const errorReturns: Record<string, string> = {
 					vcl_recv: "error",
@@ -992,6 +1007,21 @@ export class VCLCompiler {
 		return "error";
 	}
 
+	// resolveForCompound flattens a freshly evaluated value into the primitive a
+	// compound operator can combine. A multi-part concatenation is resolved with
+	// the same header/local rules a plain assignment would use, and a NOTSET
+	// string contributes nothing rather than its "(null)" display form.
+	private resolveForCompound(value: any, isHeaderTarget: boolean): any {
+		if (value instanceof VCLConcatResult) {
+			const resolved = isHeaderTarget ? value.forHeader() : value.forLocal();
+			return resolved instanceof VCLString ? resolved.value : resolved;
+		}
+		if (value instanceof VCLString) {
+			return value.value;
+		}
+		return value;
+	}
+
 	private applyCompoundOperator(operator: string, currentValue: any, newValue: any): any {
 		const cur = Number(currentValue) || 0;
 		const val = Number(newValue) || 0;
@@ -1095,6 +1125,8 @@ export class VCLCompiler {
 		const parts = statement.target.split(".");
 		const part0 = parts[0] ?? "";
 		const part1 = parts[1] ?? "";
+		const isHeaderTarget = parts.length >= 3 && part1 === "http";
+		const isVarTarget = parts.length >= 2 && part0 === "var";
 
 		// Special handling for req.backend - treat identifier values as literal backend names
 		let newValue: any;
@@ -1111,18 +1143,20 @@ export class VCLCompiler {
 			newValue = this.evaluateExpression(statement.value, context);
 		}
 
-		// For compound operators, get current value and compute result
+		// For compound operators, get current value and compute result. The
+		// right-hand side is resolved to a plain value first, the same way a plain
+		// assignment to this target would resolve it, so `set req.http.X += "a" "b"`
+		// appends "ab" rather than the string form of an unresolved concat object.
 		let value: any;
 		if (operator !== "=") {
 			const currentValue = this.getTargetValue(statement.target, context);
-			value = this.applyCompoundOperator(operator, currentValue, newValue);
+			const rhs = this.resolveForCompound(newValue, isHeaderTarget);
+			value = this.applyCompoundOperator(operator, currentValue, rhs);
 		} else {
 			value = newValue;
 		}
 
 		// For targets other than headers and local vars, resolve NOTSET/concat to plain strings
-		const isHeaderTarget = parts.length >= 3 && part1 === "http";
-		const isVarTarget = parts.length >= 2 && part0 === "var";
 		if (!isHeaderTarget && !isVarTarget) {
 			if (value instanceof VCLConcatResult) {
 				value = value.forLocal();
@@ -1155,12 +1189,15 @@ export class VCLCompiler {
 							? resolved.value
 							: String(resolved);
 					const currentVal = httpObjects[part0]![baseHeader] ?? "";
-					httpObjects[part0]![baseHeader] = this.dictSet(currentVal, subfieldKey, strVal);
+					const assembled = this.dictSet(currentVal, subfieldKey, strVal);
+					httpObjects[part0]![baseHeader] = assembled;
+					this.chargeRequestWorkspace(context, part0, statement.target, assembled);
 				} else if (isNotSet(resolved)) {
 					delete httpObjects[part0]![headerName];
 				} else {
-					httpObjects[part0]![headerName] =
-						resolved instanceof VCLString ? resolved.value : String(resolved);
+					const stored = resolved instanceof VCLString ? resolved.value : String(resolved);
+					httpObjects[part0]![headerName] = stored;
+					this.chargeRequestWorkspace(context, part0, statement.target, stored);
 				}
 			}
 		} else if (parts.length === 2 && part0 === "req" && part1 === "backend") {
@@ -1414,7 +1451,30 @@ export class VCLCompiler {
 				} else {
 					headers[headerName] = strVal;
 				}
+				this.chargeRequestWorkspace(context, part0, statement.target, strVal);
 			}
+		}
+	}
+
+	// chargeRequestWorkspace accounts for assembling a header into the per-request
+	// workspace. Only req.http.* writes consume it, so writes to any other scope
+	// are ignored. Fastly never reclaims the space the previous value occupied,
+	// even across restarts, so the running total only grows; once it passes the
+	// workspace size the request is rejected with a header overflow.
+	private chargeRequestWorkspace(
+		context: VCLContext,
+		scope: string,
+		ident: string,
+		value: string,
+	): void {
+		if (scope !== "req") {
+			return;
+		}
+		context.workspaceBytes = (context.workspaceBytes ?? 0) + ident.length + value.length;
+		if (context.workspaceBytes > MAX_REQUEST_WORKSPACE_SIZE) {
+			throw new VCLLimitExceededError(
+				`Header overflow: request workspace limitation of ${MAX_REQUEST_WORKSPACE_SIZE} bytes exceeded`,
+			);
 		}
 	}
 
@@ -1527,7 +1587,7 @@ export class VCLCompiler {
 	}
 
 	private evaluateExpression(expression: VCLExpression, context: VCLContext): any {
-		if (!expression || !expression.type) return null;
+		if (!expression?.type) return null;
 
 		switch (expression.type) {
 			case "StringLiteral":
@@ -2377,9 +2437,13 @@ export class VCLCompiler {
 		if (mathConstants[name] !== undefined) return mathConstants[name];
 
 		// workspace.* variables
-		if (name === "workspace.bytes_free") return 262144;
-		if (name === "workspace.bytes_total") return 262144;
-		if (name === "workspace.overflowed") return false;
+		if (name === "workspace.bytes_total") return MAX_REQUEST_WORKSPACE_SIZE;
+		if (name === "workspace.bytes_free") {
+			return Math.max(0, MAX_REQUEST_WORKSPACE_SIZE - (context.workspaceBytes ?? 0));
+		}
+		if (name === "workspace.overflowed") {
+			return (context.workspaceBytes ?? 0) > MAX_REQUEST_WORKSPACE_SIZE;
+		}
 
 		// transport.* variables
 		if (name === "transport.type") return "http";
