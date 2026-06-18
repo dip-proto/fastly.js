@@ -2204,7 +2204,7 @@ export class VCLCompiler {
 		if (name.startsWith("beresp.backend.")) {
 			const prop = name.substring(15);
 			const be = context.current_backend || context.backends?.[context.req.backend || "default"];
-			if (!be) return "";
+			if (!be) return prop === "host" ? VCLString.notset() : "";
 			const beProps: Record<string, any> = {
 				name: be.name,
 				host: be.host,
