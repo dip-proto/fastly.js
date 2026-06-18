@@ -1,7 +1,7 @@
 import * as crypto from "node:crypto";
 import * as os from "node:os";
-import type { CryptoProvider, HashAlgorithm, LogRecord, VCLPlatform } from "./platform";
-import { setDefaultPlatform } from "./platform";
+import type { CryptoProvider, HashAlgorithm, VCLPlatform } from "./platform";
+import { consoleLog, setDefaultPlatform } from "./platform";
 
 const nodeCrypto: CryptoProvider = {
 	hash(algorithm: HashAlgorithm, data: Uint8Array): Uint8Array {
@@ -68,13 +68,7 @@ export const nodePlatform: VCLPlatform = {
 	randomBytes: (length: number) => crypto.randomBytes(length),
 	hostname: () => os.hostname(),
 	env: (name: string) => process.env[name],
-	log: (record: LogRecord) => {
-		if (record.level === "error" || record.level === "warn") {
-			console.error(record.message);
-		} else {
-			console.log(record.message);
-		}
-	},
+	log: consoleLog,
 };
 
 setDefaultPlatform(nodePlatform);

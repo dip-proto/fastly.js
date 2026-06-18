@@ -5,9 +5,9 @@ import { sha224, sha256, sha384, sha512 } from "@noble/hashes/sha2.js";
 import type { CHash } from "@noble/hashes/utils.js";
 import { Buffer as BufferPolyfill } from "buffer";
 import {
+	consoleLog,
 	type CryptoProvider,
 	type HashAlgorithm,
-	type LogRecord,
 	setDefaultPlatform,
 	UnsupportedFeatureError,
 	type VCLPlatform,
@@ -86,13 +86,7 @@ export const browserPlatform: VCLPlatform = {
 	},
 	hostname: () => "localhost",
 	env: () => undefined,
-	log: (record: LogRecord) => {
-		if (record.level === "error" || record.level === "warn") {
-			console.error(record.message);
-		} else {
-			console.log(record.message);
-		}
-	},
+	log: consoleLog,
 };
 
 // The engine still uses Buffer pervasively (hex/base64 encoding). Browsers have

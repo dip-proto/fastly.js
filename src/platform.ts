@@ -128,6 +128,17 @@ export function generateWindowId(platform: VCLPlatform): string {
 	return `window_${platform.now()}_${randomFloat(platform).toString(36).substring(2, 9)}`;
 }
 
+// Concrete logger shared by the Node and browser platforms: warn/error go to
+// stderr, debug/info to stdout. Platforms that capture logs (the simulator)
+// override this with their own sink.
+export function consoleLog(record: LogRecord): void {
+	if (record.level === "error" || record.level === "warn") {
+		console.error(record.message);
+	} else {
+		console.log(record.message);
+	}
+}
+
 export function logInfo(message: string, detail?: unknown): void {
 	getPlatform().log({ level: "info", message: withDetail(message, detail) });
 }
