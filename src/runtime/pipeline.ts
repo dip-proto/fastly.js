@@ -7,6 +7,7 @@
 
 import { executeVCL } from "../vcl";
 import type { VCLContext, VCLSubroutines } from "../vcl-compiler";
+import { seedRequestWorkspace } from "../vcl-limits";
 
 export interface BackendResponse {
 	status: number;
@@ -91,6 +92,11 @@ function errorResult(context: VCLContext, key: string, restarts: number): Pipeli
 export async function runPipeline(opts: PipelineOptions): Promise<PipelineResult> {
 	const { subroutines, context, cache, maxRestarts, getBackendResponse } = opts;
 	const now = () => context.platform.now();
+
+	// Seed the workspace with what Fastly has already spent on the inbound request
+	// before user VCL runs, so bytes_free is realistic and overflow detection
+	// accounts for the size of the request itself.
+	context.workspaceBytes = seedRequestWorkspace(context.req.http);
 
 	let action = executeVCL(subroutines, "vcl_recv", context) || "lookup";
 	while (action === "restart") {

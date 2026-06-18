@@ -17,6 +17,33 @@ import type {
 // overflows it and Fastly returns "503 Header overflow".
 export const MAX_REQUEST_WORKSPACE_SIZE = 256 * 1024;
 
+// BASE_REQUEST_WORKSPACE_OVERHEAD approximates what Fastly has already consumed
+// before any user VCL runs (internal structures and injected headers). A
+// production service shows ~8.5KB, varying by POP and connection, so we charge a
+// conservative 10KB on top of the inbound headers we can see.
+export const BASE_REQUEST_WORKSPACE_OVERHEAD = 10 * 1024;
+
+// headerWorkspaceCost is what one header line costs the workspace, measured on a
+// production service: the bare header name (any `:subfield` dropped), the value,
+// and three bytes of fixed overhead, rounded up (as Fastly rounds every header
+// allocation) to an 8 byte boundary.
+export function headerWorkspaceCost(name: string, value: string): number {
+	const colon = name.indexOf(":");
+	const bareName = colon === -1 ? name : name.slice(0, colon);
+	return Math.ceil((bareName.length + value.length + 3) / 8) * 8;
+}
+
+// seedRequestWorkspace returns what Fastly has already spent when vcl_recv begins:
+// the fixed overhead plus every inbound header line, each charged the same way a
+// VCL write is.
+export function seedRequestWorkspace(httpHeaders: Record<string, string>): number {
+	let bytes = BASE_REQUEST_WORKSPACE_OVERHEAD;
+	for (const [name, value] of Object.entries(httpHeaders)) {
+		bytes += headerWorkspaceCost(name, value);
+	}
+	return bytes;
+}
+
 // MAX_SUBROUTINE_CALL_TREE is the ceiling Fastly enforces on the fully inlined
 // subroutine call graph. A subroutine's cost is the sum, over each of its `call`
 // statements, of one plus the callee's own cost, so nested calls multiply. Past

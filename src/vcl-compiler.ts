@@ -9,6 +9,7 @@ import {
 import { createVCLContext } from "./vcl";
 import {
 	checkCallTreeLimit,
+	headerWorkspaceCost,
 	MAX_REQUEST_WORKSPACE_SIZE,
 	VCLLimitExceededError,
 } from "./vcl-limits";
@@ -1191,13 +1192,13 @@ export class VCLCompiler {
 					const currentVal = httpObjects[part0]![baseHeader] ?? "";
 					const assembled = this.dictSet(currentVal, subfieldKey, strVal);
 					httpObjects[part0]![baseHeader] = assembled;
-					this.chargeRequestWorkspace(context, part0, statement.target, assembled);
+					this.chargeRequestWorkspace(context, part0, baseHeader, assembled);
 				} else if (isNotSet(resolved)) {
 					delete httpObjects[part0]![headerName];
 				} else {
 					const stored = resolved instanceof VCLString ? resolved.value : String(resolved);
 					httpObjects[part0]![headerName] = stored;
-					this.chargeRequestWorkspace(context, part0, statement.target, stored);
+					this.chargeRequestWorkspace(context, part0, headerName, stored);
 				}
 			}
 		} else if (parts.length === 2 && part0 === "req" && part1 === "backend") {
@@ -1451,7 +1452,7 @@ export class VCLCompiler {
 				} else {
 					headers[headerName] = strVal;
 				}
-				this.chargeRequestWorkspace(context, part0, statement.target, strVal);
+				this.chargeRequestWorkspace(context, part0, headerName, strVal);
 			}
 		}
 	}
@@ -1464,13 +1465,13 @@ export class VCLCompiler {
 	private chargeRequestWorkspace(
 		context: VCLContext,
 		scope: string,
-		ident: string,
+		headerName: string,
 		value: string,
 	): void {
 		if (scope !== "req") {
 			return;
 		}
-		context.workspaceBytes = (context.workspaceBytes ?? 0) + ident.length + value.length;
+		context.workspaceBytes = (context.workspaceBytes ?? 0) + headerWorkspaceCost(headerName, value);
 		if (context.workspaceBytes > MAX_REQUEST_WORKSPACE_SIZE) {
 			throw new VCLLimitExceededError(
 				`Header overflow: request workspace limitation of ${MAX_REQUEST_WORKSPACE_SIZE} bytes exceeded`,

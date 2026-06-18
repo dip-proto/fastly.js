@@ -8,7 +8,12 @@
 import "../src/platform-node";
 import { describe, expect, it } from "bun:test";
 import { createVCLContext, executeVCL, loadVCLContent } from "../src/vcl";
-import { VCLLimitExceededError } from "../src/vcl-limits";
+import {
+	BASE_REQUEST_WORKSPACE_OVERHEAD,
+	headerWorkspaceCost,
+	seedRequestWorkspace,
+	VCLLimitExceededError,
+} from "../src/vcl-limits";
 
 function runRecv(vcl: string) {
 	const subroutines = loadVCLContent(vcl);
@@ -147,5 +152,53 @@ describe("request workspace limit", () => {
 		expect(Number(ctx.req.http.Free)).toBeGreaterThan(0);
 		expect(Number(ctx.req.http.Free)).toBeLessThan(262144);
 		expect(ctx.req.http.Over).toBe("false");
+	});
+});
+
+describe("request workspace charge formula", () => {
+	// A write costs roundUp8(name + value + 3), where name is the bare header
+	// name. runRecv does not seed the inbound baseline, so workspaceBytes here is
+	// exactly the cost of the write under test.
+	it("charges the bare name, value and three bytes, rounded to 8", () => {
+		// roundUp8(5 + 5 + 3) = roundUp8(13) = 16
+		const ctx = runRecv(`sub vcl_recv { set req.http.X-Foo = "hello"; }`);
+		expect(ctx.workspaceBytes).toBe(16);
+	});
+
+	it("does not charge the req.http. prefix", () => {
+		// roundUp8(1 + 1 + 3) = 8, not roundUp8("req.http.a".length + 1) = 16
+		const ctx = runRecv(`sub vcl_recv { set req.http.a = "b"; }`);
+		expect(ctx.workspaceBytes).toBe(8);
+	});
+
+	it("charges add the same way", () => {
+		// roundUp8(3 + 5 + 3) = roundUp8(11) = 16
+		const ctx = runRecv(`sub vcl_recv { add req.http.Via = "proxy"; }`);
+		expect(ctx.workspaceBytes).toBe(16);
+	});
+
+	it("counts name and value identically and rounds up to 8", () => {
+		expect(headerWorkspaceCost("X-Foo", "hello")).toBe(16);
+		// same name+value total (16) regardless of the split between the two
+		expect(headerWorkspaceCost("a".repeat(13), "x".repeat(3))).toBe(
+			headerWorkspaceCost("a".repeat(3), "x".repeat(13)),
+		);
+		// a `:subfield` is dropped from the name
+		expect(headerWorkspaceCost("Cookie:sess", "x")).toBe(headerWorkspaceCost("Cookie", "x"));
+	});
+});
+
+describe("inbound request workspace baseline", () => {
+	it("charges the fixed overhead with no headers", () => {
+		expect(seedRequestWorkspace({})).toBe(BASE_REQUEST_WORKSPACE_OVERHEAD);
+	});
+
+	it("adds each inbound header with the same formula", () => {
+		const seeded = seedRequestWorkspace({ "x-foo": "hello", host: "example.com" });
+		expect(seeded).toBe(
+			BASE_REQUEST_WORKSPACE_OVERHEAD +
+				headerWorkspaceCost("x-foo", "hello") +
+				headerWorkspaceCost("host", "example.com"),
+		);
 	});
 });
