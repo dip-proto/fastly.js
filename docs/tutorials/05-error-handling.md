@@ -28,12 +28,8 @@ acl internal {
 
 sub vcl_recv {
   # Block access to admin area for clients outside the internal ACL
-  if (req.url ~ "^/admin/") {
-    if (client.ip ~ internal) {
-      # Allowed
-    } else {
-      error 403 "Forbidden";
-    }
+  if (req.url ~ "^/admin/" && client.ip !~ internal) {
+    error 403 "Forbidden";
   }
   
   # Return a custom 404 for missing files
@@ -43,7 +39,7 @@ sub vcl_recv {
 }
 ```
 
-(Client IPs are matched against a named ACL. The ACL match must be the whole `if` condition: combining it with `&&` or negating it with `!` is not currently supported, so use an `if`/`else` as shown.)
+(Client IPs are matched against a named ACL; both `~` and `!~` work, alone or combined with other conditions.)
 
 The `error` statement takes two parameters:
 1. The HTTP status code
@@ -160,9 +156,22 @@ sub vcl_error {
 
 ## Handling Backend Failures
 
-There is no retry action in `vcl_fetch` (and `restart` only takes effect from `vcl_recv`), so a failed backend response cannot be re-sent to a different backend from VCL. The bundled proxy (`index.ts`) handles this itself: when a backend returns a 5xx response, it automatically retries the request against the fallback director.
+There is no retry action in `vcl_fetch`, but you can `restart` from there: the request re-runs from `vcl_recv`, where a different backend can be selected. Guard the restart with `req.restarts` so it can only fire once:
 
-What you can do in `vcl_fetch` is reshape a failed response before it reaches the client:
+```vcl
+sub vcl_fetch {
+  # Retry once against the fallback on a server error
+  if (beresp.status >= 500 && beresp.status < 600 && req.restarts == 0) {
+    set req.http.X-Use-Fallback = "1";
+    restart;
+  }
+  return(deliver);
+}
+```
+
+(The bundled proxy in `index.ts` picks origins itself and ignores `req.backend`, and it additionally retries 5xx responses once against its fallback director on its own.)
+
+You can also reshape a failed response in `vcl_fetch` before it reaches the client:
 
 ```vcl
 sub vcl_fetch {

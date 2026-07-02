@@ -100,8 +100,7 @@ sub vcl_error {
 You can also generate error pages in the `vcl_recv` subroutine:
 
 ```vcl
-# The ACL referenced by the check below. ACL matching only works in
-# the "client.ip ~ acl" form, so the deny case goes in the else branch.
+# The ACL referenced by the check below
 acl internal_ips {
   "192.168.0.0"/16;
   "10.0.0.0"/8;
@@ -109,12 +108,8 @@ acl internal_ips {
 
 sub vcl_recv {
   # Check if the request is for a restricted area
-  if (req.url ~ "^/admin") {
-    if (client.ip ~ internal_ips) {
-      # Internal address, let it through
-    } else {
-      error 403 "Forbidden";
-    }
+  if (req.url ~ "^/admin" && client.ip !~ internal_ips) {
+    error 403 "Forbidden";
   }
   
   # Check if the requested resource exists

@@ -1,6 +1,6 @@
-// The shared VCL request lifecycle: recv (with restarts) -> hash -> cache
-// lookup -> hit/miss/pass -> fetch -> deliver -> log, plus error handling and
-// cache storage. Both the CLI proxy and the browser simulator drive this, so
+// The shared VCL request lifecycle: recv -> hash -> cache lookup ->
+// hit/miss/pass -> fetch -> deliver -> log, plus error handling, cache
+// storage, and restarts (from recv, hit, fetch, deliver, or error). Both the CLI proxy and the browser simulator drive this, so
 // the two can never drift on caching or subroutine order. The one thing they
 // supply differently is how a backend response is obtained — a real fetch for
 // the CLI, a synthetic response for the simulator — injected as getBackendResponse.
@@ -90,28 +90,41 @@ function errorResult(context: VCLContext, key: string, restarts: number): Pipeli
 }
 
 export async function runPipeline(opts: PipelineOptions): Promise<PipelineResult> {
-	const { subroutines, context, cache, maxRestarts, getBackendResponse } = opts;
-	const now = () => context.platform.now();
+	const { subroutines, context, maxRestarts } = opts;
 
 	// Seed the workspace with what Fastly has already spent on the inbound request
 	// before user VCL runs, so bytes_free is realistic and overflow detection
 	// accounts for the size of the request itself.
 	context.workspaceBytes = seedRequestWorkspace(context.req.http);
 
-	let action = executeVCL(subroutines, "vcl_recv", context) || "lookup";
-	while (action === "restart") {
+	// A restart can be requested from vcl_recv, vcl_hit, vcl_fetch,
+	// vcl_deliver, or vcl_error; the counter and its limit live here.
+	for (;;) {
+		const result = await runPass(opts);
+		if (result !== "restart") return result;
 		if ((context.req.restarts ?? 0) >= maxRestarts) {
 			context.std!.error(503, `Maximum number of restarts (${maxRestarts}) reached`);
 			executeVCL(subroutines, "vcl_error", context);
 			return errorResult(context, "", context.req.restarts ?? 0);
 		}
 		context.req.restarts = (context.req.restarts ?? 0) + 1;
-		action = executeVCL(subroutines, "vcl_recv", context) || "lookup";
 	}
+}
+
+async function runPass(opts: PipelineOptions): Promise<PipelineResult | "restart"> {
+	const { subroutines, context, cache, getBackendResponse } = opts;
+	const now = () => context.platform.now();
+
+	// Each pass computes its own cache key; hash data from a previous pass must
+	// not survive a restart (req.hash reads it, and computeCacheKey joins it).
+	context.hashData = [];
+
+	let action = executeVCL(subroutines, "vcl_recv", context) || "lookup";
+	if (action === "restart") return "restart";
 	const restarts = context.req.restarts ?? 0;
 
 	if (action === "error") {
-		executeVCL(subroutines, "vcl_error", context);
+		if (executeVCL(subroutines, "vcl_error", context) === "restart") return "restart";
 		return errorResult(context, "", restarts);
 	}
 
@@ -128,6 +141,7 @@ export async function runPipeline(opts: PipelineOptions): Promise<PipelineResult
 			if (isFresh || isStale) {
 				context.obj.hits = 1;
 				action = executeVCL(subroutines, "vcl_hit", context) || "deliver";
+				if (action === "restart") return "restart";
 				if (action === "deliver") {
 					context.resp = { ...cached.resp, http: { ...cached.resp.http } };
 					context.resp.http["X-Cache"] = isFresh ? "HIT" : "HIT-STALE";
@@ -135,7 +149,7 @@ export async function runPipeline(opts: PipelineOptions): Promise<PipelineResult
 					const ageSeconds = Math.floor((at - cached.created) / 1000);
 					context.resp.http["X-Cache-Age"] = `${ageSeconds}`;
 
-					executeVCL(subroutines, "vcl_deliver", context);
+					if (executeVCL(subroutines, "vcl_deliver", context) === "restart") return "restart";
 					executeVCL(subroutines, "vcl_log", context);
 					if (isStale) cache.delete(key);
 
@@ -174,17 +188,28 @@ export async function runPipeline(opts: PipelineOptions): Promise<PipelineResult
 		}
 		context.fastly!.error = context.obj.response;
 		context.fastly!.state = "error";
-		executeVCL(subroutines, "vcl_error", context);
+		if (executeVCL(subroutines, "vcl_error", context) === "restart") return "restart";
 		return errorResult(context, key, restarts);
 	}
 
+	// beresp is born from this pass's backend response; nothing from a previous
+	// pass (headers, TTL decisions) may carry over across a restart.
 	context.beresp.status = backendResponse.status;
 	context.beresp.statusText = backendResponse.statusText ?? "";
+	context.beresp.http = {};
+	context.beresp.ttl = 0;
+	context.beresp.grace = 0;
+	context.beresp.stale_while_revalidate = 0;
+	context.beresp.do_esi = false;
+	for (const field of ["cacheable", "do_stream", "gzip", "brotli", "saintmode", "stale_if_error"]) {
+		delete (context.beresp as Record<string, any>)[field];
+	}
 	for (const [name, value] of Object.entries(backendResponse.headers)) {
 		context.beresp.http[name.toLowerCase()] = value;
 	}
 
 	action = executeVCL(subroutines, "vcl_fetch", context) || "deliver";
+	if (action === "restart") return "restart";
 
 	if (context.beresp.ttl === 0) {
 		context.beresp.ttl = DEFAULT_TTL;
@@ -200,7 +225,7 @@ export async function runPipeline(opts: PipelineOptions): Promise<PipelineResult
 	context.resp.http["X-Cache"] = "MISS";
 	context.resp.http["X-Backend"] = context.req.http["X-Selected-Backend"] || "unknown";
 
-	executeVCL(subroutines, "vcl_deliver", context);
+	const deliverAction = executeVCL(subroutines, "vcl_deliver", context);
 
 	let stored = false;
 	if (action === "deliver" && key && context.beresp.ttl > 0) {
@@ -222,6 +247,10 @@ export async function runPipeline(opts: PipelineOptions): Promise<PipelineResult
 		});
 		stored = true;
 	}
+
+	// The object is cached above regardless: on Fastly, cache insertion happens
+	// at fetch time, before vcl_deliver runs.
+	if (deliverAction === "restart") return "restart";
 
 	executeVCL(subroutines, "vcl_log", context);
 

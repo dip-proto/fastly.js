@@ -178,7 +178,25 @@ sub vcl_recv {
 
 ## Fallback Backends
 
-Fastly VCL retries a failing origin by restarting the request, but Fastly.JS does not yet support retrying the backend fetch from `vcl_fetch` — there is no `return(retry)`, and a `restart` issued after the fetch is not acted on. What you get instead is built into the bundled proxy: when a backend answers with a 5xx, `index.ts` automatically retries the request once through its fallback director.
+Fastly VCL retries a failing origin by restarting the request, and Fastly.JS supports the same pattern: a `restart` issued from `vcl_fetch` or `vcl_deliver` re-runs the request from `vcl_recv`, where you can pick a different backend (guard it with `req.restarts` so it fires once). There is no `return(retry)`. Keep in mind that the bundled proxy chooses origins in JavaScript and ignores `req.backend`, so with `index.ts` the switch only shows up in headers; the proxy also retries 5xx responses once through its fallback director on its own.
+
+```vcl
+sub vcl_fetch {
+  # Retry once on a server error
+  if (beresp.status >= 500 && beresp.status < 600 && req.restarts == 0) {
+    set req.http.X-Use-Fallback = "1";
+    restart;
+  }
+  return(deliver);
+}
+
+sub vcl_recv {
+  if (req.http.X-Use-Fallback) {
+    set req.backend = server2;
+  }
+  return(lookup);
+}
+```
 
 A `fallback` director is the declarative way to express the same idea — it always picks the first healthy backend in its list:
 

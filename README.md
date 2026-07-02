@@ -650,4 +650,4 @@ This is an independent, community project and is not affiliated with, endorsed b
 
 ## License
 
-This project is licensed under the MIT License.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.

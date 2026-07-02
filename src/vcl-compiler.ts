@@ -535,8 +535,6 @@ export const VCLStdLib = {
 	},
 };
 
-const MAX_RESTARTS = 4;
-
 function seededRandom(seed: number): number {
 	return Math.abs(Math.sin(seed * 9301 + 49297) % 1);
 }
@@ -1152,7 +1150,7 @@ export class VCLCompiler {
 				const defaultReturns: Record<string, string> = {
 					vcl_recv: "lookup",
 					vcl_hash: "hash",
-					vcl_hit: "fetch",
+					vcl_hit: "deliver",
 					vcl_miss: "fetch",
 					vcl_pass: "fetch",
 					vcl_fetch: "deliver",
@@ -1355,61 +1353,6 @@ export class VCLCompiler {
 		// Make sure the statement has a test property
 		if (!statement.test && statement.condition) {
 			statement.test = statement.condition;
-		}
-
-		// Check if the test is a binary expression with the ~ operator
-		if (
-			statement.test &&
-			statement.test.type === "BinaryExpression" &&
-			(statement.test as VCLBinaryExpression).operator === "~"
-		) {
-			const binaryExpr = statement.test as VCLBinaryExpression;
-
-			// Check if this is an ACL check (client.ip ~ acl_name)
-			if (
-				binaryExpr.left &&
-				binaryExpr.left.type === "Identifier" &&
-				(binaryExpr.left as VCLIdentifier).name === "client.ip" &&
-				binaryExpr.right &&
-				binaryExpr.right.type === "Identifier"
-			) {
-				const aclName = (binaryExpr.right as VCLIdentifier).name;
-				const clientIp = context.client?.ip || "";
-
-				// Check if the ACL exists in the context
-				if (context.acls?.[aclName]) {
-					// Use our ACL checking function
-					const isInAcl = this.isIpInAcl(clientIp, context.acls[aclName], context);
-
-					if (isInAcl) {
-						// Execute the consequent statements
-						for (const stmt of statement.consequent) {
-							const result = this.executeStatement(stmt, context);
-
-							// If the statement returns a value, return it from the if statement
-							if (result && typeof result === "string") {
-								return result;
-							}
-						}
-
-						return;
-					} else if (statement.alternate) {
-						// Execute the alternate statements
-						for (const stmt of statement.alternate) {
-							const result = this.executeStatement(stmt, context);
-
-							// If the statement returns a value, return it from the if statement
-							if (result && typeof result === "string") {
-								return result;
-							}
-						}
-
-						return;
-					}
-
-					return;
-				}
-			}
 		}
 
 		const conditionRaw = this.evaluateExpression(statement.test, context);
@@ -1967,11 +1910,14 @@ export class VCLCompiler {
 		}
 		if (!context.locals) context.locals = {};
 		const savedReturn = context.locals.__return_value__;
-		const savedParams: Record<string, any> = {};
+		const savedParams = new Map<string, { existed: boolean; value: any }>();
 		if (sub.params) {
 			for (let i = 0; i < sub.params.length; i++) {
 				const param = sub.params[i]!;
-				savedParams[param.name] = context.locals[param.name];
+				savedParams.set(param.name, {
+					existed: Object.hasOwn(context.locals, param.name),
+					value: context.locals[param.name],
+				});
 				context.locals[param.name] =
 					i < argExprs.length ? this.evaluateExpression(argExprs[i]!, context) : undefined;
 			}
@@ -1992,11 +1938,9 @@ export class VCLCompiler {
 			this.functionalSubDepth--;
 			if (savedReturn === undefined) delete context.locals.__return_value__;
 			else context.locals.__return_value__ = savedReturn;
-			if (sub.params) {
-				for (const param of sub.params) {
-					if (savedParams[param.name] === undefined) delete context.locals[param.name];
-					else context.locals[param.name] = savedParams[param.name];
-				}
+			for (const [name, saved] of savedParams) {
+				if (saved.existed) context.locals[name] = saved.value;
+				else delete context.locals[name];
 			}
 		}
 		return value;
@@ -2012,45 +1956,60 @@ export class VCLCompiler {
 			return undefined;
 		}
 
-		// Set up parameters as local variables
+		// Set up parameters as local variables, restoring whatever they shadowed
+		// once the subroutine returns.
+		const savedParams = new Map<string, { existed: boolean; value: any }>();
 		if (sub.params && statement.arguments.length > 0) {
 			if (!context.locals) context.locals = {};
 			for (let i = 0; i < sub.params.length && i < statement.arguments.length; i++) {
 				const param = sub.params[i]!;
 				const argValue = this.evaluateExpression(statement.arguments[i]!, context);
+				savedParams.set(param.name, {
+					existed: Object.hasOwn(context.locals, param.name),
+					value: context.locals[param.name],
+				});
 				context.locals[param.name] = argValue;
 			}
 		}
 
-		// Execute subroutine body
-		for (const stmt of sub.body) {
-			const result = this.executeStatement(stmt, context);
-			if (result && typeof result === "string") {
-				// If the custom sub returns a VCL action (deliver, pass, etc.), propagate it
-				if (
-					[
-						"deliver",
-						"pass",
-						"lookup",
-						"fetch",
-						"error",
-						"restart",
-						"pipe",
-						"hash",
-						"deliver_stale",
-						"hit_for_pass",
-					].includes(result)
-				) {
-					return result;
+		try {
+			// Execute subroutine body
+			for (const stmt of sub.body) {
+				const result = this.executeStatement(stmt, context);
+				if (result && typeof result === "string") {
+					// If the custom sub returns a VCL action (deliver, pass, etc.), propagate it
+					if (
+						[
+							"deliver",
+							"pass",
+							"lookup",
+							"fetch",
+							"error",
+							"restart",
+							"pipe",
+							"hash",
+							"deliver_stale",
+							"hit_for_pass",
+						].includes(result)
+					) {
+						return result;
+					}
+					// For typed returns, store as __return_value__
+					if (sub.returnType) {
+						context.locals.__return_value__ = result;
+						return undefined;
+					}
 				}
-				// For typed returns, store as __return_value__
-				if (sub.returnType) {
-					context.locals.__return_value__ = result;
-					return undefined;
+			}
+			return undefined;
+		} finally {
+			if (context.locals) {
+				for (const [name, saved] of savedParams) {
+					if (saved.existed) context.locals[name] = saved.value;
+					else delete context.locals[name];
 				}
 			}
 		}
-		return undefined;
 	}
 
 	private executeSwitchStatement(
@@ -2114,12 +2073,9 @@ export class VCLCompiler {
 		return `__goto__:${statement.label}`;
 	}
 
-	private executeRestartStatement(_statement: VCLRestartStatement, context: VCLContext): string {
-		if (context.req.restarts === undefined) context.req.restarts = 0;
-		if (context.req.restarts >= MAX_RESTARTS) {
-			throw new Error(`Max restarts (${MAX_RESTARTS}) exceeded`);
-		}
-		context.req.restarts++;
+	// The restart counter is incremented by the pipeline driver, which also
+	// enforces the restart limit; the statement only surfaces the action.
+	private executeRestartStatement(_statement: VCLRestartStatement, _context: VCLContext): string {
 		return "restart";
 	}
 
@@ -3181,6 +3137,22 @@ export class VCLCompiler {
 			return false;
 		}
 
+		// ACL membership: a bare identifier naming a declared ACL on the right of
+		// ~ or !~ matches the left value as an IP, wherever the expression appears.
+		// A local or subroutine parameter with the same name shadows the ACL.
+		if (
+			(expression.operator === "~" || expression.operator === "!~") &&
+			expression.right.type === "Identifier"
+		) {
+			const aclName = (expression.right as VCLIdentifier).name;
+			const acl = context.acls?.[aclName];
+			if (acl && !(context.locals && aclName in context.locals)) {
+				const left = this.evaluateExpression(expression.left, context);
+				const inAcl = this.isIpInAcl(toRawString(left), acl, context);
+				return expression.operator === "~" ? inAcl : !inAcl;
+			}
+		}
+
 		const left = this.evaluateExpression(expression.left, context);
 		const right = this.evaluateExpression(expression.right, context);
 
@@ -3230,16 +3202,10 @@ export class VCLCompiler {
 				return left <= right;
 			case "~": {
 				const rVal = right instanceof VCLString ? right.value : right;
-				if (typeof rVal === "string" && context.acls?.[rVal]) {
-					return this.isIpInAcl(toRawString(left), context.acls[rVal], context);
-				}
 				return this.regexMatch(toRawString(left), rVal, context, false);
 			}
 			case "!~": {
 				const rVal = right instanceof VCLString ? right.value : right;
-				if (typeof rVal === "string" && context.acls?.[rVal]) {
-					return !this.isIpInAcl(toRawString(left), context.acls[rVal], context);
-				}
 				return this.regexMatch(toRawString(left), rVal, context, true);
 			}
 			case "&&":

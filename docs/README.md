@@ -89,4 +89,4 @@ branch, add tests for your change, and open a pull request.
 
 ## License
 
-Fastly.JS is licensed under the MIT License.
+Fastly.JS is licensed under the MIT License. See the [LICENSE](../LICENSE) file for more information.

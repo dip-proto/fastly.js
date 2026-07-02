@@ -11,6 +11,7 @@ import esiFunctionsTests from "./esi-functions-tests";
 import { gotoTests } from "./goto-tests";
 import httpFunctionsTests from "./http-functions-tests";
 import multiFileTests from "./multi-file-tests";
+import pipelineSemanticsTests from "./pipeline-semantics-tests";
 import queryStringFunctionsTests from "./query-string-functions-tests";
 import randomFunctionsTests from "./random-functions-tests";
 import rateLimitFunctionsTests from "./ratelimit-functions-tests";
@@ -49,6 +50,7 @@ runAllTests([
 	realWorldVCLTests,
 	realWorldEcommerceTests,
 	gotoTests,
+	pipelineSemanticsTests,
 ]).catch((error) => {
 	console.error("Error running tests:", error);
 	process.exit(1);

@@ -11,7 +11,7 @@ Access control is a critical aspect of web application security. With Fastly.JS,
 
 This guide demonstrates how to implement these access control mechanisms using Fastly.JS and VCL.
 
-> **Note:** Two implementation details matter throughout this guide. First, ACL matching is currently only supported in the form `if (client.ip ~ acl_name)` — the negated `!~` form does not work, so the deny case goes in an `else` branch. Second, the bundled proxy in `index.ts` does not yet populate the client address, so `client.ip` always reads `127.0.0.1` there; ACL rules are still fully testable through the test framework.
+> **Note:** The bundled proxy in `index.ts` does not yet populate the client address, so `client.ip` always reads `127.0.0.1` there; ACL rules are still fully testable through the test framework.
 
 ## IP-Based Access Control
 
@@ -180,15 +180,9 @@ ratecounter api_requests {}
 penaltybox api_violators {}
 
 sub vcl_recv {
-  # Step 1: IP-based access control for admin area. ACL matching only
-  # works in the "client.ip ~ acl" form, so the deny case goes in the
-  # else branch.
-  if (req.url ~ "^/admin") {
-    if (client.ip ~ allowed_ips) {
-      # Internal address, let it through
-    } else {
-      error 403 "Admin access restricted";
-    }
+  # Step 1: IP-based access control for admin area
+  if (req.url ~ "^/admin" && client.ip !~ allowed_ips) {
+    error 403 "Admin access restricted";
   }
   
   # Step 2: Rate limiting for API endpoints (100 requests per 60 seconds)

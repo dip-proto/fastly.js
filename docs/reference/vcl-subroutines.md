@@ -119,9 +119,10 @@ The `vcl_hit` subroutine is called when a cache hit occurs.
 - `deliver`: Deliver the cached object (default)
 - `pass`: Pass the request to the backend, bypassing the cache
 - `error`: Return an error response
+- `restart`: Restart the request processing from `vcl_recv`
 
-In Fastly.JS, any return other than `deliver` causes the object to be
-refetched from the backend.
+In Fastly.JS, any return other than `deliver` or `restart` causes the object
+to be refetched from the backend.
 
 ### Example
 

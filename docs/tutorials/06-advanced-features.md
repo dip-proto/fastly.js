@@ -20,17 +20,13 @@ acl internal {
 
 ### Using an ACL
 
-You can use an ACL to control access to resources. The ACL match must be the whole `if` condition — combining `client.ip ~ acl` with `&&` or negating it with `!` is not currently supported — so use an `if`/`else`:
+You can use an ACL to control access to resources with `~` or `!~`, alone or combined with other conditions:
 
 ```vcl
 sub vcl_recv {
   # Allow only internal IPs to access the admin area
-  if (req.url ~ "^/admin/") {
-    if (client.ip ~ internal) {
-      # Allowed
-    } else {
-      error 403 "Forbidden";
-    }
+  if (req.url ~ "^/admin/" && client.ip !~ internal) {
+    error 403 "Forbidden";
   }
 }
 ```
@@ -52,21 +48,13 @@ acl trusted_partners {
 
 sub vcl_recv {
   # Allow internal IPs to access the admin area
-  if (req.url ~ "^/admin/") {
-    if (client.ip ~ internal) {
-      # Allowed
-    } else {
-      error 403 "Forbidden";
-    }
+  if (req.url ~ "^/admin/" && client.ip !~ internal) {
+    error 403 "Forbidden";
   }
 
   # Allow trusted partners to access the API
-  if (req.url ~ "^/api/partners/") {
-    if (client.ip ~ trusted_partners) {
-      # Allowed
-    } else {
-      error 403 "Forbidden";
-    }
+  if (req.url ~ "^/api/partners/" && client.ip !~ trusted_partners) {
+    error 403 "Forbidden";
   }
 }
 ```
