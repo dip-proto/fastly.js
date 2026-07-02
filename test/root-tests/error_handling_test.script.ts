@@ -175,7 +175,7 @@ console.log(`Fastly state: ${context.fastly!.state}`);
 // Execute vcl_error
 const errorAction1 = executeVCL(testSubroutines, "vcl_error", context);
 console.log(`vcl_error action: ${errorAction1}`);
-console.log(`Synthetic response length: ${context.obj.response.length} characters`);
+console.log(`Synthetic response length: ${(context.obj.response ?? "").length} characters`);
 console.log(`Content-Type: ${context.obj.http["content-type"]}`);
 
 // Test 2: Error function with only status code
@@ -188,7 +188,7 @@ console.log(`Error message: ${context.obj.response}`);
 // Execute vcl_error
 const errorAction2 = executeVCL(testSubroutines, "vcl_error", context);
 console.log(`vcl_error action: ${errorAction2}`);
-console.log(`Synthetic response length: ${context.obj.response.length} characters`);
+console.log(`Synthetic response length: ${(context.obj.response ?? "").length} characters`);
 
 // Test 3: Error function with server error
 console.log("\nTest 3: Error function with server error");
@@ -200,7 +200,7 @@ console.log(`Error message: ${context.obj.response}`);
 // Execute vcl_error
 const errorAction3 = executeVCL(testSubroutines, "vcl_error", context);
 console.log(`vcl_error action: ${errorAction3}`);
-console.log(`Synthetic response length: ${context.obj.response.length} characters`);
+console.log(`Synthetic response length: ${(context.obj.response ?? "").length} characters`);
 
 // Test 4: Synthetic function
 console.log("\nTest 4: Synthetic function");

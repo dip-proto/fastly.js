@@ -41,24 +41,32 @@ function isVersion(uuid: string, expectedVersion: number): boolean {
 
 export function createUUIDModule(platform?: VCLPlatform) {
 	return {
-		version3(namespace: string, name: string): string {
-			return uuidv3(String(name), String(namespace));
+		version3(namespace: string, name: string): string | null {
+			try {
+				return uuidv3(String(name), String(namespace));
+			} catch {
+				return null;
+			}
 		},
 
 		version4(): string {
 			return uuidv4();
 		},
 
-		version5(namespace: string, name: string): string {
-			return uuidv5(String(name), String(namespace));
+		version5(namespace: string, name: string): string | null {
+			try {
+				return uuidv5(String(name), String(namespace));
+			} catch {
+				return null;
+			}
 		},
 
-		dns(name: string): string {
-			return uuidv5(String(name), NAMESPACE_DNS);
+		dns(): string {
+			return NAMESPACE_DNS;
 		},
 
-		url(name: string): string {
-			return uuidv5(String(name), NAMESPACE_URL);
+		url(): string {
+			return NAMESPACE_URL;
 		},
 
 		is_valid(uuid: string): boolean {
@@ -105,12 +113,12 @@ export function createUUIDModule(platform?: VCLPlatform) {
 			return isVersion(uuid, 7);
 		},
 
-		oid(name: string): string {
-			return uuidv5(String(name), NAMESPACE_OID);
+		oid(): string {
+			return NAMESPACE_OID;
 		},
 
-		x500(name: string): string {
-			return uuidv5(String(name), NAMESPACE_X500);
+		x500(): string {
+			return NAMESPACE_X500;
 		},
 	};
 }

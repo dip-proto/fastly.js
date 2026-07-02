@@ -260,13 +260,13 @@ const suite: TestSuite = {
 			assertions: [
 				() =>
 					assert(
-						UUIDModule.is_valid(UUIDModule.oid("test")),
-						"uuid.oid should generate valid UUID",
+						UUIDModule.oid() === "6ba7b812-9dad-11d1-80b4-00c04fd430c8",
+						"uuid.oid should return the OID namespace constant",
 					),
 				() =>
 					assert(
-						UUIDModule.is_valid(UUIDModule.x500("test")),
-						"uuid.x500 should generate valid UUID",
+						UUIDModule.x500() === "6ba7b814-9dad-11d1-80b4-00c04fd430c8",
+						"uuid.x500 should return the X.500 namespace constant",
 					),
 			],
 		},

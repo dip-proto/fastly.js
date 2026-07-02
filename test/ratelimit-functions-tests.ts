@@ -77,14 +77,14 @@ const rateLimitFunctionsTests = {
 			assertions: [
 				(context: VCLContext) => {
 					return assert(
-						context.req.http["X-Rate-Exceeded"] === "true",
-						`Expected X-Rate-Exceeded to be 'true', got '${context.req.http["X-Rate-Exceeded"]}'`,
+						context.req.http["X-Rate-Exceeded"] === "1",
+						`Expected X-Rate-Exceeded to be '1', got '${context.req.http["X-Rate-Exceeded"]}'`,
 					);
 				},
 				(context: VCLContext) => {
 					return assert(
-						context.req.http["X-In-Penalty"] === "true",
-						`Expected X-In-Penalty to be 'true', got '${context.req.http["X-In-Penalty"]}'`,
+						context.req.http["X-In-Penalty"] === "1",
+						`Expected X-In-Penalty to be '1', got '${context.req.http["X-In-Penalty"]}'`,
 					);
 				},
 			],
@@ -115,14 +115,14 @@ const rateLimitFunctionsTests = {
 			assertions: [
 				(context: VCLContext) => {
 					return assert(
-						context.req.http["X-In-Penalty-1"] === "true",
-						`Expected X-In-Penalty-1 to be 'true', got '${context.req.http["X-In-Penalty-1"]}'`,
+						context.req.http["X-In-Penalty-1"] === "1",
+						`Expected X-In-Penalty-1 to be '1', got '${context.req.http["X-In-Penalty-1"]}'`,
 					);
 				},
 				(context: VCLContext) => {
 					return assert(
-						context.req.http["X-In-Penalty-2"] === "false",
-						`Expected X-In-Penalty-2 to be 'false', got '${context.req.http["X-In-Penalty-2"]}'`,
+						context.req.http["X-In-Penalty-2"] === "0",
+						`Expected X-In-Penalty-2 to be '0', got '${context.req.http["X-In-Penalty-2"]}'`,
 					);
 				},
 			],

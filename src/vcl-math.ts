@@ -92,29 +92,37 @@ export function createMathModule(): MathModule {
 
 		ceil: (x: number): number => roundingWrapper(x, Math.ceil),
 		floor: (x: number): number => roundingWrapper(x, Math.floor),
-		round: (x: number): number => roundingWrapper(x, Math.round),
 
-		// Banker's rounding: round to nearest even
+		// Round half away from zero, like C round() / Go math.Round
+		// (round(2.5) = 3, round(-2.5) = -3), not JS Math.round.
+		round: (x: number): number => roundingWrapper(x, (v) => Math.sign(v) * Math.round(Math.abs(v))),
+
+		// Banker's rounding: round halves to the nearest even integer
 		roundeven: (x: number): number => {
-			if (!Number.isFinite(x)) return x;
-			const rounded = Math.round(x);
-			const diff = Math.abs(x - rounded);
-			if (Math.abs(diff - 0.5) < Number.EPSILON) {
-				return rounded % 2 === 0 ? rounded : rounded - Math.sign(x);
-			}
-			return rounded;
+			if (!Number.isFinite(x) || x === 0) return x;
+			const floor = Math.floor(x);
+			const diff = x - floor;
+			let result: number;
+			if (diff < 0.5) result = floor;
+			else if (diff > 0.5) result = floor + 1;
+			else result = floor % 2 === 0 ? floor : floor + 1;
+			// Preserve the sign of zero (Go's math.RoundToEven(-0.5) is -0)
+			return result === 0 && x < 0 ? -0 : result;
 		},
 
-		// Round half values towards zero
+		// Round halves towards zero (|x - trunc(x)| <= 0.5 -> trunc(x))
 		roundhalfdown: (x: number): number => {
-			if (!Number.isFinite(x)) return x;
-			const sign = Math.sign(x);
-			const abs = Math.abs(x);
-			const fraction = abs - Math.floor(abs);
-			return fraction <= 0.5 ? sign * Math.floor(abs) : sign * Math.ceil(abs);
+			if (!Number.isFinite(x) || x === 0) return x;
+			const t = Math.trunc(x);
+			return Math.abs(x - t) <= 0.5 ? t : t + Math.sign(x);
 		},
 
-		roundhalfup: (x: number): number => roundingWrapper(x, Math.round),
+		// Round halves away from zero (|x - trunc(x)| >= 0.5 -> trunc(x) +/- 1)
+		roundhalfup: (x: number): number => {
+			if (!Number.isFinite(x) || x === 0) return x;
+			const t = Math.trunc(x);
+			return Math.abs(x - t) >= 0.5 ? t + Math.sign(x) : t;
+		},
 		trunc: (x: number): number => roundingWrapper(x, Math.trunc),
 
 		abs: Math.abs,

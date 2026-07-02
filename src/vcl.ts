@@ -83,18 +83,18 @@ export function createVCLContext(platform: VCLPlatform = getPlatform()): VCLCont
 		platform,
 		req: {
 			url: "",
-			method: "",
+			method: "GET",
 			http: {},
 			backend: "default",
 			restarts: 0,
 		},
 		bereq: {
 			url: "",
-			method: "",
+			method: "GET",
 			http: {},
 		},
 		beresp: {
-			status: 0,
+			status: 200,
 			statusText: "",
 			http: {},
 			ttl: 0,
@@ -103,15 +103,14 @@ export function createVCLContext(platform: VCLPlatform = getPlatform()): VCLCont
 			do_esi: false,
 		},
 		resp: {
-			status: 0,
+			status: 200,
 			statusText: "",
 			http: {},
 		},
 		obj: {
-			status: 0,
-			response: "",
+			status: 200,
 			http: {},
-			hits: 1,
+			hits: 0,
 		},
 		cache: new Map(),
 		hashData: [],
@@ -122,11 +121,12 @@ export function createVCLContext(platform: VCLPlatform = getPlatform()): VCLCont
 				host: "perdu.com",
 				port: 443,
 				ssl: true,
-				connect_timeout: 1000,
-				first_byte_timeout: 15000,
-				between_bytes_timeout: 10000,
+				connect_timeout: 1,
+				first_byte_timeout: 15,
+				between_bytes_timeout: 10,
 				max_connections: 200,
 				is_healthy: true,
+				builtin: true,
 			},
 		},
 		directors: {},
@@ -148,42 +148,9 @@ export function createVCLContext(platform: VCLPlatform = getPlatform()): VCLCont
 		},
 		fastly: {
 			error: "",
-			state: "recv",
+			state: "NONE",
 		},
 	};
-
-	const TIME_UNITS: Record<string, number> = {
-		s: 1000,
-		m: 60 * 1000,
-		h: 60 * 60 * 1000,
-		d: 24 * 60 * 60 * 1000,
-	};
-
-	function parseTimeOffset(offset: string | number): number {
-		if (typeof offset === "number") return offset;
-
-		let isNegative = false;
-		if (offset.startsWith("-")) {
-			isNegative = true;
-			offset = offset.substring(1);
-		}
-
-		const match = offset.match(/^(\d+)([smhd])$/);
-		let offsetMs: number;
-		if (match) {
-			const value = parseInt(match[1] ?? "0", 10);
-			const unit = match[2] ?? "s";
-			offsetMs = value * (TIME_UNITS[unit] || 0);
-		} else {
-			offsetMs = parseInt(offset, 10);
-			if (Number.isNaN(offsetMs)) {
-				logError(`Invalid time offset: ${offset}`);
-				return 0;
-			}
-		}
-
-		return isNegative ? -offsetMs : offsetMs;
-	}
 
 	context.std = {
 		log: (message: string) => {
@@ -191,28 +158,6 @@ export function createVCLContext(platform: VCLPlatform = getPlatform()): VCLCont
 		},
 
 		strftime: (_format: string, time: number) => new Date(time).toISOString(),
-
-		time: {
-			now: () => platform.now(),
-			add: (time: number, offset: string | number): number => {
-				const offsetMs = parseTimeOffset(offset);
-				return offsetMs === 0 && typeof offset === "string" ? time : time + offsetMs;
-			},
-			sub: (time1: number, time2: number): number => time1 - time2,
-			is_after: (time1: number, time2: number): boolean => time1 > time2,
-			hex_to_time: (hex: string): number => {
-				if (!hex.match(/^[0-9A-Fa-f]+$/)) {
-					logError(`Invalid hex timestamp: ${hex}`);
-					return platform.now();
-				}
-				const timestamp = parseInt(hex, 16);
-				if (Number.isNaN(timestamp)) {
-					logError(`Invalid hex timestamp: ${hex}`);
-					return platform.now();
-				}
-				return timestamp * 1000;
-			},
-		},
 
 		tolower: (str: string) => String(str).toLowerCase(),
 		toupper: (str: string) => String(str).toUpperCase(),
@@ -468,9 +413,9 @@ export function createVCLContext(platform: VCLPlatform = getPlatform()): VCLCont
 				host,
 				port,
 				ssl,
-				connect_timeout: options.connect_timeout || 1000,
-				first_byte_timeout: options.first_byte_timeout || 15000,
-				between_bytes_timeout: options.between_bytes_timeout || 10000,
+				connect_timeout: options.connect_timeout || 1,
+				first_byte_timeout: options.first_byte_timeout || 15,
+				between_bytes_timeout: options.between_bytes_timeout || 10,
 				max_connections: options.max_connections || 200,
 				ssl_cert_hostname: options.ssl_cert_hostname || host,
 				ssl_sni_hostname: options.ssl_sni_hostname || host,
@@ -698,6 +643,7 @@ export function createVCLContext(platform: VCLPlatform = getPlatform()): VCLCont
 
 	context.accept = {
 		language_lookup: AcceptModule.language_lookup,
+		language_filter_basic: AcceptModule.language_filter_basic,
 		charset_lookup: AcceptModule.charset_lookup,
 		encoding_lookup: AcceptModule.encoding_lookup,
 		media_lookup: AcceptModule.media_lookup,
@@ -854,6 +800,8 @@ export function createVCLContext(platform: VCLPlatform = getPlatform()): VCLCont
 		anystr2ip: stdModule.anystr2ip,
 		collect: stdModule.collect,
 		count: stdModule.count,
+		time: stdModule.time,
+		integer2time: stdModule.integer2time,
 	});
 
 	context.math = mathModule;

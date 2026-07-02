@@ -5,8 +5,8 @@ import { sha224, sha256, sha384, sha512 } from "@noble/hashes/sha2.js";
 import type { CHash } from "@noble/hashes/utils.js";
 import { Buffer as BufferPolyfill } from "buffer";
 import {
-	consoleLog,
 	type CryptoProvider,
+	consoleLog,
 	type HashAlgorithm,
 	setDefaultPlatform,
 	UnsupportedFeatureError,

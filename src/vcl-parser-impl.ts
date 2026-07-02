@@ -40,6 +40,22 @@ import {
 	type VCLTableEntry,
 	type VCLUnsetStatement,
 } from "./vcl-parser";
+import { parseTimeValue } from "./vcl-time";
+
+// Paren-less `return <action>;` keywords.
+const RETURN_ACTIONS = new Set([
+	"lookup",
+	"pass",
+	"pipe",
+	"error",
+	"restart",
+	"hash",
+	"deliver",
+	"deliver_stale",
+	"fetch",
+	"purge",
+	"hit_for_pass",
+]);
 
 export class VCLParser {
 	private tokens: Token[] = [];
@@ -100,6 +116,11 @@ export class VCLParser {
 					case "ratecounter":
 						program.ratecounters.push(this.parseRatecounterDeclaration());
 						break;
+					case "pragma":
+						// Fastly-generated control line; skip through its semicolon.
+						while (!this.isAtEnd() && !this.check(TokenType.PUNCTUATION, ";")) this.advance();
+						if (this.check(TokenType.PUNCTUATION, ";")) this.advance();
+						break;
 					default: {
 						const kw = this.previous();
 						throw new Error(
@@ -123,6 +144,22 @@ export class VCLParser {
 			}
 		}
 		return program;
+	}
+
+	/**
+	 * Strip the delimiters from a STRING token value: plain quotes, or the
+	 * long-string forms {"..."} and {DELIM"..."DELIM}.
+	 */
+	private unquoteStringToken(raw: string): string {
+		const long = /^\{([A-Za-z0-9_]*)"([\s\S]*)"\1\}$/.exec(raw);
+		if (long) return long[2]!;
+		if (
+			raw.length >= 2 &&
+			((raw.startsWith('"') && raw.endsWith('"')) || (raw.startsWith("'") && raw.endsWith("'")))
+		) {
+			return raw.slice(1, -1);
+		}
+		return raw;
 	}
 
 	private isValidIPv4(ip: string): boolean {
@@ -170,14 +207,7 @@ export class VCLParser {
 			// Parse an IP address or CIDR notation
 			if (this.match(TokenType.STRING)) {
 				const ipToken = this.previous();
-				let ip = ipToken.value;
-
-				// Remove quotes
-				if (ip.startsWith('"') && ip.endsWith('"')) {
-					ip = ip.slice(1, -1);
-				} else if (ip.startsWith("'") && ip.endsWith("'")) {
-					ip = ip.slice(1, -1);
-				}
+				let ip = this.unquoteStringToken(ipToken.value);
 
 				let subnet: number | undefined;
 
@@ -296,36 +326,28 @@ export class VCLParser {
 
 		const entries: VCLTableEntry[] = [];
 		while (!this.check(TokenType.PUNCTUATION, "}") && !this.isAtEnd()) {
+			if (this.match(TokenType.COMMENT)) continue;
 			if (this.match(TokenType.STRING)) {
-				const keyToken = this.previous();
-				let key = keyToken.value;
-				if (
-					(key.startsWith('"') && key.endsWith('"')) ||
-					(key.startsWith("'") && key.endsWith("'"))
-				) {
-					key = key.slice(1, -1);
-				}
+				const key = this.unquoteStringToken(this.previous().value);
 				this.consume(TokenType.PUNCTUATION, "Expected ':' after table key");
 				let value = "";
 				if (this.match(TokenType.STRING)) {
-					value = this.previous().value;
-					if (
-						(value.startsWith('"') && value.endsWith('"')) ||
-						(value.startsWith("'") && value.endsWith("'"))
-					) {
-						value = value.slice(1, -1);
-					}
+					value = this.unquoteStringToken(this.previous().value);
 				} else if (this.match(TokenType.NUMBER)) {
 					value = this.previous().value;
-				} else if (this.match(TokenType.IDENTIFIER)) {
+				} else if (this.match(TokenType.OPERATOR, "-") && this.check(TokenType.NUMBER)) {
+					value = `-${this.advance().value}`;
+				} else if (this.match(TokenType.IDENTIFIER) || this.match(TokenType.KEYWORD)) {
 					value = this.previous().value;
+				} else {
+					this.error("Expected table entry value");
 				}
 				if (this.check(TokenType.PUNCTUATION, ",")) {
 					this.advance();
 				}
 				entries.push({ key, value });
 			} else {
-				this.advance();
+				this.error("Expected string key in table entry");
 			}
 		}
 		this.consume(TokenType.PUNCTUATION, "Expected '}' after table entries");
@@ -359,19 +381,44 @@ export class VCLParser {
 						value = (value as string).slice(1, -1);
 					}
 				} else if (this.match(TokenType.NUMBER)) {
-					value = parseFloat(this.previous().value);
+					const raw = this.previous().value;
+					// Keep RTIME values ("5s", "500ms") as strings so the unit survives.
+					value = /[a-z]$/.test(raw) ? raw : parseFloat(raw);
 				} else if (this.match(TokenType.IDENTIFIER) || this.match(TokenType.KEYWORD)) {
 					value = this.previous().value;
 				} else if (this.check(TokenType.PUNCTUATION, "{")) {
-					// Nested block value such as `.probe = { ... }`; consume it balanced.
+					// Nested block value such as `.probe = { ... }`: parse its
+					// dotted properties into a structured object.
 					this.advance();
-					let depth = 1;
-					while (depth > 0 && !this.isAtEnd()) {
-						if (this.check(TokenType.PUNCTUATION, "{")) depth++;
-						else if (this.check(TokenType.PUNCTUATION, "}")) depth--;
-						this.advance();
+					const probeProps: VCLBackendProperty[] = [];
+					while (!this.check(TokenType.PUNCTUATION, "}") && !this.isAtEnd()) {
+						if (this.match(TokenType.PUNCTUATION, ".")) {
+							const nestedName = this.consumeName("Expected probe property name").value;
+							this.consume(TokenType.OPERATOR, "Expected '=' after probe property name");
+							let nestedValue: string | number = "";
+							const stringParts: string[] = [];
+							// A probe .request is written as adjacent strings, one per line.
+							while (this.check(TokenType.STRING)) {
+								stringParts.push(this.unquoteStringToken(this.advance().value));
+							}
+							if (stringParts.length > 0) {
+								nestedValue = stringParts.join("\r\n");
+							} else if (this.match(TokenType.NUMBER)) {
+								const raw = this.previous().value;
+								nestedValue = /[a-z]$/.test(raw) ? raw : parseFloat(raw);
+							} else if (this.match(TokenType.IDENTIFIER) || this.match(TokenType.KEYWORD)) {
+								nestedValue = this.previous().value;
+							}
+							if (this.check(TokenType.PUNCTUATION, ";")) this.advance();
+							probeProps.push({ name: nestedName, value: nestedValue });
+						} else {
+							this.advance();
+						}
 					}
-					value = "{...}";
+					this.consume(TokenType.PUNCTUATION, "Expected '}' after probe block");
+					properties.push({ name: propName, value: { type: "probe", properties: probeProps } });
+					if (this.check(TokenType.PUNCTUATION, ";")) this.advance();
+					continue;
 				}
 				if (this.check(TokenType.PUNCTUATION, ";")) {
 					this.advance();
@@ -455,15 +502,11 @@ export class VCLParser {
 				const labelName = this.advance().value;
 				const labelToken = this.previous();
 				this.advance();
-				let statement: VCLStatement | null = null;
-				if (this.check(TokenType.KEYWORD, "set")) {
-					this.advance();
-					statement = this.parseSetStatement();
-				}
+				// A label is a pure position marker; the following statements are
+				// parsed normally and belong to the enclosing block.
 				return {
 					type: "LabelStatement",
 					name: labelName,
-					statement,
 					location: { line: labelToken.line, column: labelToken.column },
 				} as VCLLabelStatement;
 			}
@@ -477,6 +520,21 @@ export class VCLParser {
 					line: this.previous().line,
 					column: this.previous().column,
 				},
+			};
+		}
+
+		// Bare { ... } nested block: a statement group in its own scope.
+		if (this.check(TokenType.PUNCTUATION, "{")) {
+			const braceToken = this.advance();
+			const body: VCLStatement[] = [];
+			while (!this.check(TokenType.PUNCTUATION, "}") && !this.isAtEnd()) {
+				body.push(this.parseStatement());
+			}
+			this.consume(TokenType.PUNCTUATION, "Expected '}' after block");
+			return {
+				type: "BlockStatement",
+				body,
+				location: { line: braceToken.line, column: braceToken.column },
 			};
 		}
 
@@ -516,6 +574,12 @@ export class VCLParser {
 					return this.parseGotoStatement();
 				case "restart":
 					return this.parseRestartStatement();
+				case "include": {
+					// Includes are not resolved to files by this loader (top-level
+					// includes are recorded but not inlined); accept and ignore.
+					const include = this.parseIncludeStatement();
+					return { type: "Statement", location: include.location };
+				}
 				case "pragma": {
 					// Skip pragma statements - consume tokens until semicolon
 					while (!this.check(TokenType.PUNCTUATION, ";") && !this.isAtEnd()) this.advance();
@@ -594,6 +658,12 @@ export class VCLParser {
 		}
 
 		const variableName = this.previous().value;
+		if (!variableName.startsWith("var.")) {
+			const prev = this.previous();
+			throw new Error(
+				`Local variable "${variableName}" must be prefixed with 'var.' at line ${prev.line}, column ${prev.column}`,
+			);
+		}
 		if (!this.match(TokenType.IDENTIFIER)) this.error("Expected variable type after variable name");
 		const variableType = this.previous().value;
 
@@ -664,6 +734,32 @@ export class VCLParser {
 	private parseReturnStatement(): VCLReturnStatement {
 		const token = this.previous();
 
+		// Bare `return;`
+		if (this.check(TokenType.PUNCTUATION, ";")) {
+			this.advance();
+			return {
+				type: "ReturnStatement",
+				argument: "",
+				location: { line: token.line, column: token.column },
+			};
+		}
+
+		// Paren-less action form: `return lookup;` (keywords that start
+		// expressions, like true/false, still parse as value returns).
+		if (
+			this.check(TokenType.KEYWORD) &&
+			RETURN_ACTIONS.has(this.peek().value) &&
+			this.peek(1)?.value === ";"
+		) {
+			const argument = this.advance().value;
+			this.advance(); // consume ';'
+			return {
+				type: "ReturnStatement",
+				argument,
+				location: { line: token.line, column: token.column },
+			};
+		}
+
 		if (this.check(TokenType.PUNCTUATION, "(")) {
 			this.advance();
 			let argument = "";
@@ -715,21 +811,48 @@ export class VCLParser {
 	}
 
 	/**
-	 * Parses an error statement
-	 * Supports: error 401; or error 401 "message";
+	 * Parses an error statement.
+	 * Supports: `error;`, `error <code>;`, `error <code> <response-expr>;`
+	 * where <code> is an integer literal, identifier, or function call and the
+	 * response is a full expression (including concatenations).
 	 *
 	 * @returns The parsed error statement
 	 */
 	private parseErrorStatement(): VCLErrorStatement {
 		const token = this.previous();
 
-		// Parse the error status code
-		const status = parseInt(this.consume(TokenType.NUMBER, "Expected error status code").value, 10);
+		let status: VCLExpression | undefined;
+		let message: VCLExpression | undefined;
 
-		// Parse the optional error message
-		let message = "";
-		if (this.check(TokenType.STRING)) {
-			message = this.advance().value.slice(1, -1); // Remove quotes
+		if (!this.check(TokenType.PUNCTUATION, ";")) {
+			// The status code must be an integer literal, identifier, or function
+			// call; a full expression would swallow the response argument.
+			if (this.check(TokenType.NUMBER)) {
+				const numToken = this.advance();
+				status = {
+					type: "NumberLiteral",
+					value: parseFloat(numToken.value),
+					isFloat: numToken.value.includes("."),
+					location: { line: numToken.line, column: numToken.column },
+				};
+			} else if (this.check(TokenType.IDENTIFIER)) {
+				const identToken = this.advance();
+				if (this.check(TokenType.PUNCTUATION, "(")) {
+					status = this.parseFunctionCall(identToken);
+				} else {
+					status = {
+						type: "Identifier",
+						name: identToken.value,
+						location: { line: identToken.line, column: identToken.column },
+					};
+				}
+			} else {
+				this.error("Expected status code after 'error'");
+			}
+
+			if (!this.check(TokenType.PUNCTUATION, ";")) {
+				message = this.parseExpression();
+			}
 		}
 
 		this.consume(TokenType.PUNCTUATION, "Expected ';' after error statement");
@@ -1131,55 +1254,98 @@ export class VCLParser {
 		this.consume(TokenType.PUNCTUATION, "Expected '{' after switch");
 
 		const cases: VCLSwitchCase[] = [];
+		let sawDefault = false;
 		while (!this.check(TokenType.PUNCTUATION, "}") && !this.isAtEnd()) {
+			if (this.match(TokenType.COMMENT)) continue;
 			if (this.match(TokenType.KEYWORD, "case")) {
-				const test = this.parseExpression();
+				const caseToken = this.previous();
+				// `case ~"pattern":` is a regex-match case.
+				let isRegex = false;
+				if (this.check(TokenType.OPERATOR, "~")) {
+					this.advance();
+					isRegex = true;
+				}
+				if (!this.check(TokenType.STRING)) {
+					throw new Error(
+						`Expected string literal after 'case' at line ${caseToken.line}, column ${caseToken.column}`,
+					);
+				}
+				const test = this.parsePrimary();
+				const label = (test as VCLStringLiteral).value;
+				for (const other of cases) {
+					if (
+						other.test !== null &&
+						Boolean(other.regex) === isRegex &&
+						(other.test as VCLStringLiteral).value === label
+					) {
+						throw new Error(
+							`Duplicate case "${label}" in switch at line ${caseToken.line}, column ${caseToken.column}`,
+						);
+					}
+				}
 				this.consume(TokenType.PUNCTUATION, "Expected ':' after case expression");
-				const body: VCLStatement[] = [];
-				let hasFallthrough = false;
-				while (
-					!this.check(TokenType.KEYWORD, "case") &&
-					!this.check(TokenType.KEYWORD, "default") &&
-					!this.check(TokenType.PUNCTUATION, "}") &&
-					!this.isAtEnd()
-				) {
-					if (this.check(TokenType.KEYWORD, "break")) {
-						this.advance();
-						if (this.check(TokenType.PUNCTUATION, ";")) this.advance();
-						break;
-					}
-					if (this.check(TokenType.KEYWORD, "fallthrough")) {
-						this.advance();
-						if (this.check(TokenType.PUNCTUATION, ";")) this.advance();
-						hasFallthrough = true;
-						break;
-					}
-					body.push(this.parseStatement());
-				}
-				cases.push({ test, body, fallthrough: hasFallthrough } as VCLSwitchCase);
+				const { body, fallthrough } = this.parseSwitchCaseBody(caseToken);
+				cases.push({ test, regex: isRegex, body, fallthrough } as VCLSwitchCase);
 			} else if (this.match(TokenType.KEYWORD, "default")) {
-				this.consume(TokenType.PUNCTUATION, "Expected ':' after default");
-				const body: VCLStatement[] = [];
-				while (!this.check(TokenType.PUNCTUATION, "}") && !this.isAtEnd()) {
-					if (this.check(TokenType.KEYWORD, "break")) {
-						this.advance();
-						if (this.check(TokenType.PUNCTUATION, ";")) this.advance();
-						break;
-					}
-					body.push(this.parseStatement());
+				const defaultToken = this.previous();
+				if (sawDefault) {
+					throw new Error(
+						`Multiple default cases in switch at line ${defaultToken.line}, column ${defaultToken.column}`,
+					);
 				}
-				cases.push({ test: null, body, fallthrough: false } as VCLSwitchCase);
+				sawDefault = true;
+				this.consume(TokenType.PUNCTUATION, "Expected ':' after default");
+				const { body, fallthrough } = this.parseSwitchCaseBody(defaultToken);
+				cases.push({ test: null, body, fallthrough } as VCLSwitchCase);
 			} else {
-				this.advance();
+				const tok = this.peek();
+				throw new Error(
+					`Expected 'case' or 'default' in switch at line ${tok.line}, column ${tok.column}`,
+				);
 			}
 		}
 		this.consume(TokenType.PUNCTUATION, "Expected '}' after switch body");
+		if (cases.length === 0) {
+			throw new Error(`Empty switch statement at line ${token.line}, column ${token.column}`);
+		}
+		if (cases[cases.length - 1]!.fallthrough) {
+			throw new Error(
+				`Final case cannot have fallthrough at line ${token.line}, column ${token.column}`,
+			);
+		}
 		return {
 			type: "SwitchStatement",
 			subject,
 			cases,
 			location: { line: token.line, column: token.column },
 		};
+	}
+
+	/** Parse a case/default body; it must end with `break;` or `fallthrough;`. */
+	private parseSwitchCaseBody(caseToken: Token): { body: VCLStatement[]; fallthrough: boolean } {
+		const body: VCLStatement[] = [];
+		while (
+			!this.check(TokenType.KEYWORD, "case") &&
+			!this.check(TokenType.KEYWORD, "default") &&
+			!this.check(TokenType.PUNCTUATION, "}") &&
+			!this.isAtEnd()
+		) {
+			if (this.match(TokenType.COMMENT)) continue;
+			if (this.check(TokenType.KEYWORD, "break")) {
+				this.advance();
+				this.consume(TokenType.PUNCTUATION, "Expected ';' after break");
+				return { body, fallthrough: false };
+			}
+			if (this.check(TokenType.KEYWORD, "fallthrough")) {
+				this.advance();
+				this.consume(TokenType.PUNCTUATION, "Expected ';' after fallthrough");
+				return { body, fallthrough: true };
+			}
+			body.push(this.parseStatement());
+		}
+		throw new Error(
+			`Case body must end with 'break' or 'fallthrough' at line ${caseToken.line}, column ${caseToken.column}`,
+		);
 	}
 
 	private parseDirectorDeclaration(): VCLDirectorDeclaration {
@@ -1298,10 +1464,7 @@ export class VCLParser {
 		const expr = this.parseLogicalOr();
 
 		// Check for ternary operator: condition ? trueExpr : falseExpr
-		if (
-			this.match(TokenType.PUNCTUATION, "?") ||
-			(this.match(TokenType.KEYWORD) && this.previous().value === "if")
-		) {
+		if (this.match(TokenType.PUNCTUATION, "?")) {
 			// Parse the true expression
 			const trueExpr = this.parseExpression();
 
@@ -1615,15 +1778,8 @@ export class VCLParser {
 		if (this.match(TokenType.STRING)) {
 			const token = this.previous();
 
-			// Remove quotes (including the {"..."} long-string delimiters)
-			let value = token.value;
-			if (value.startsWith('{"') && value.endsWith('"}')) {
-				value = value.slice(2, -2);
-			} else if (value.startsWith('"') && value.endsWith('"')) {
-				value = value.slice(1, -1);
-			} else if (value.startsWith("'") && value.endsWith("'")) {
-				value = value.slice(1, -1);
-			}
+			// Remove quotes (including the {"..."} / {DELIM"..."DELIM} delimiters)
+			const value = this.unquoteStringToken(token.value);
 
 			return {
 				type: "StringLiteral",
@@ -1637,10 +1793,23 @@ export class VCLParser {
 
 		if (this.match(TokenType.NUMBER)) {
 			const token = this.previous();
+			const unitMatch = token.value.match(/^([0-9.]+)(ms|s|m|h|d|y)$/);
+			if (unitMatch) {
+				return {
+					type: "RTimeLiteral",
+					seconds: parseTimeValue(token.value),
+					raw: token.value,
+					location: {
+						line: token.line,
+						column: token.column,
+					},
+				};
+			}
 
 			return {
 				type: "NumberLiteral",
 				value: parseFloat(token.value),
+				isFloat: token.value.includes("."),
 				location: {
 					line: token.line,
 					column: token.column,
@@ -1716,28 +1885,16 @@ export class VCLParser {
 			return result;
 		}
 
-		if (this.match(TokenType.KEYWORD, "true")) {
+		if (this.match(TokenType.KEYWORD, "true") || this.match(TokenType.KEYWORD, "false")) {
 			const token = this.previous();
 			return {
-				type: "StringLiteral", // Using StringLiteral for booleans
-				value: "true",
+				type: "BoolLiteral",
+				value: token.value === "true",
 				location: {
 					line: token.line,
 					column: token.column,
 				},
-			};
-		}
-
-		if (this.match(TokenType.KEYWORD, "false")) {
-			const token = this.previous();
-			return {
-				type: "StringLiteral", // Using StringLiteral for booleans
-				value: "false",
-				location: {
-					line: token.line,
-					column: token.column,
-				},
-			};
+			} as any;
 		}
 
 		// Handle if() function call (ternary-like expression)
@@ -1793,16 +1950,11 @@ export class VCLParser {
 			};
 		}
 
-		// If we can't parse a valid expression, return an empty identifier
-		// Default to an empty identifier
-		return {
-			type: "Identifier",
-			name: "",
-			location: {
-				line: this.peek().line,
-				column: this.peek().column,
-			},
-		};
+		// Anything else is not a valid expression start.
+		const tok = this.peek();
+		throw new Error(
+			`Unexpected token "${tok.value}" in expression at line ${tok.line}, column ${tok.column}`,
+		);
 	}
 
 	private match(type: TokenType, value?: string): boolean {

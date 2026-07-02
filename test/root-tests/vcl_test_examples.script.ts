@@ -161,7 +161,7 @@ function example4() {
 		const errorResult = executeVCL(subroutines, "vcl_error", context);
 		console.log(`Error result: ${errorResult}`);
 		console.log(`Error status: ${context.obj.status}`);
-		console.log(`Error response: ${context.obj.response.substring(0, 100)}...`);
+		console.log(`Error response: ${(context.obj.response ?? "").substring(0, 100)}...`);
 	}
 }
 

@@ -112,7 +112,7 @@ try {
 	const errorAction = executeVCL(testSubroutines, "vcl_error", context);
 	console.log(`vcl_error action: ${errorAction}`);
 	console.log(`Response status: ${context.obj.status}`);
-	console.log(`Synthetic response length: ${context.obj.response.length} characters`);
+	console.log(`Synthetic response length: ${(context.obj.response ?? "").length} characters`);
 }
 
 // Test 2: Unhealthy backend
@@ -143,7 +143,7 @@ try {
 	const errorAction = executeVCL(testSubroutines, "vcl_error", context);
 	console.log(`vcl_error action: ${errorAction}`);
 	console.log(`Response status: ${context.obj.status}`);
-	console.log(`Synthetic response length: ${context.obj.response.length} characters`);
+	console.log(`Synthetic response length: ${(context.obj.response ?? "").length} characters`);
 }
 
 // Test 3: Fallback director
@@ -191,7 +191,7 @@ try {
 	const errorAction = executeVCL(testSubroutines, "vcl_error", context);
 	console.log(`vcl_error action: ${errorAction}`);
 	console.log(`Response status: ${context.obj.status}`);
-	console.log(`Synthetic response length: ${context.obj.response.length} characters`);
+	console.log(`Synthetic response length: ${(context.obj.response ?? "").length} characters`);
 }
 
 console.log("\nAll backend error handling tests completed!");

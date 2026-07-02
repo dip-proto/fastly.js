@@ -74,13 +74,13 @@ const esiFunctionsTests = {
 				// Check that the ESI include tags were processed
 				(context: VCLContext) => {
 					return assert(
-						context.obj.response.includes("<header>") &&
-							context.obj.response.includes("<footer>") &&
-							context.obj.response.includes("<nav>") &&
-							context.obj.response.includes("Home") &&
-							context.obj.response.includes("About") &&
-							context.obj.response.includes("Contact") &&
-							context.obj.response.includes("&copy; 2023 Example Company"),
+						(context.obj.response ?? "").includes("<header>") &&
+							(context.obj.response ?? "").includes("<footer>") &&
+							(context.obj.response ?? "").includes("<nav>") &&
+							(context.obj.response ?? "").includes("Home") &&
+							(context.obj.response ?? "").includes("About") &&
+							(context.obj.response ?? "").includes("Contact") &&
+							(context.obj.response ?? "").includes("&copy; 2023 Example Company"),
 						"ESI include tags were not properly processed",
 					);
 				},
@@ -131,9 +131,9 @@ const esiFunctionsTests = {
 				// Check that the content inside ESI remove tags was removed
 				(context: VCLContext) => {
 					return assert(
-						context.obj.response.includes("<h1>Welcome</h1>") &&
-							context.obj.response.includes("<p>This content should remain.</p>") &&
-							!context.obj.response.includes("Debug information that should be removed"),
+						(context.obj.response ?? "").includes("<h1>Welcome</h1>") &&
+							(context.obj.response ?? "").includes("<p>This content should remain.</p>") &&
+							!(context.obj.response ?? "").includes("Debug information that should be removed"),
 						"ESI remove tags were not properly processed",
 					);
 				},
@@ -180,9 +180,9 @@ const esiFunctionsTests = {
 				// Check that the ESI comment tags were removed
 				(context: VCLContext) => {
 					return assert(
-						context.obj.response.includes("<h1>Welcome</h1>") &&
-							context.obj.response.includes("<p>This content should remain.</p>") &&
-							!context.obj.response.includes("This is a comment that should be removed"),
+						(context.obj.response ?? "").includes("<h1>Welcome</h1>") &&
+							(context.obj.response ?? "").includes("<p>This content should remain.</p>") &&
+							!(context.obj.response ?? "").includes("This is a comment that should be removed"),
 						"ESI comment tags were not properly processed",
 					);
 				},
@@ -272,10 +272,10 @@ const esiFunctionsTests = {
 				// Check that the correct branch was chosen for premium user
 				(context: VCLContext) => {
 					return assert(
-						context.obj.response.includes('<div class="premium-content">') &&
-							context.obj.response.includes("Premium content here") &&
-							!context.obj.response.includes('<div class="standard-content">') &&
-							!context.obj.response.includes("Standard content here"),
+						(context.obj.response ?? "").includes('<div class="premium-content">') &&
+							(context.obj.response ?? "").includes("Premium content here") &&
+							!(context.obj.response ?? "").includes('<div class="standard-content">') &&
+							!(context.obj.response ?? "").includes("Standard content here"),
 						"ESI choose/when/otherwise tags were not properly processed for premium user",
 					);
 				},
@@ -363,13 +363,13 @@ const esiFunctionsTests = {
 				// Check that ESI tags were processed
 				(context: VCLContext) => {
 					return assert(
-						context.obj.response.includes("<header>") &&
-							context.obj.response.includes("<footer>") &&
-							context.obj.response.includes("<nav>") &&
-							context.obj.response.includes("Home") &&
-							context.obj.response.includes("About") &&
-							context.obj.response.includes("Contact") &&
-							context.obj.response.includes("&copy; 2023 Example Company"),
+						(context.obj.response ?? "").includes("<header>") &&
+							(context.obj.response ?? "").includes("<footer>") &&
+							(context.obj.response ?? "").includes("<nav>") &&
+							(context.obj.response ?? "").includes("Home") &&
+							(context.obj.response ?? "").includes("About") &&
+							(context.obj.response ?? "").includes("Contact") &&
+							(context.obj.response ?? "").includes("&copy; 2023 Example Company"),
 						"ESI tags were not properly processed in the response body",
 					);
 				},

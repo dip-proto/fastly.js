@@ -73,6 +73,102 @@ function hmac(
 	return Buffer.from(result).toString(encoding);
 }
 
+const XXH64_MASK = 0xffffffffffffffffn;
+const XXH64_P1 = 11400714785074694791n;
+const XXH64_P2 = 14029467366897019727n;
+const XXH64_P3 = 1609587929392839161n;
+const XXH64_P4 = 9650029242287828579n;
+const XXH64_P5 = 2870177450012600261n;
+
+function xxh64Rotl(x: bigint, r: bigint): bigint {
+	return ((x << r) | (x >> (64n - r))) & XXH64_MASK;
+}
+
+function xxh64Round(acc: bigint, input: bigint): bigint {
+	acc = (acc + input * XXH64_P2) & XXH64_MASK;
+	acc = xxh64Rotl(acc, 31n);
+	return (acc * XXH64_P1) & XXH64_MASK;
+}
+
+function xxh64MergeRound(acc: bigint, val: bigint): bigint {
+	acc ^= xxh64Round(0n, val);
+	return (acc * XXH64_P1 + XXH64_P4) & XXH64_MASK;
+}
+
+function xxh64Read64(data: Uint8Array, i: number): bigint {
+	let result = 0n;
+	for (let j = 7; j >= 0; j--) {
+		result = (result << 8n) | BigInt(data[i + j]!);
+	}
+	return result;
+}
+
+function xxh64Read32(data: Uint8Array, i: number): bigint {
+	return BigInt(
+		(data[i]! | (data[i + 1]! << 8) | (data[i + 2]! << 16) | (data[i + 3]! << 24)) >>> 0,
+	);
+}
+
+function xxh64(data: Uint8Array, seed = 0n): bigint {
+	const len = data.length;
+	let h: bigint;
+	let i = 0;
+
+	if (len >= 32) {
+		let v1 = (seed + XXH64_P1 + XXH64_P2) & XXH64_MASK;
+		let v2 = (seed + XXH64_P2) & XXH64_MASK;
+		let v3 = seed & XXH64_MASK;
+		let v4 = (seed - XXH64_P1) & XXH64_MASK;
+
+		for (; i + 32 <= len; i += 32) {
+			v1 = xxh64Round(v1, xxh64Read64(data, i));
+			v2 = xxh64Round(v2, xxh64Read64(data, i + 8));
+			v3 = xxh64Round(v3, xxh64Read64(data, i + 16));
+			v4 = xxh64Round(v4, xxh64Read64(data, i + 24));
+		}
+
+		h =
+			(xxh64Rotl(v1, 1n) + xxh64Rotl(v2, 7n) + xxh64Rotl(v3, 12n) + xxh64Rotl(v4, 18n)) &
+			XXH64_MASK;
+		h = xxh64MergeRound(h, v1);
+		h = xxh64MergeRound(h, v2);
+		h = xxh64MergeRound(h, v3);
+		h = xxh64MergeRound(h, v4);
+	} else {
+		h = (seed + XXH64_P5) & XXH64_MASK;
+	}
+
+	h = (h + BigInt(len)) & XXH64_MASK;
+
+	for (; i + 8 <= len; i += 8) {
+		h ^= xxh64Round(0n, xxh64Read64(data, i));
+		h = (xxh64Rotl(h, 27n) * XXH64_P1 + XXH64_P4) & XXH64_MASK;
+	}
+
+	if (i + 4 <= len) {
+		h ^= (xxh64Read32(data, i) * XXH64_P1) & XXH64_MASK;
+		h = (xxh64Rotl(h, 23n) * XXH64_P2 + XXH64_P3) & XXH64_MASK;
+		i += 4;
+	}
+
+	for (; i < len; i++) {
+		h ^= (BigInt(data[i]!) * XXH64_P5) & XXH64_MASK;
+		h = (xxh64Rotl(h, 11n) * XXH64_P1) & XXH64_MASK;
+	}
+
+	h ^= h >> 33n;
+	h = (h * XXH64_P2) & XXH64_MASK;
+	h ^= h >> 29n;
+	h = (h * XXH64_P3) & XXH64_MASK;
+	h ^= h >> 32n;
+
+	return h;
+}
+
+function xxh64Hex(data: Uint8Array): string {
+	return xxh64(data).toString(16).padStart(16, "0");
+}
+
 function crc32(input: string): string {
 	const data = Buffer.from(String(input));
 	let crc = 0xffffffff;
@@ -129,10 +225,8 @@ export function createDigestModule(boundPlatform?: VCLPlatform) {
 			return h.toString(16).padStart(8, "0");
 		},
 
-		// xxHash64 stub - js-xxhash only provides xxHash32
 		hash_xxh64: (input: string): string => {
-			const h = hash("sha256", input);
-			return h.substring(0, 16);
+			return xxh64Hex(Buffer.from(String(input)));
 		},
 
 		hash_sha1_from_base64: (input: string): string => hashFromBase64("sha1", input),
@@ -141,7 +235,7 @@ export function createDigestModule(boundPlatform?: VCLPlatform) {
 
 		hash_xxh32_from_base64: (input: string): string => {
 			try {
-				const decoded = Buffer.from(String(input), "base64").toString();
+				const decoded = Buffer.from(String(input), "base64");
 				const h = xxHash32(decoded);
 				return h.toString(16).padStart(8, "0");
 			} catch {
@@ -152,8 +246,7 @@ export function createDigestModule(boundPlatform?: VCLPlatform) {
 		hash_xxh64_from_base64: (input: string): string => {
 			try {
 				const decoded = Buffer.from(String(input), "base64");
-				const h = hash("sha256", decoded.toString());
-				return h.substring(0, 16);
+				return xxh64Hex(decoded);
 			} catch {
 				return "";
 			}

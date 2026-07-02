@@ -69,22 +69,22 @@ sub vcl_recv {
     set req.url = std.tolower(req.url);
 
     # Strip all query parameters except essential ones
-    if (req.url ~ "\\?") {
+    if (req.url ~ "\?") {
       set req.url = querystring.filter_except(req.url, "id,version,format");
     }
 
     # Pass API requests (don't cache)
     return(pass);
   }
-  else if (req.url ~ "^/static/" || req.url ~ "\\.(jpg|jpeg|png|gif|ico|css|js)$") {
+  else if (req.url ~ "^/static/" || req.url ~ "\.(jpg|jpeg|png|gif|ico|css|js)$") {
     set req.backend = origin_static;
 
     # Normalize static URL
     set req.url = std.tolower(req.url);
 
     # Remove query strings from static assets
-    if (req.url ~ "\\?") {
-      set req.url = regsub(req.url, "\\?.*$", "");
+    if (req.url ~ "\?") {
+      set req.url = regsub(req.url, "\?.*$", "");
     }
 
     # Look up in cache
@@ -136,7 +136,7 @@ sub vcl_hash {
 
 sub vcl_fetch {
   # Set appropriate cache TTL based on content type
-  if (req.url ~ "^/static/" || req.url ~ "\\.(jpg|jpeg|png|gif|ico|css|js)$") {
+  if (req.url ~ "^/static/" || req.url ~ "\.(jpg|jpeg|png|gif|ico|css|js)$") {
     # Cache static assets for 24 hours
     set beresp.ttl = 24h;
     set beresp.grace = 1h;

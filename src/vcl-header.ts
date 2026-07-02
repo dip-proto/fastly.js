@@ -1,3 +1,4 @@
+import { firstHeaderFragment } from "./vcl-value";
 /**
  * VCL Header Functions Module
  *
@@ -33,7 +34,7 @@ export function createHeaderModule(): HeaderModule {
 			if (!key) return "";
 			const value = headers[key];
 			if (value === undefined) return "";
-			return Array.isArray(value) ? value.join(", ") : String(value);
+			return firstHeaderFragment(Array.isArray(value) ? value.join(", ") : String(value));
 		},
 
 		set: (headers: Headers, name: string, value: string): void => {
@@ -47,22 +48,24 @@ export function createHeaderModule(): HeaderModule {
 			if (key) delete headers[key];
 		},
 
+		// header.filter removes the named headers and keeps the rest.
 		filter: (headers: Headers, filterNames: string[]): Headers => {
 			const normalizedNames = new Set(filterNames.map(normalizeHeaderName));
 			const result: Headers = {};
 			for (const key of Object.keys(headers)) {
-				if (normalizedNames.has(normalizeHeaderName(key))) {
+				if (!normalizedNames.has(normalizeHeaderName(key))) {
 					result[key] = headers[key];
 				}
 			}
 			return result;
 		},
 
+		// header.filter_except keeps only the named headers.
 		filter_except: (headers: Headers, keepNames: string[]): Headers => {
 			const normalizedNames = new Set(keepNames.map(normalizeHeaderName));
 			const result: Headers = {};
 			for (const key of Object.keys(headers)) {
-				if (!normalizedNames.has(normalizeHeaderName(key))) {
+				if (normalizedNames.has(normalizeHeaderName(key))) {
 					result[key] = headers[key];
 				}
 			}

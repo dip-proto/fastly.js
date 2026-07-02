@@ -1,74 +1,67 @@
 import "../../src/platform-node";
 /**
- * Test script for VCL time functions
+ * Test script for VCL time functions (real Fastly API: time.add, time.sub,
+ * time.is_after, time.hex_to_time, strftime).
  */
 
 import { createVCLContext } from "../../src/vcl";
 
-// Create a VCL context
 const context = createVCLContext();
+const time = context.time!;
+const strftime = context.strftime!;
 
-// Test time.now function
-const now = context.std!.time!.now();
-console.log(`Current time: ${now}`);
-console.log(`Formatted current time: ${context.std!.strftime!("%Y-%m-%d %H:%M:%S", now)}`);
+const now: Date = new Date(context.platform!.now());
+console.log(`Current time: ${now.toUTCString()}`);
+console.log(`Formatted current time: ${strftime("%Y-%m-%d %H:%M:%S", now)}`);
 
-// Test time.add function
-const oneHourLater = context.std!.time!.add(now, "1h");
-const oneDayLater = context.std!.time!.add(now, "1d");
-const oneHourEarlier = context.std!.time!.add(now, "-1h");
+// time.add / time.sub take a TIME and an RTIME in seconds
+const oneHourLater = time.add(now, 3600);
+const oneDayLater = time.add(now, 86400);
+const oneHourEarlier = time.sub(now, 3600);
 
 console.log(`\nTime Addition Tests:`);
-console.log(`Current time: ${context.std!.strftime!("%Y-%m-%d %H:%M:%S", now)}`);
-console.log(`One hour later: ${context.std!.strftime!("%Y-%m-%d %H:%M:%S", oneHourLater)}`);
-console.log(`One day later: ${context.std!.strftime!("%Y-%m-%d %H:%M:%S", oneDayLater)}`);
-console.log(`One hour earlier: ${context.std!.strftime!("%Y-%m-%d %H:%M:%S", oneHourEarlier)}`);
+console.log(`One hour later: ${strftime("%Y-%m-%d %H:%M:%S", oneHourLater)}`);
+console.log(`One day later: ${strftime("%Y-%m-%d %H:%M:%S", oneDayLater)}`);
+console.log(`One hour earlier: ${strftime("%Y-%m-%d %H:%M:%S", oneHourEarlier)}`);
 
-// Test time.sub function
-const diffOneHour = context.std!.time!.sub(oneHourLater, now);
-const diffOneDay = context.std!.time!.sub(oneDayLater, now);
-const diffNegative = context.std!.time!.sub(oneHourEarlier, now);
-
-console.log(`\nTime Subtraction Tests:`);
-console.log(`Difference (one hour): ${diffOneHour} ms (should be close to 3600000)`);
-console.log(`Difference (one day): ${diffOneDay} ms (should be close to 86400000)`);
-console.log(`Difference (negative one hour): ${diffNegative} ms (should be close to -3600000)`);
-
-// Test time.is_after function
-const isOneHourLaterAfterNow = context.std!.time!.is_after(oneHourLater, now);
-const isOneHourEarlierAfterNow = context.std!.time!.is_after(oneHourEarlier, now);
-const isNowAfterNow = context.std!.time!.is_after(now, now);
-
-console.log(`\nTime Comparison Tests:`);
-console.log(`Is one hour later after now? ${isOneHourLaterAfterNow} (should be true)`);
-console.log(`Is one hour earlier after now? ${isOneHourEarlierAfterNow} (should be false)`);
-console.log(`Is now after now? ${isNowAfterNow} (should be false)`);
-
-// Test time.hex_to_time function
-const hexTime = "5F7D7E98"; // 2020-10-07 14:29:12 UTC
-const convertedTime = context.std!.time!.hex_to_time(hexTime);
-
-console.log(`\nHex to Time Conversion Tests:`);
-console.log(`Hex time: ${hexTime}`);
-console.log(`Converted time: ${context.std!.strftime!("%Y-%m-%d %H:%M:%S", convertedTime)}`);
-console.log(`Original timestamp: ${convertedTime}`);
-
-// Test with invalid inputs
-console.log(`\nError Handling Tests:`);
-try {
-	const invalidHex = "XYZ";
-	const invalidTime = context.std!.time!.hex_to_time(invalidHex);
-	console.log(`Invalid hex conversion: ${invalidHex} -> ${invalidTime}`);
-} catch (e) {
-	console.log(`Error with invalid hex: ${e}`);
+if (oneHourLater.getTime() - now.getTime() !== 3600000) {
+	throw new Error("time.add(1h) should advance by 3600000 ms");
+}
+if (oneDayLater.getTime() - now.getTime() !== 86400000) {
+	throw new Error("time.add(1d) should advance by 86400000 ms");
+}
+if (now.getTime() - oneHourEarlier.getTime() !== 3600000) {
+	throw new Error("time.sub(1h) should rewind by 3600000 ms");
 }
 
-try {
-	const invalidOffset = "1x";
-	const invalidAddition = context.std!.time!.add(now, invalidOffset);
-	console.log(`Invalid offset addition: ${invalidOffset} -> ${invalidAddition}`);
-} catch (e) {
-	console.log(`Error with invalid offset: ${e}`);
+// time.is_after
+const isLaterAfterNow = time.is_after(oneHourLater, now);
+const isEarlierAfterNow = time.is_after(oneHourEarlier, now);
+const isNowAfterNow = time.is_after(now, now);
+
+console.log(`\nTime Comparison Tests:`);
+console.log(`Is one hour later after now? ${isLaterAfterNow} (should be true)`);
+console.log(`Is one hour earlier after now? ${isEarlierAfterNow} (should be false)`);
+console.log(`Is now after now? ${isNowAfterNow} (should be false)`);
+
+if (isLaterAfterNow !== true || isEarlierAfterNow !== false || isNowAfterNow !== false) {
+	throw new Error("time.is_after comparisons returned unexpected results");
+}
+
+// time.hex_to_time(divisor, hex): hex is unix seconds after division
+const converted = time.hex_to_time(1, "5F7D7E98"); // 2020-10-07 14:02:32 UTC
+console.log(`\nHex to Time Conversion Tests:`);
+console.log(`Converted time: ${strftime("%Y-%m-%d %H:%M:%S", converted)}`);
+if (Math.floor(converted.getTime() / 1000) !== 0x5f7d7e98) {
+	throw new Error("time.hex_to_time(1, hex) should decode to unix seconds");
+}
+
+// Invalid input returns not-set (null)
+const invalid = time.hex_to_time(1, "XYZ");
+console.log(`\nError Handling Tests:`);
+console.log(`Invalid hex conversion: XYZ -> ${invalid}`);
+if (invalid !== null) {
+	throw new Error("time.hex_to_time with invalid hex should be not set");
 }
 
 console.log("\nAll time function tests completed!");

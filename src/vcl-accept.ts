@@ -1,72 +1,59 @@
-interface AcceptValue {
-	value: string;
-	quality: number;
+import { toRawString } from "./vcl-value";
+
+function splitAcceptItems(header: string): string[] {
+	return header.split(",").map((item) => {
+		let v = item.trim();
+		const semicolonIdx = v.indexOf(";");
+		if (semicolonIdx !== -1) {
+			v = v.substring(0, semicolonIdx);
+		}
+		return v;
+	});
 }
 
-function parseAcceptHeader(header: any): AcceptValue[] {
-	const headerStr =
-		header && typeof header === "object" && "value" in header ? header.value : String(header ?? "");
-	if (!headerStr) {
-		return [];
+// Shared logic of accept.{charset,encoding,language}_lookup: return the
+// entry of `available` with the lowest index that appears verbatim in the
+// accept header (quality values are ignored), or the default.
+function lookupAcceptHeader(available: string, defaultValue: string, header: any): string {
+	const options = String(available).split(":");
+	let index = options.length;
+	for (const item of splitAcceptItems(toRawString(header))) {
+		for (let i = 0; i < options.length; i++) {
+			if (options[i] === item && i < index) {
+				index = i;
+			}
+		}
 	}
-
-	return headerStr
-		.split(",")
-		.map((part) => {
-			const parts = part.trim().split(";q=");
-			const value = parts[0] ?? "";
-			const quality = parts[1];
-			return {
-				value: value.trim(),
-				quality: quality ? parseFloat(quality) : 1.0,
-			};
-		})
-		.sort((a, b) => b.quality - a.quality);
+	return index < options.length ? (options[index] as string) : String(defaultValue);
 }
 
-function findBestMatch(acceptValues: AcceptValue[], availableOptions: string[]): string | null {
-	for (const acceptValue of acceptValues) {
-		if (availableOptions.includes(acceptValue.value)) {
-			return acceptValue.value;
-		}
-	}
+export function language_filter_basic(
+	lookup: string,
+	defaultValue: string,
+	acceptLanguage: any,
+	nmatches: number,
+): string {
+	const languages = String(lookup).split(":");
+	let matches: number[] = [];
 
-	for (const acceptValue of acceptValues) {
-		const baseLang = acceptValue.value.split("-")[0] ?? "";
-		if (baseLang !== acceptValue.value && availableOptions.includes(baseLang)) {
-			return baseLang;
-		}
-	}
-
-	for (const acceptValue of acceptValues) {
-		if (acceptValue.value === "*/*" && availableOptions.length > 0) {
-			return availableOptions[0] ?? null;
-		}
-
-		const valueParts = acceptValue.value.split("/");
-		const type = valueParts[0];
-		const subtype = valueParts[1];
-		if (subtype === "*") {
-			for (const option of availableOptions) {
-				const optionParts = option.split("/");
-				const optionType = optionParts[0];
-				if (optionType === type) {
-					return option;
-				}
+	for (const item of splitAcceptItems(toRawString(acceptLanguage))) {
+		for (let i = 0; i < languages.length; i++) {
+			if (languages[i] === item) {
+				matches.push(i);
 			}
 		}
 	}
 
-	return null;
-}
-
-function lookupAcceptHeader(available: string, defaultValue: string, header: string): string {
-	if (!header) {
-		return defaultValue;
+	if (matches.length === 0) {
+		return String(defaultValue);
 	}
-	const options = available.split(":");
-	const acceptValues = parseAcceptHeader(header);
-	return findBestMatch(acceptValues, options) || defaultValue;
+
+	const n = Math.trunc(Number(nmatches));
+	if (matches.length > n) {
+		matches = matches.slice(0, Math.max(n, 0));
+	}
+	matches.sort((a, b) => a - b);
+	return matches.map((i) => languages[i]).join(",");
 }
 
 export const AcceptModule = {
@@ -74,35 +61,7 @@ export const AcceptModule = {
 		return lookupAcceptHeader(available, defaultLang, header);
 	},
 
-	language_filter_basic: (
-		lookup: string,
-		defaultValue: string,
-		language: string,
-		nmatches: number,
-	): string => {
-		const languages = String(lookup).split(":");
-		const matches: number[] = [];
-
-		for (const lang of String(language).split(",")) {
-			let l = lang.trim();
-			const semicolonIdx = l.indexOf(";");
-			if (semicolonIdx !== -1) {
-				l = l.substring(0, semicolonIdx);
-			}
-			const idx = languages.indexOf(l);
-			if (idx !== -1) {
-				matches.push(idx);
-			}
-		}
-
-		if (matches.length === 0) {
-			return String(defaultValue);
-		}
-
-		const limitedMatches = matches.slice(0, nmatches);
-		limitedMatches.sort((a, b) => a - b);
-		return limitedMatches.map((i) => languages[i]).join(",");
-	},
+	language_filter_basic,
 
 	charset_lookup: (available: string, defaultCharset: string, header: string): string => {
 		return lookupAcceptHeader(available, defaultCharset, header);
@@ -112,12 +71,43 @@ export const AcceptModule = {
 		return lookupAcceptHeader(available, defaultEncoding, header);
 	},
 
+	// `patterns` entries also match their "type/*" group wildcard; a bare
+	// "*/*" yields the default.
 	media_lookup: (
 		available: string,
 		defaultMedia: string,
-		_patterns: string,
+		patterns: string,
 		header: string,
 	): string => {
-		return lookupAcceptHeader(available, defaultMedia, header);
+		const mediaTypes = new Set(String(available).split(":"));
+
+		const patternMap = new Map<string, string>();
+		for (const p of String(patterns).split(":")) {
+			if (mediaTypes.has(p)) {
+				throw new Error(
+					"accept.media_lookup: third argument media must not duplicate in first argument",
+				);
+			}
+			patternMap.set(p, p);
+			const slashIdx = p.indexOf("/");
+			if (slashIdx !== -1) {
+				patternMap.set(`${p.substring(0, slashIdx)}/*`, p);
+			}
+		}
+
+		for (const item of splitAcceptItems(toRawString(header))) {
+			if (mediaTypes.has(item)) {
+				return item;
+			}
+			const patternMatch = patternMap.get(item);
+			if (patternMatch !== undefined) {
+				return patternMatch;
+			}
+			if (item === "*/*") {
+				return String(defaultMedia);
+			}
+		}
+
+		return "";
 	},
 };

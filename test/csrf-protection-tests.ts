@@ -24,7 +24,7 @@ const csrfProtectionTests = {
             client.ip +
             req.http.User-Agent +
             "secret-salt" +
-            std.time.hex_to_time(time.hex)
+            time.hex_to_time(1, "60000000")
           );
 
           return(lookup);
@@ -34,7 +34,6 @@ const csrfProtectionTests = {
 				// Set up the context
 				context.client = { ip: "192.168.1.1" };
 				context.req.http["User-Agent"] = "Mozilla/5.0";
-				(context as any).time = { hex: "000000000000000060000000" };
 
 				// Execute the subroutine
 				executeSubroutine(context, subroutines, "vcl_recv");
@@ -64,7 +63,7 @@ const csrfProtectionTests = {
               client.ip +
               req.http.User-Agent +
               "secret-salt" +
-              std.time.hex_to_time(time.hex)
+              time.hex_to_time(1, "60000000")
             );
 
             # Check if the token is valid
@@ -82,7 +81,6 @@ const csrfProtectionTests = {
 				context.req.method = "POST";
 				context.req.http["User-Agent"] = "Mozilla/5.0";
 				context.req.http["X-CSRF-Token"] = "invalid-token";
-				(context as any).time = { hex: "000000000000000060000000" };
 
 				// We expect an error to be thrown
 				let _errorThrown = false;
@@ -120,7 +118,7 @@ const csrfProtectionTests = {
               client.ip +
               req.http.User-Agent +
               "secret-salt" +
-              std.time.hex_to_time(time.hex)
+              time.hex_to_time(1, "60000000")
             );
           }
           # For other methods, validate the token
@@ -130,7 +128,7 @@ const csrfProtectionTests = {
               client.ip +
               req.http.User-Agent +
               "secret-salt" +
-              std.time.hex_to_time(time.hex)
+              time.hex_to_time(1, "60000000")
             );
 
             if (req.http.X-CSRF-Token != var.expected_token) {
@@ -155,7 +153,6 @@ const csrfProtectionTests = {
 				context.client = { ip: "192.168.1.1" };
 				context.req.method = "GET";
 				context.req.http["User-Agent"] = "Mozilla/5.0";
-				(context as any).time = { hex: "000000000000000060000000" };
 
 				// Execute the recv subroutine to generate the token
 				executeSubroutine(context, subroutines, "vcl_recv");

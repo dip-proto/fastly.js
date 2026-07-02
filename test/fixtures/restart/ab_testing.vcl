@@ -96,7 +96,7 @@ sub vcl_recv {
                 set req.http.X-Selected-Version = "B";
                 
                 # Optionally add a parameter to indicate B version
-                if (req.url ~ "\\?") {
+                if (req.url ~ "\?") {
                     set req.url = req.url + "&version=B";
                 } else {
                     set req.url = req.url + "?version=B";

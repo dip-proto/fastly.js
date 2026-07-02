@@ -151,7 +151,7 @@ describe("request workspace limit", () => {
 		expect(ctx.req.http.Total).toBe("262144");
 		expect(Number(ctx.req.http.Free)).toBeGreaterThan(0);
 		expect(Number(ctx.req.http.Free)).toBeLessThan(262144);
-		expect(ctx.req.http.Over).toBe("false");
+		expect(ctx.req.http.Over).toBe("0");
 	});
 });
 

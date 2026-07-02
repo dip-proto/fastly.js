@@ -1,9 +1,21 @@
+import { HEADER_FRAGMENT_SEPARATOR } from "./src/vcl-value";
 import "./src/platform-node";
 import { existsSync, readFileSync } from "node:fs";
 import { type BackendResponse, runPipeline } from "./src/runtime/pipeline";
 import { createVCLContext, loadVCLContent } from "./src/vcl";
 import type { VCLContext } from "./src/vcl-compiler";
 import { SecurityModule } from "./src/vcl-security";
+
+/** Multi-fragment header values become repeated header lines. */
+function toFragmentedHeaders(record: Record<string, string>): Headers {
+	const headers = new Headers();
+	for (const [key, value] of Object.entries(record)) {
+		for (const fragment of String(value).split(HEADER_FRAGMENT_SEPARATOR)) {
+			headers.append(key, fragment);
+		}
+	}
+	return headers;
+}
 
 const PROXY_HOST = "127.0.0.1";
 const PROXY_PORT = 8000;
@@ -127,9 +139,10 @@ async function fetchFromBackend(context: VCLContext, url: URL): Promise<BackendR
 		for (const [key, value] of Object.entries(context.req.http)) {
 			context.bereq.http[key] = value;
 		}
+		const proxyHeaders = toFragmentedHeaders(context.bereq.http);
 		const proxyReq = new Request(targetUrl.toString(), {
 			method: context.req.method,
-			headers: new Headers(context.bereq.http),
+			headers: proxyHeaders,
 			signal: AbortSignal.timeout(15000),
 		});
 		proxyReq.headers.delete("host");
@@ -215,10 +228,11 @@ const _server = Bun.serve({
 			getBackendResponse: (ctx) => fetchFromBackend(ctx, url),
 		});
 
-		return new Response(result.response.body, {
+		const respHeaders = toFragmentedHeaders(result.response.headers);
+		return new Response(result.response.body as Uint8Array<ArrayBuffer>, {
 			status: result.response.status,
 			statusText: result.response.statusText,
-			headers: result.response.headers,
+			headers: respHeaders,
 		});
 	},
 });

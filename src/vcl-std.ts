@@ -1,46 +1,49 @@
 import { logInfo } from "./platform";
+import { parseIPv4, parseIPv6 } from "./vcl-address";
 import {
+	atof,
+	atoi,
+	basename,
 	cstr_escape,
+	dirname,
+	itoa,
+	itoa_charset,
 	json_escape,
+	prefixof,
 	regsuball as regsuballImpl,
 	regsub as regsubImpl,
+	replace,
+	replace_prefix,
+	replace_suffix,
+	replaceall,
+	strcasecmp,
+	strpad,
+	strrep,
+	strrev,
+	strstr,
+	strtof,
 	strtol as strtolImpl,
 	subfield,
 	substr as substrImpl,
+	suffixof,
+	tolower,
+	toupper,
 	urldecode,
 	urlencode,
 	xml_escape,
 } from "./vcl-strings";
+import { std_integer2time, std_time } from "./vcl-time";
 import { toRawString } from "./vcl-value";
-
-function posixSplit(p: string): [string, number] {
-	let end = p.length;
-	while (end > 1 && p[end - 1] === "/") end--;
-	const s = p.slice(0, end);
-	return [s, s.lastIndexOf("/")];
-}
-
-function posixBasename(p: string): string {
-	const [s, idx] = posixSplit(p);
-	return idx === -1 ? s : s.slice(idx + 1);
-}
-
-function posixDirname(p: string): string {
-	const [s, idx] = posixSplit(p);
-	if (idx === -1) return ".";
-	if (idx === 0) return "/";
-	return s.slice(0, idx);
-}
 
 export interface StdModule {
 	strlen: (s: string) => number;
 	tolower: (s: string) => string;
 	toupper: (s: string) => string;
-	strstr: (haystack: string, needle: string) => string;
-	strrev: (s: string) => string;
+	strstr: (haystack: string, needle: string) => string | null;
+	strrev: (s: string) => string | null;
 	strrep: (s: string, count: number) => string;
 	strpad: (s: string, width: number, pad: string) => string;
-	strcasecmp: (s1: string, s2: string) => number;
+	strcasecmp: (s1: string, s2: string) => boolean;
 	prefixof: (s: string, prefix: string) => boolean;
 	suffixof: (s: string, suffix: string) => boolean;
 	replace: (s: string, target: string, replacement: string) => string;
@@ -49,235 +52,161 @@ export interface StdModule {
 	replace_suffix: (s: string, suffix: string, replacement: string) => string;
 	basename: (s: string) => string;
 	dirname: (s: string) => string;
-	atoi: (s: string) => number;
-	atof: (s: string) => number;
-	strtol: (s: string, base: number) => number;
-	strtof: (s: string) => number;
-	itoa: (n: number, base?: number) => string;
+	atoi: (s: string) => number | null;
+	atof: (s: string) => number | null;
+	strtol: (s: string, base: number) => number | null;
+	strtof: (s: string, base: number) => number | null;
+	itoa: (n: number, base?: number) => string | null;
 	itoa_charset: (n: number, charset: string) => string;
-	ip: (s: string, fallback: string) => string;
+	ip: (s: string, fallback: string) => string | null;
 	ip2str: (ip: string) => string;
-	str2ip: (s: string) => string;
-	anystr2ip: (s: string, fallback: string) => string;
+	str2ip: (s: string, fallback: string) => string | null;
+	anystr2ip: (s: string, fallback: string) => string | null;
 	collect: (header: string[], separator?: string) => string;
 	count: (header: string[]) => number;
-	time: (s: string) => number;
+	time: (s: string, fallback: any) => Date;
 	integer2time: (n: number) => Date;
 	log: (message: string) => void;
 	substr: (s: string, offset: number, length?: number) => string;
 	regsub: (s: string, pattern: string, replacement: string) => string;
 	regsuball: (s: string, pattern: string, replacement: string) => string;
-	urlencode: (s: string) => string;
-	urldecode: (s: string) => string;
+	urlencode: (s: string) => string | null;
+	urldecode: (s: string) => string | null;
 	cstr_escape: (s: string) => string;
 	json_escape: (s: string) => string;
 	xml_escape: (s: string) => string;
-	subfield: (header: string, name: string, separator?: string) => string;
+	subfield: (header: string, name: string, separator?: string) => string | null;
 }
 
-const IPV4_REGEX = /^(\d{1,3}\.){3}\d{1,3}$/;
-const IPV6_GROUP_REGEX = /^[0-9a-fA-F]{1,4}$/;
-
 function isValidIPv4(str: string): boolean {
-	if (!IPV4_REGEX.test(str)) return false;
-	return str.split(".").every((p) => parseInt(p, 10) <= 255);
+	return parseIPv4(str) !== null;
 }
 
 function isValidIPv6(str: string): boolean {
-	if (!str.includes(":")) return false;
-	const parts = str.split("::");
-	if (parts.length > 2) return false;
-
-	const validateGroups = (groups: string[]) =>
-		groups.every((g) => g === "" || IPV6_GROUP_REGEX.test(g));
-
-	if (parts.length === 2) {
-		const left = parts[0] === "" ? [] : parts[0]!.split(":");
-		const right = parts[1] === "" ? [] : parts[1]!.split(":");
-		return left.length + right.length <= 7 && validateGroups(left) && validateGroups(right);
-	}
-
-	const groups = str.split(":");
-	return groups.length === 8 && validateGroups(groups);
+	return parseIPv6(str) !== null;
 }
 
 function isValidIP(str: string): boolean {
 	return isValidIPv4(str) || isValidIPv6(str);
 }
 
+/** Parse one numeric segment of a flexible IPv4 string: 0x-hex, 0-octal, or decimal. */
+function parseFlexibleSegment(v: string): number | null {
+	if (v === "0") return 0;
+	let n: number;
+	if (v.startsWith("0x")) {
+		const body = v.slice(2);
+		if (!/^[0-9a-fA-F]+$/.test(body)) return null;
+		n = parseInt(body, 16);
+	} else if (v.startsWith("0")) {
+		const body = v.slice(1);
+		if (!/^[0-7]+$/.test(body)) return null;
+		n = parseInt(body, 8);
+	} else {
+		if (!/^[0-9]+$/.test(v)) return null;
+		n = parseInt(v, 10);
+	}
+	return Number.isSafeInteger(n) ? n : null;
+}
+
+/**
+ * Flexible IPv4 parsing: 1-4 dot-separated segments where the last segment
+ * covers the remaining bytes ("3221225985" = 192.0.2.1, "192.11010305" works
+ * too), each segment in decimal/0x-hex/0-octal notation.
+ */
+function parseFlexibleIPv4(addr: string): string | null {
+	const segments = addr.split(".");
+	if (segments.length < 1 || segments.length > 4) return null;
+	const values: number[] = [];
+	for (const s of segments) {
+		const v = parseFlexibleSegment(s);
+		if (v === null) return null;
+		values.push(v);
+	}
+	// inet_aton range rules: leading segments are single octets; the final
+	// segment must fit in the remaining bytes.
+	const finalMax = 2 ** (8 * (5 - values.length)) - 1;
+	for (let i = 0; i < values.length; i++) {
+		const max = i === values.length - 1 ? finalMax : 255;
+		if (values[i]! > max) return null;
+	}
+	let ip = 0;
+	switch (values.length) {
+		case 1:
+			ip = values[0]!;
+			break;
+		case 2:
+			ip = (values[0]! << 24) | values[1]!;
+			break;
+		case 3:
+			ip = (values[0]! << 24) | (values[1]! << 16) | values[2]!;
+			break;
+		case 4:
+			ip = (values[0]! << 24) | (values[1]! << 16) | (values[2]! << 8) | values[3]!;
+			break;
+	}
+	ip = ip >>> 0;
+	return `${(ip >>> 24) & 0xff}.${(ip >>> 16) & 0xff}.${(ip >>> 8) & 0xff}.${ip & 0xff}`;
+}
+
 function parseAnyIP(addr: string): string | null {
 	if (!addr) return null;
 	if (addr.toLowerCase() === "localhost") return "127.0.0.1";
-	// If no colon, try IPv4 parsing (standard and hex/octal notation)
 	if (!addr.includes(":")) {
-		if (isValidIPv4(addr)) return addr;
-		// Try parsing as integer-format IPv4 (hex/octal octets)
-		const parts = addr.split(".");
-		if (parts.length === 4) {
-			const octets = parts.map((p) => {
-				if (p.startsWith("0x") || p.startsWith("0X")) return parseInt(p, 16);
-				if (p.startsWith("0") && p.length > 1) return parseInt(p, 8);
-				return parseInt(p, 10);
-			});
-			if (octets.every((o) => !Number.isNaN(o) && o >= 0 && o <= 255)) {
-				return octets.join(".");
-			}
-		}
-		return null;
+		const flexible = parseFlexibleIPv4(addr);
+		if (flexible) return flexible;
+		return isValidIPv4(addr) ? addr : null;
 	}
-	// Colon present — try IPv6
 	if (isValidIPv6(addr)) return addr;
+	return null;
+}
+
+/** Strict IP parse with fallback: used by std.ip and std.str2ip. */
+function parseIPWithFallback(s: string, fallback: string): string | null {
+	const primary = String(s);
+	if (isValidIP(primary)) return primary;
+	const fb = String(fallback);
+	if (isValidIP(fb)) return fb;
 	return null;
 }
 
 export function createStdModule(): StdModule {
 	return {
-		// Fastly does not consider multibyte, so "日本語" is treated as 9 bytes
+		// Byte length, not code-point length: "日本語" counts as 9
 		strlen: (s: any): number => Buffer.byteLength(toRawString(s), "utf8"),
 
-		tolower: (s: string): string => String(s).toLowerCase(),
-
-		toupper: (s: string): string => String(s).toUpperCase(),
-
-		strstr: (haystack: string, needle: string): string => {
-			const h = String(haystack);
-			const idx = h.indexOf(String(needle));
-			return idx === -1 ? "" : h.substring(idx);
-		},
-
-		// Fastly returns empty string for multibyte characters
-		strrev: (s: string): string => {
-			const str = String(s);
-			if (Buffer.byteLength(str, "utf8") !== str.length) return "";
-			return str.split("").reverse().join("");
-		},
-
-		strrep: (s: string, count: number): string => {
-			return String(s).repeat(Math.max(0, Math.floor(count)));
-		},
-
-		// Positive width pads left, negative pads right
-		strpad: (s: string, width: number, pad: string): string => {
-			const str = String(s);
-			const w = Math.abs(width);
-			if (str.length >= w) return str;
-
-			const padding = String(pad)
-				.repeat(w - str.length)
-				.substring(0, w - str.length);
-			return width < 0 ? str + padding : padding + str;
-		},
-
-		strcasecmp: (s1: string, s2: string): number => {
-			const a = String(s1).toLowerCase();
-			const b = String(s2).toLowerCase();
-			if (a < b) return -1;
-			if (a > b) return 1;
-			return 0;
-		},
-
-		prefixof: (s: string, prefix: string): boolean => String(s).startsWith(String(prefix)),
-
-		suffixof: (s: string, suffix: string): boolean => String(s).endsWith(String(suffix)),
-
-		replace: (s: string, target: string, replacement: string): string => {
-			return String(s).replace(String(target), String(replacement));
-		},
-
-		replaceall: (s: string, target: string, replacement: string): string => {
-			return String(s).split(String(target)).join(String(replacement));
-		},
-
-		replace_prefix: (s: string, prefix: string, replacement: string): string => {
-			const str = String(s);
-			const pre = String(prefix);
-			return str.startsWith(pre) ? String(replacement) + str.substring(pre.length) : str;
-		},
-
-		replace_suffix: (s: string, suffix: string, replacement: string): string => {
-			const str = String(s);
-			const suf = String(suffix);
-			return str.endsWith(suf)
-				? str.substring(0, str.length - suf.length) + String(replacement)
-				: str;
-		},
-
-		basename: (s: string): string => {
-			const str = String(s);
-			if (str === "." || str === "") return ".";
-			if (str === "..") return "..";
-			if (str === "/") return "/";
-			return posixBasename(str);
-		},
-
-		dirname: (s: string): string => {
-			const str = String(s);
-			if (str === "." || str === "" || str === "..") return ".";
-			if (str === "/") return "/";
-			return posixDirname(str);
-		},
-
-		atoi: (s: string): number => {
-			let input = String(s).trim();
-			if (input === "") return 0;
-			const dotIdx = input.indexOf(".");
-			if (dotIdx !== -1) input = input.substring(0, dotIdx);
-			const result = parseInt(input, 10);
-			return Number.isNaN(result) ? 0 : result;
-		},
-
-		atof: (s: string): number => {
-			const result = parseFloat(String(s));
-			return Number.isNaN(result) ? 0 : result;
-		},
-
+		tolower,
+		toupper,
+		strstr,
+		strrev,
+		strrep,
+		strpad,
+		strcasecmp,
+		prefixof,
+		suffixof,
+		replace,
+		replaceall,
+		replace_prefix,
+		replace_suffix,
+		basename,
+		dirname,
+		atoi,
+		atof,
 		strtol: strtolImpl,
+		strtof,
+		itoa,
+		itoa_charset,
 
-		strtof: (s: string): number => {
-			const result = parseFloat(String(s));
-			return Number.isNaN(result) ? 0 : result;
-		},
-
-		itoa: (n: number, base: number = 10): string => {
-			const b = Math.floor(base);
-			if (b < 2 || b > 36) return "";
-			return Math.floor(n).toString(b);
-		},
-
-		itoa_charset: (n: number, charset: string): string => {
-			const cs = String(charset);
-			if (cs.length < 2) return "";
-
-			let num = Math.abs(Math.floor(n));
-			const base = cs.length;
-			const negative = n < 0;
-
-			if (num === 0) return cs[0] ?? "";
-
-			let result = "";
-			while (num > 0) {
-				result = (cs[num % base] ?? "") + result;
-				num = Math.floor(num / base);
-			}
-
-			return negative ? `-${result}` : result;
-		},
-
-		ip: (s: string, fallback: string): string => {
-			const str = String(s).trim();
-			if (isValidIP(str)) return str;
-			return String(fallback);
-		},
+		ip: parseIPWithFallback,
 
 		ip2str: (ip: string): string => String(ip),
 
-		str2ip: (s: string): string => String(s).trim(),
+		str2ip: parseIPWithFallback,
 
-		anystr2ip: (s: string, fallback: string): string => {
+		anystr2ip: (s: string, fallback: string): string | null => {
 			const primary = parseAnyIP(String(s).trim());
 			if (primary) return primary;
-			const fb = parseAnyIP(String(fallback).trim());
-			return fb || "";
+			return parseAnyIP(String(fallback).trim());
 		},
 
 		collect: (header: string[], separator: string = ", "): string => {
@@ -289,12 +218,8 @@ export function createStdModule(): StdModule {
 			return header.length;
 		},
 
-		time: (s: string): number => {
-			const date = new Date(String(s));
-			return Number.isNaN(date.getTime()) ? 0 : date.getTime();
-		},
-
-		integer2time: (n: number): Date => new Date(n),
+		time: std_time,
+		integer2time: std_integer2time,
 
 		log: (message: string): void => {
 			logInfo(`[VCL] ${message}`);

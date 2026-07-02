@@ -24,7 +24,7 @@ sub vcl_recv {
     }
     else if (req.restarts == 1) {
         # Second pass: Add trailing slash if needed
-        if (req.http.X-Current-URL !~ "\\." && req.http.X-Current-URL !~ "/$") {
+        if (req.http.X-Current-URL !~ "\." && req.http.X-Current-URL !~ "/$") {
             set req.http.X-Current-URL = req.http.X-Current-URL + "/";
             set req.http.X-Restart-Reason = "add_trailing_slash";
             return(restart);

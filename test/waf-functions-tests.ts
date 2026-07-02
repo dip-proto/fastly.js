@@ -105,57 +105,57 @@ const wafFunctionsTests = {
 				// Check SQL injection detection
 				(context: VCLContext) => {
 					return assert(
-						context.req.http["X-SQL-Attack"] === "true",
-						`Expected X-SQL-Attack to be 'true', got '${context.req.http["X-SQL-Attack"]}'`,
+						context.req.http["X-SQL-Attack"] === "1",
+						`Expected X-SQL-Attack to be '1', got '${context.req.http["X-SQL-Attack"]}'`,
 					);
 				},
 				// Check XSS detection
 				(context: VCLContext) => {
 					return assert(
-						context.req.http["X-XSS-Attack"] === "true",
-						`Expected X-XSS-Attack to be 'true', got '${context.req.http["X-XSS-Attack"]}'`,
+						context.req.http["X-XSS-Attack"] === "1",
+						`Expected X-XSS-Attack to be '1', got '${context.req.http["X-XSS-Attack"]}'`,
 					);
 				},
 				// Check path traversal detection
 				(context: VCLContext) => {
 					return assert(
-						context.req.http["X-Path-Attack"] === "true",
-						`Expected X-Path-Attack to be 'true', got '${context.req.http["X-Path-Attack"]}'`,
+						context.req.http["X-Path-Attack"] === "1",
+						`Expected X-Path-Attack to be '1', got '${context.req.http["X-Path-Attack"]}'`,
 					);
 				},
 				// Check command injection detection
 				(context: VCLContext) => {
 					return assert(
-						context.req.http["X-Command-Attack"] === "true",
-						`Expected X-Command-Attack to be 'true', got '${context.req.http["X-Command-Attack"]}'`,
+						context.req.http["X-Command-Attack"] === "1",
+						`Expected X-Command-Attack to be '1', got '${context.req.http["X-Command-Attack"]}'`,
 					);
 				},
 				// Check LFI detection
 				(context: VCLContext) => {
 					return assert(
-						context.req.http["X-LFI-Attack"] === "true",
-						`Expected X-LFI-Attack to be 'true', got '${context.req.http["X-LFI-Attack"]}'`,
+						context.req.http["X-LFI-Attack"] === "1",
+						`Expected X-LFI-Attack to be '1', got '${context.req.http["X-LFI-Attack"]}'`,
 					);
 				},
 				// Check RFI detection
 				(context: VCLContext) => {
 					return assert(
-						context.req.http["X-RFI-Attack"] === "true",
-						`Expected X-RFI-Attack to be 'true', got '${context.req.http["X-RFI-Attack"]}'`,
+						context.req.http["X-RFI-Attack"] === "1",
+						`Expected X-RFI-Attack to be '1', got '${context.req.http["X-RFI-Attack"]}'`,
 					);
 				},
 				// Check any attack detection
 				(context: VCLContext) => {
 					return assert(
-						context.req.http["X-Any-Attack"] === "true",
-						`Expected X-Any-Attack to be 'true', got '${context.req.http["X-Any-Attack"]}'`,
+						context.req.http["X-Any-Attack"] === "1",
+						`Expected X-Any-Attack to be '1', got '${context.req.http["X-Any-Attack"]}'`,
 					);
 				},
 				// Check non-attack
 				(context: VCLContext) => {
 					return assert(
-						context.req.http["X-Non-Attack"] === "false",
-						`Expected X-Non-Attack to be 'false', got '${context.req.http["X-Non-Attack"]}'`,
+						context.req.http["X-Non-Attack"] === "0",
+						`Expected X-Non-Attack to be '0', got '${context.req.http["X-Non-Attack"]}'`,
 					);
 				},
 			],
@@ -198,8 +198,8 @@ const wafFunctionsTests = {
 				// Check first rate limit request (should be allowed)
 				(context: VCLContext) => {
 					return assert(
-						context.req.http["X-Rate-Limit-1"] === "true",
-						`Expected X-Rate-Limit-1 to be 'true', got '${context.req.http["X-Rate-Limit-1"]}'`,
+						context.req.http["X-Rate-Limit-1"] === "1",
+						`Expected X-Rate-Limit-1 to be '1', got '${context.req.http["X-Rate-Limit-1"]}'`,
 					);
 				},
 				// Check tokens after first request (should be 4)
@@ -212,15 +212,15 @@ const wafFunctionsTests = {
 				// Check fifth rate limit request (should be allowed)
 				(context: VCLContext) => {
 					return assert(
-						context.req.http["X-Rate-Limit-5"] === "true",
-						`Expected X-Rate-Limit-5 to be 'true', got '${context.req.http["X-Rate-Limit-5"]}'`,
+						context.req.http["X-Rate-Limit-5"] === "1",
+						`Expected X-Rate-Limit-5 to be '1', got '${context.req.http["X-Rate-Limit-5"]}'`,
 					);
 				},
 				// Check sixth rate limit request (should be blocked)
 				(context: VCLContext) => {
 					return assert(
-						context.req.http["X-Rate-Limit-6"] === "false",
-						`Expected X-Rate-Limit-6 to be 'false', got '${context.req.http["X-Rate-Limit-6"]}'`,
+						context.req.http["X-Rate-Limit-6"] === "0",
+						`Expected X-Rate-Limit-6 to be '0', got '${context.req.http["X-Rate-Limit-6"]}'`,
 					);
 				},
 				// Check tokens after all requests (should be 0)

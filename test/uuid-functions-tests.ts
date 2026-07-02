@@ -36,11 +36,9 @@ const uuidFunctionsTests = {
           # Generate a version 5 (namespace + name, SHA-1) UUID
           set req.http.X-UUID-V5 = uuid.version5("6ba7b810-9dad-11d1-80b4-00c04fd430c8", "example.com");
 
-          # Generate a DNS namespace UUID
-          set req.http.X-UUID-DNS = uuid.dns("example.com");
-
-          # Generate a URL namespace UUID
-          set req.http.X-UUID-URL = uuid.url("https://example.com");
+          # The DNS and URL namespace constants
+          set req.http.X-UUID-DNS = uuid.dns();
+          set req.http.X-UUID-URL = uuid.url();
 
           return(lookup);
         }
@@ -79,24 +77,18 @@ const uuidFunctionsTests = {
 						`Expected X-UUID-V5 to match UUID v5 format, got '${context.req.http["X-UUID-V5"]}'`,
 					);
 				},
-				// Check DNS namespace UUID
+				// The RFC 4122 DNS namespace constant
 				(context: VCLContext) => {
-					// DNS namespace UUID for "example.com" should be consistent
 					return assert(
-						!!context.req.http["X-UUID-DNS"]!.match(
-							/^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
-						),
-						`Expected X-UUID-DNS to match UUID v5 format, got '${context.req.http["X-UUID-DNS"]}'`,
+						context.req.http["X-UUID-DNS"] === "6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+						`Expected X-UUID-DNS to be the DNS namespace constant, got '${context.req.http["X-UUID-DNS"]}'`,
 					);
 				},
-				// Check URL namespace UUID
+				// The RFC 4122 URL namespace constant
 				(context: VCLContext) => {
-					// URL namespace UUID for "https://example.com" should be consistent
 					return assert(
-						!!context.req.http["X-UUID-URL"]!.match(
-							/^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
-						),
-						`Expected X-UUID-URL to match UUID v5 format, got '${context.req.http["X-UUID-URL"]}'`,
+						context.req.http["X-UUID-URL"] === "6ba7b811-9dad-11d1-80b4-00c04fd430c8",
+						`Expected X-UUID-URL to be the URL namespace constant, got '${context.req.http["X-UUID-URL"]}'`,
 					);
 				},
 			],
@@ -139,57 +131,57 @@ const uuidFunctionsTests = {
 				// Check valid UUID
 				(context: VCLContext) => {
 					return assert(
-						context.req.http["X-Is-Valid-1"] === "true",
-						`Expected X-Is-Valid-1 to be 'true', got '${context.req.http["X-Is-Valid-1"]}'`,
+						context.req.http["X-Is-Valid-1"] === "1",
+						`Expected X-Is-Valid-1 to be '1', got '${context.req.http["X-Is-Valid-1"]}'`,
 					);
 				},
 				// Check invalid UUID
 				(context: VCLContext) => {
 					return assert(
-						context.req.http["X-Is-Valid-2"] === "false",
-						`Expected X-Is-Valid-2 to be 'false', got '${context.req.http["X-Is-Valid-2"]}'`,
+						context.req.http["X-Is-Valid-2"] === "0",
+						`Expected X-Is-Valid-2 to be '0', got '${context.req.http["X-Is-Valid-2"]}'`,
 					);
 				},
 				// Check version 3 UUID
 				(context: VCLContext) => {
 					return assert(
-						context.req.http["X-Is-V3"] === "true",
-						`Expected X-Is-V3 to be 'true', got '${context.req.http["X-Is-V3"]}'`,
+						context.req.http["X-Is-V3"] === "1",
+						`Expected X-Is-V3 to be '1', got '${context.req.http["X-Is-V3"]}'`,
 					);
 				},
 				// Check version 4 UUID
 				(context: VCLContext) => {
 					return assert(
-						context.req.http["X-Is-V4"] === "true",
-						`Expected X-Is-V4 to be 'true', got '${context.req.http["X-Is-V4"]}'`,
+						context.req.http["X-Is-V4"] === "1",
+						`Expected X-Is-V4 to be '1', got '${context.req.http["X-Is-V4"]}'`,
 					);
 				},
 				// Check version 5 UUID
 				(context: VCLContext) => {
 					return assert(
-						context.req.http["X-Is-V5"] === "true",
-						`Expected X-Is-V5 to be 'true', got '${context.req.http["X-Is-V5"]}'`,
+						context.req.http["X-Is-V5"] === "1",
+						`Expected X-Is-V5 to be '1', got '${context.req.http["X-Is-V5"]}'`,
 					);
 				},
 				// Check not version 3
 				(context: VCLContext) => {
 					return assert(
-						context.req.http["X-Not-V3"] === "false",
-						`Expected X-Not-V3 to be 'false', got '${context.req.http["X-Not-V3"]}'`,
+						context.req.http["X-Not-V3"] === "0",
+						`Expected X-Not-V3 to be '0', got '${context.req.http["X-Not-V3"]}'`,
 					);
 				},
 				// Check not version 4
 				(context: VCLContext) => {
 					return assert(
-						context.req.http["X-Not-V4"] === "false",
-						`Expected X-Not-V4 to be 'false', got '${context.req.http["X-Not-V4"]}'`,
+						context.req.http["X-Not-V4"] === "0",
+						`Expected X-Not-V4 to be '0', got '${context.req.http["X-Not-V4"]}'`,
 					);
 				},
 				// Check not version 5
 				(context: VCLContext) => {
 					return assert(
-						context.req.http["X-Not-V5"] === "false",
-						`Expected X-Not-V5 to be 'false', got '${context.req.http["X-Not-V5"]}'`,
+						context.req.http["X-Not-V5"] === "0",
+						`Expected X-Not-V5 to be '0', got '${context.req.http["X-Not-V5"]}'`,
 					);
 				},
 			],

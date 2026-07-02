@@ -7,6 +7,7 @@ import {
 	type VCLPlatform,
 } from "./platform";
 import { createVCLContext } from "./vcl";
+import { BUILTIN_SIGNATURES, VARIABLE_TYPES } from "./vcl-builtin-types";
 import {
 	checkCallTreeLimit,
 	headerWorkspaceCost,
@@ -16,6 +17,7 @@ import {
 import type {
 	VCLAddStatement,
 	VCLBinaryExpression,
+	VCLBlockStatement,
 	VCLCallStatement,
 	VCLDeclareStatement,
 	VCLErrorStatement,
@@ -44,14 +46,35 @@ import type {
 	VCLUnaryExpression,
 	VCLUnsetStatement,
 } from "./vcl-parser";
-import { regsuball as regsuballImpl, regsub as regsubImpl } from "./vcl-strings";
 import {
+	boltsort_sort as boltsortImpl,
+	cstr_escape as cstrEscapeImpl,
+	json_escape as jsonEscapeImpl,
+	regsuball as regsuballImpl,
+	regsub as regsubImpl,
+	setcookie_delete_by_name,
+	setcookie_get_value_by_name,
+	subfield as subfieldImpl,
+	substr as substrImpl,
+	urldecode as urldecodeImpl,
+	urlencode as urlencodeImpl,
+	urlNormalize as urlNormalizeImpl,
+	xml_escape as xmlEscapeImpl,
+} from "./vcl-strings";
+import { parseTimeValue } from "./vcl-time";
+import {
+	firstHeaderFragment,
+	HEADER_FRAGMENT_SEPARATOR,
 	isNotSet,
 	toConcatPart,
 	toDisplayString,
 	toRawString,
 	VCLConcatResult,
+	VCLFloat,
+	VCLRTime,
 	VCLString,
+	VCLTime,
+	vclToString,
 } from "./vcl-value";
 
 export interface VCLBackend {
@@ -68,6 +91,8 @@ export interface VCLBackend {
 	ssl_check_cert?: boolean;
 	probe?: VCLProbe;
 	is_healthy?: boolean;
+	/** True for the built-in placeholder backend a fresh context starts with. */
+	builtin?: boolean;
 }
 
 export interface VCLProbe {
@@ -100,6 +125,7 @@ export interface VCLACL {
 
 export interface VCLTable {
 	name: string;
+	valueType?: string;
 	entries: Record<string, string | number | boolean | RegExp>;
 }
 
@@ -124,7 +150,8 @@ export interface VCLContext {
 	resp: { status: number; statusText: string; http: Record<string, string> };
 	obj: {
 		status: number;
-		response: string;
+		/** Response reason phrase; undefined until a synthetic/error body sets it. */
+		response?: string;
 		http: Record<string, string>;
 		hits: number;
 	};
@@ -141,6 +168,8 @@ export interface VCLContext {
 
 	// Local variables (declared with "declare local var.xxx TYPE;")
 	locals: Record<string, any>;
+	// Declared VCL types of local variables (without the "var." prefix).
+	localTypes?: Record<string, string>;
 
 	// Bytes consumed assembling request headers into the per-request workspace.
 	// Fastly never reclaims it within a request, not even across restarts, so this
@@ -183,6 +212,12 @@ export interface VCLContext {
 			mediaTypePatterns: string,
 			acceptHeader: string,
 		) => string;
+		language_filter_basic: (
+			availableLanguages: string,
+			defaultLanguage: string,
+			acceptLanguageHeader: string,
+			nmatches: number,
+		) => string;
 	};
 	bin?: {
 		base64_to_hex: (base64: string) => string;
@@ -193,11 +228,11 @@ export interface VCLContext {
 		get: (queryString: string, paramName: string) => string | null;
 		set: (queryString: string, paramName: string, paramValue: string) => string;
 		add: (queryString: string, paramName: string, paramValue: string) => string;
-		remove: (queryString: string, paramName: string) => string;
+		remove: (queryString: string) => string;
 		clean: (queryString: string) => string;
-		filter: (queryString: string, paramNames: string[]) => string;
-		filter_except: (queryString: string, paramNames: string[]) => string;
-		filtersep: (queryString: string, prefix: string, separator: string) => string;
+		filter: (queryString: string, paramNames: string) => string;
+		filter_except: (queryString: string, paramNames: string) => string;
+		filtersep: () => string;
 		sort: (queryString: string) => string;
 		globfilter: (queryString: string, pattern: string) => string;
 		globfilter_except: (queryString: string, pattern: string) => string;
@@ -206,15 +241,19 @@ export interface VCLContext {
 		[key: string]: any;
 	};
 	uuid?: {
-		version3: (namespace: string, name: string) => string;
+		version3: (namespace: string, name: string) => string | null;
 		version4: () => string;
-		version5: (namespace: string, name: string) => string;
-		dns: (name: string) => string;
-		url: (name: string) => string;
+		version5: (namespace: string, name: string) => string | null;
+		version7: () => string;
+		dns: () => string;
+		url: () => string;
+		oid: () => string;
+		x500: () => string;
 		is_valid: (uuid: string) => boolean;
 		is_version3: (uuid: string) => boolean;
 		is_version4: (uuid: string) => boolean;
 		is_version5: (uuid: string) => boolean;
+		is_version7: (uuid: string) => boolean;
 		decode: (uuid: string) => Uint8Array | null;
 		encode: (binary: Uint8Array) => string;
 		[key: string]: any;
@@ -231,13 +270,8 @@ export interface VCLContext {
 	std?: Record<string, any> & {
 		log?: (message: string) => void;
 		strftime?: (format: string, time: number) => string;
-		time?: {
-			now: () => number;
-			add: (time: number, offset: string | number) => number;
-			sub: (time1: number, time2: number) => number;
-			is_after: (time1: number, time2: number) => boolean;
-			hex_to_time: (hex: string) => number;
-		};
+		time?: (s: string, fallback: any) => Date;
+		integer2time?: (n: number) => Date;
 		backend?: {
 			add: (name: string, host: string, port: number, ssl?: boolean, options?: any) => boolean;
 			remove: (name: string) => boolean;
@@ -424,7 +458,7 @@ export interface VCLContext {
 	};
 	// Table module with flexible indexing
 	table?: Record<string, any> & {
-		lookup?: (tables: any, tableName: string, key: string, defaultValue?: string) => string;
+		lookup?: (tables: any, tableName: string, key: string, defaultValue?: string) => string | null;
 		lookup_bool: (tables: any, tableName: string, key: string, defaultValue?: boolean) => boolean;
 		lookup_integer: (tables: any, tableName: string, key: string, defaultValue?: number) => number;
 		lookup_float: (tables: any, tableName: string, key: string, defaultValue?: number) => number;
@@ -437,12 +471,12 @@ export interface VCLContext {
 	};
 	time?: {
 		now: () => Date;
-		add: (time: Date, duration: number) => Date;
-		sub: (time1: Date, time2: Date) => number;
-		is_after: (time1: Date, time2: Date) => boolean;
-		hex_to_time: (hex: string) => Date;
-		units: (duration: string) => number;
-		runits: (seconds: number) => string;
+		add: (time: any, duration?: any) => any;
+		sub: (time: any, duration?: any) => any;
+		is_after: (time1: any, time2?: any) => boolean;
+		hex_to_time: (divisor: any, hex?: any) => any;
+		units: (unit: any, time?: any) => any;
+		runits: (unit: any, rtime?: any) => any;
 		interval_elapsed_ratio: (start: Date, interval: number) => number;
 	};
 	header?: {
@@ -503,33 +537,371 @@ export const VCLStdLib = {
 
 const MAX_RESTARTS = 4;
 
-const TIME_MULTIPLIERS: Record<string, number> = {
-	s: 1,
-	m: 60,
-	h: 60 * 60,
-	d: 60 * 60 * 24,
-};
-
 function seededRandom(seed: number): number {
 	return Math.abs(Math.sin(seed * 9301 + 49297) % 1);
 }
 
-function parseTimeValue(value: string): number {
-	const str = value.replace(/"/g, "");
-	for (const [suffix, multiplier] of Object.entries(TIME_MULTIPLIERS)) {
-		if (str.endsWith(suffix)) {
-			return (parseInt(str, 10) || 0) * multiplier;
+/**
+ * How a null (failed) result maps to a value and fastly.error, per real
+ * Fastly behavior: parse failures return a usable value and set fastly.error
+ * rather than aborting.
+ */
+const NULL_RESULT_RULES: Record<string, { value: any; error: string }> = {
+	"std.atoi": { value: 0, error: "EPARSENUM" },
+	"std.atof": { value: Number.NaN, error: "EPARSENUM" },
+	"std.strtol": { value: 0, error: "EPARSENUM" },
+	"std.strtof": { value: Number.NaN, error: "EPARSENUM" },
+	"std.itoa": { value: null, error: "EINVAL" },
+	"time.units": { value: null, error: "EINVAL" },
+	"time.runits": { value: null, error: "EINVAL" },
+	"bin.base64_to_hex": { value: null, error: "EINVAL" },
+	"bin.hex_to_base64": { value: null, error: "EINVAL" },
+};
+
+/**
+ * Coerce a builtin function result to its declared VCL return type, so
+ * that stringification and arithmetic behave per Fastly semantics regardless
+ * of what the underlying JS implementation returned.
+ */
+const BROWSER_DEFAULTS: Record<string, string> = { name: "BrowserUnknown", version: "0.0.0" };
+const OS_DEFAULTS: Record<string, string> = { name: "OSUnknown", version: "0.0.0" };
+
+/** Statements restricted to specific built-in subroutine scopes. */
+const STATEMENT_SCOPES: Record<string, { label: string; allowed: string[] }> = {
+	ErrorStatement: { label: "error", allowed: ["RECV", "HIT", "MISS", "PASS", "FETCH"] },
+	SyntheticStatement: { label: "synthetic", allowed: ["ERROR"] },
+	SyntheticBase64Statement: { label: "synthetic.base64", allowed: ["ERROR"] },
+	EsiStatement: { label: "esi", allowed: ["FETCH"] },
+	RestartStatement: { label: "restart", allowed: ["RECV", "HIT", "FETCH", "ERROR", "DELIVER"] },
+};
+
+/** Initial value of a `declare local` variable, per declared type. */
+const LOCAL_TYPE_DEFAULTS: Record<string, () => any> = {
+	STRING: () => VCLString.notset(),
+	INTEGER: () => 0,
+	INT: () => 0,
+	FLOAT: () => new VCLFloat(0),
+	BOOL: () => false,
+	BOOLEAN: () => false,
+	TIME: () => new VCLTime(0),
+	RTIME: () => new VCLRTime(0),
+	IP: () => VCLString.notset(),
+};
+
+/**
+ * Convert a raw runtime value to the given VCL type so stringification and
+ * arithmetic behave per Fastly semantics (FLOAT with three decimals, RTIME as
+ * seconds, TIME as IMF-fixdate, BOOL as 1/0). Values that already carry the
+ * right type, and values that cannot be converted, pass through unchanged.
+ */
+function coerceToVclType(vclType: string | null | undefined, value: any): any {
+	switch (vclType) {
+		case "FLOAT":
+			if (value instanceof VCLFloat) return value;
+			if (typeof value === "number") return new VCLFloat(value);
+			return new VCLFloat(Number(value));
+		case "INTEGER":
+		case "INT": {
+			if (typeof value === "bigint") return value;
+			if (value instanceof VCLFloat) return Math.trunc(value.value);
+			if (typeof value === "number") return Math.trunc(value);
+			const n = Number(value);
+			return Number.isNaN(n) ? value : Math.trunc(n);
+		}
+		case "BOOL":
+			if (typeof value === "boolean") return value;
+			if (value === "true" || value === 1) return true;
+			if (value === "false" || value === 0) return false;
+			return Boolean(value);
+		case "TIME":
+			if (value instanceof VCLTime) return value;
+			if (value instanceof Date) return new VCLTime(value.getTime());
+			if (typeof value === "number") return new VCLTime(value);
+			return value;
+		case "RTIME":
+			if (value instanceof VCLRTime) return value;
+			if (typeof value === "number") return new VCLRTime(value);
+			if (typeof value === "string") return new VCLRTime(parseTimeValue(value));
+			return value;
+		default:
+			return value;
+	}
+}
+
+function coerceBuiltinReturn(functionName: string, result: any): any {
+	const sig = BUILTIN_SIGNATURES[functionName];
+	if (!sig || result === null || result === undefined) return result;
+	if (result instanceof VCLString) return result;
+	return coerceToVclType(sig.ret, result);
+}
+
+/**
+ * Coerce a predefined-variable read to its declared VCL type so that
+ * stringification behaves per Fastly semantics.
+ */
+function coerceVariableRead(name: string, result: any): any {
+	const sig = VARIABLE_TYPES[name];
+	if (!sig || result === null || result === undefined) return result;
+	if (result instanceof VCLString || result instanceof VCLConcatResult) return result;
+	return coerceToVclType(sig.get, result);
+}
+
+/** True for values that carry a VCL numeric/temporal type. */
+function isNumericValue(v: any): boolean {
+	return (
+		typeof v === "number" || v instanceof VCLFloat || v instanceof VCLRTime || v instanceof Date
+	);
+}
+
+/**
+ * Type-aware arithmetic following Fastly VCL rules:
+ * - "+" on strings concatenates (with NOTSET tracking)
+ * - FLOAT propagates: any FLOAT operand makes the result FLOAT
+ * - TIME +/- RTIME -> TIME; TIME - TIME -> RTIME
+ * - RTIME arithmetic keeps RTIME; RTIME * / INTEGER|FLOAT keeps RTIME
+ */
+/** True for string-carrying values (concat semantics for "+"). */
+function isStringy(v: any): boolean {
+	return typeof v === "string" || v instanceof VCLString || v instanceof VCLConcatResult;
+}
+
+/** BOOL truthiness: a set string (even empty) is true, notset is false. */
+function toBool(v: any): boolean {
+	return v instanceof VCLString ? !v.isNotSet : Boolean(v);
+}
+
+/** 64-bit two's-complement integer view of a value. */
+function toInt64(v: any): bigint {
+	if (typeof v === "bigint") return BigInt.asIntN(64, v);
+	const n = Math.trunc(Number(v ?? 0)) || 0;
+	return BigInt.asIntN(64, BigInt(n));
+}
+
+/** Keep exact 64-bit results: plain number when safe, BigInt beyond 2^53. */
+function fromInt64(v: bigint): number | bigint {
+	const signed = BigInt.asIntN(64, v);
+	return signed >= BigInt(Number.MIN_SAFE_INTEGER) && signed <= BigInt(Number.MAX_SAFE_INTEGER)
+		? Number(signed)
+		: signed;
+}
+
+function applyArithmetic(op: string, left: any, right: any): any {
+	if (op === "+" && (isStringy(left) || isStringy(right))) {
+		const leftPart = left instanceof VCLConcatResult ? left.parts : [toConcatPart(left)];
+		const rightPart = right instanceof VCLConcatResult ? right.parts : [toConcatPart(right)];
+		return new VCLConcatResult([...leftPart, ...rightPart]);
+	}
+
+	const leftIsTime = left instanceof Date;
+	const rightIsTime = right instanceof Date;
+	if (leftIsTime && rightIsTime && op === "-") {
+		return new VCLRTime((left.getTime() - right.getTime()) / 1000);
+	}
+	if (leftIsTime && !rightIsTime && (op === "+" || op === "-")) {
+		const deltaMs = Number(right) * 1000;
+		return new VCLTime(left.getTime() + (op === "+" ? deltaMs : -deltaMs));
+	}
+	if (rightIsTime && !leftIsTime && op === "+") {
+		return new VCLTime(right.getTime() + Number(left) * 1000);
+	}
+
+	const l = Number(left);
+	const r = Number(right);
+	let result: number;
+	switch (op) {
+		case "+":
+			result = l + r;
+			break;
+		case "-":
+			result = l - r;
+			break;
+		case "*":
+			result = l * r;
+			break;
+		case "/":
+			result = l / r;
+			break;
+		case "%":
+			result = l % r;
+			break;
+		default:
+			result = Number.NaN;
+	}
+
+	if (left instanceof VCLRTime || right instanceof VCLRTime) {
+		return new VCLRTime(result);
+	}
+	if (left instanceof VCLFloat || right instanceof VCLFloat) {
+		return new VCLFloat(result);
+	}
+	// INTEGER op INTEGER stays INTEGER (division truncates toward zero).
+	if (op === "/" && Number.isFinite(result)) {
+		return Math.trunc(result);
+	}
+	return result;
+}
+
+/**
+ * fastly.hash(key, seed, from, to). The production algorithm is not public;
+ * this derives a deterministic integer from sha256(key) plus a varint-encoded
+ * seed, drawing uniformly below (from + to) and subtracting from — mirroring
+ * the reference emulator so results are reproducible across tools.
+ */
+function fastlyHash(key: string, seed: number, from: number, to: number): number | null {
+	const max = BigInt(Math.trunc(from)) + BigInt(Math.trunc(to));
+	if (max <= 0n) {
+		logError("fastly.hash: from + to must be positive");
+		return null;
+	}
+	const digest = Buffer.from(hashHex("sha256", Buffer.from(key)), "hex");
+
+	// Go binary.PutVarint (zigzag + base-128) of the seed.
+	let ux = BigInt(Math.trunc(seed)) << 1n;
+	if (seed < 0) ux = ~ux;
+	const varint: number[] = [];
+	while (ux >= 0x80n) {
+		varint.push(Number(ux & 0x7fn) | 0x80);
+		ux >>= 7n;
+	}
+	varint.push(Number(ux));
+	const stream = Buffer.concat([digest, Buffer.from(varint)]);
+
+	// Go crypto/rand.Int over the deterministic stream.
+	const bitLen = max.toString(2).length;
+	const k = Math.ceil(bitLen / 8);
+	let b = BigInt(bitLen % 8);
+	if (b === 0n) b = 8n;
+	let offset = 0;
+	while (offset + k <= stream.length) {
+		const chunk = Buffer.from(stream.subarray(offset, offset + k));
+		offset += k;
+		chunk[0]! &= (1 << Number(b)) - 1;
+		let n = 0n;
+		for (const byte of chunk) n = (n << 8n) | BigInt(byte);
+		if (n < max) return Number(n - BigInt(Math.trunc(from)));
+	}
+	logError("fastly.hash: failed to derive value in range");
+	return null;
+}
+
+/** Largest representable RTIME (2^63 - 1 nanoseconds), in seconds. */
+const MAX_RTIME_SECONDS = 9223372036.854776;
+
+/** Render a header map as "Name: value" lines. */
+function serializeHeaders(headers: Record<string, string> | undefined): string {
+	if (!headers) return "";
+	return Object.entries(headers)
+		.map(([k, v]) => `${k}: ${v}`)
+		.join("\n");
+}
+
+/**
+ * Fingerprints of the synthetic client TLS handshake (an OpenSSL-style
+ * client hello), so a local run reads like a realistic Fastly request.
+ */
+const SYNTHETIC_TLS_CLIENT = {
+	ciphersList:
+		"130213031301C02FC02BC030C02C009EC0270067C028006B00A3009FCCA9CCA8CCAAC0AFC0ADC0A3C09FC05DC061C057C05300A2C0AEC0ACC0A2C09EC05CC060C056C052C024006AC0230040C00AC01400390038C009C01300330032009DC0A1C09DC051009CC0A0C09CC050003D003C0035002F00FF",
+	ciphersListSha: "JZtiTn8H/ntxORk+XXvU2EvNoz8=",
+	ciphersListTxt:
+		"TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:TLS_AES_128_GCM_SHA256:" +
+		"TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256:TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256:" +
+		"TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384:TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384:" +
+		"TLS_DHE_RSA_WITH_AES_128_GCM_SHA256:TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256:" +
+		"TLS_DHE_RSA_WITH_AES_128_CBC_SHA256:TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA384:" +
+		"TLS_DHE_RSA_WITH_AES_256_CBC_SHA256:TLS_DHE_DSS_WITH_AES_256_GCM_SHA384:" +
+		"TLS_DHE_RSA_WITH_AES_256_GCM_SHA384:TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256:" +
+		"TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256:TLS_DHE_RSA_WITH_CHACHA20_POLY1305_SHA256:" +
+		"TLS_ECDHE_ECDSA_WITH_AES_256_CCM_8:TLS_ECDHE_ECDSA_WITH_AES_256_CCM:" +
+		"TLS_DHE_RSA_WITH_AES_256_CCM_8:TLS_DHE_RSA_WITH_AES_256_CCM:" +
+		"TLS_ECDHE_ECDSA_WITH_ARIA_256_GCM_SHA384:TLS_ECDHE_RSA_WITH_ARIA_256_GCM_SHA384:" +
+		"TLS_DHE_DSS_WITH_ARIA_256_GCM_SHA384:TLS_DHE_RSA_WITH_ARIA_256_GCM_SHA384:" +
+		"TLS_DHE_DSS_WITH_AES_128_GCM_SHA256:TLS_ECDHE_ECDSA_WITH_AES_128_CCM_8:" +
+		"TLS_ECDHE_ECDSA_WITH_AES_128_CCM:TLS_DHE_RSA_WITH_AES_128_CCM_8:" +
+		"TLS_DHE_RSA_WITH_AES_128_CCM:TLS_ECDHE_ECDSA_WITH_ARIA_128_GCM_SHA256:" +
+		"TLS_ECDHE_RSA_WITH_ARIA_128_GCM_SHA256:TLS_DHE_DSS_WITH_ARIA_128_GCM_SHA256:" +
+		"TLS_DHE_RSA_WITH_ARIA_128_GCM_SHA256:TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA384:" +
+		"TLS_DHE_DSS_WITH_AES_256_CBC_SHA256:TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256:" +
+		"TLS_DHE_DSS_WITH_AES_128_CBC_SHA256:TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA:" +
+		"TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA:TLS_DHE_RSA_WITH_AES_256_CBC_SHA:" +
+		"TLS_DHE_DSS_WITH_AES_256_CBC_SHA:TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA:" +
+		"TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA:TLS_DHE_RSA_WITH_AES_128_CBC_SHA:" +
+		"TLS_DHE_DSS_WITH_AES_128_CBC_SHA:TLS_RSA_WITH_AES_256_GCM_SHA384:" +
+		"TLS_RSA_WITH_AES_256_CCM_8:TLS_RSA_WITH_AES_256_CCM:" +
+		"TLS_RSA_WITH_ARIA_256_GCM_SHA384:TLS_RSA_WITH_AES_128_GCM_SHA256:" +
+		"TLS_RSA_WITH_AES_128_CCM_8:TLS_RSA_WITH_AES_128_CCM:" +
+		"TLS_RSA_WITH_ARIA_128_GCM_SHA256:TLS_RSA_WITH_AES_256_CBC_SHA256:" +
+		"TLS_RSA_WITH_AES_128_CBC_SHA256:TLS_RSA_WITH_AES_256_CBC_SHA:" +
+		"TLS_RSA_WITH_AES_128_CBC_SHA:TLS_EMPTY_RENEGOTIATION_INFO_SCSV",
+	ciphersSha: "+7dB1w3Ov9S4Ct3HG3Qed68pSko=",
+	ja3Md5: "582a3b42ab84f78a5b376b1e29d6d367",
+	ja4: "t13d5911h2_a33745022dd6_1f22a2ca17c4",
+};
+
+/**
+ * Generate a request id in Fastly's xid format: 12 bytes (4 clock bytes plus
+ * 8 random bytes) rendered as 20 base32hex characters.
+ */
+function generateXid(context: VCLContext): string {
+	const bytes = new Uint8Array(12);
+	const secs = Math.floor(context.platform.now() / 1000);
+	bytes[0] = (secs >>> 24) & 0xff;
+	bytes[1] = (secs >>> 16) & 0xff;
+	bytes[2] = (secs >>> 8) & 0xff;
+	bytes[3] = secs & 0xff;
+	for (let i = 4; i < 12; i++) {
+		bytes[i] = Math.floor(randomFloat(context.platform) * 256) & 0xff;
+	}
+	const charset = "0123456789abcdefghijklmnopqrstuv";
+	let out = "";
+	let buffer = 0;
+	let bits = 0;
+	for (const b of bytes) {
+		buffer = (buffer << 8) | b;
+		bits += 8;
+		while (bits >= 5) {
+			out += charset[(buffer >>> (bits - 5)) & 31];
+			bits -= 5;
 		}
 	}
-	return parseInt(str, 10) || 0;
+	if (bits > 0) out += charset[(buffer << (5 - bits)) & 31];
+	return out;
 }
 
 export class VCLCompiler {
 	private program: VCLProgram;
 	private currentSubroutine = "";
+	/** Nesting depth of functional (typed) subroutine calls being evaluated. */
+	private functionalSubDepth = 0;
+	/** Typed (functional) subroutines by name, for expression-call dispatch. */
+	private functionalSubs: Map<string, VCLSubroutine>;
+
+	/** Header record of the req/bereq/beresp/resp/obj scope, if valid. */
+	private httpHeadersOf(
+		context: VCLContext,
+		scope: string | undefined,
+	): Record<string, string> | undefined {
+		switch (scope) {
+			case "req":
+				return context.req?.http;
+			case "bereq":
+				return context.bereq?.http;
+			case "beresp":
+				return context.beresp?.http;
+			case "resp":
+				return context.resp?.http;
+			case "obj":
+				return context.obj?.http;
+			default:
+				return undefined;
+		}
+	}
 
 	constructor(program: VCLProgram) {
 		this.program = program;
+		this.functionalSubs = new Map(
+			program.subroutines.filter((sub) => sub.returnType).map((sub) => [sub.name, sub]),
+		);
 	}
 
 	compile(): VCLSubroutines {
@@ -578,12 +950,128 @@ export class VCLCompiler {
 			}
 		}
 
+		// Process table declarations
+		if (this.program.tables) {
+			for (const table of this.program.tables) {
+				const entries: Record<string, string> = {};
+				for (const entry of table.entries) {
+					entries[entry.key] = entry.value;
+				}
+				context.tables[table.name] = { name: table.name, valueType: table.valueType, entries };
+			}
+		}
+
+		// Process backend declarations. The first declared backend becomes the
+		// default origin, matching Fastly's behavior when no explicit
+		// assignment is made.
+		if (this.program.backends) {
+			const firstBackend = this.program.backends[0];
+			if (firstBackend) context.req.backend = firstBackend.name;
+			for (const backend of this.program.backends) {
+				const props: Record<string, any> = {};
+				for (const prop of backend.properties) {
+					props[prop.name] = prop.value;
+				}
+				let probe: VCLProbe | undefined;
+				const probeProp = props.probe;
+				if (probeProp && typeof probeProp === "object" && probeProp.type === "probe") {
+					const pp: Record<string, any> = {};
+					for (const prop of probeProp.properties) pp[prop.name] = prop.value;
+					probe = {
+						request: String(pp.request ?? ""),
+						expected_response: Number(pp.expected_response ?? 200),
+						interval: parseTimeValue(String(pp.interval ?? "5s")),
+						timeout: parseTimeValue(String(pp.timeout ?? "2s")),
+						window: Number(pp.window ?? 5),
+						threshold: Number(pp.threshold ?? 3),
+						initial: Number(pp.initial ?? 2),
+					};
+				}
+				context.backends[backend.name] = {
+					name: backend.name,
+					host: String(props.host ?? ""),
+					port: Number(props.port ?? 80),
+					ssl: props.ssl === "true" || props.ssl === true || String(props.port) === "443",
+					connect_timeout: parseTimeValue(String(props.connect_timeout ?? "1s")),
+					first_byte_timeout: parseTimeValue(String(props.first_byte_timeout ?? "15s")),
+					between_bytes_timeout: parseTimeValue(String(props.between_bytes_timeout ?? "10s")),
+					max_connections: Number(props.max_connections ?? 200),
+					is_healthy: true,
+					probe,
+				} as VCLBackend;
+			}
+		}
+
 		// Compile each subroutine (both vcl_* and custom subs)
 		for (const subroutine of this.program.subroutines) {
+			this.validateGotos(subroutine);
 			subroutines[subroutine.name] = this.compileSubroutine(subroutine, context);
 		}
 
 		return subroutines;
+	}
+
+	/**
+	 * Goto is forward-only in Fastly VCL: every goto must name a label that
+	 * appears after it. A backward or undefined destination is a load error.
+	 */
+	private validateGotos(subroutine: VCLSubroutine): void {
+		// Statements in source order; labels are valid destinations only at the
+		// top level of the subroutine, matching the runtime jump table.
+		const flat: Array<{ stmt: VCLStatement; topLevel: boolean }> = [];
+		const collect = (stmts: VCLStatement[] | undefined, topLevel: boolean) => {
+			if (!stmts) return;
+			for (const stmt of stmts) {
+				if (!stmt) continue;
+				flat.push({ stmt, topLevel });
+				switch (stmt.type) {
+					case "IfStatement": {
+						const s = stmt as VCLIfStatement;
+						collect(s.consequent, false);
+						collect(s.alternate, false);
+						break;
+					}
+					case "SwitchStatement":
+						for (const c of (stmt as VCLSwitchStatement).cases) collect(c.body, false);
+						break;
+					case "BlockStatement":
+						collect((stmt as VCLBlockStatement).body, false);
+						break;
+					default:
+						break;
+				}
+			}
+		};
+		collect(subroutine.body ?? subroutine.statements, true);
+
+		for (let i = 0; i < flat.length; i++) {
+			const stmt = flat[i]!.stmt;
+			if (stmt.type !== "GotoStatement") continue;
+			const label = (stmt as VCLGotoStatement).label;
+			let forward = false;
+			let backward = false;
+			for (let j = 0; j < flat.length; j++) {
+				const other = flat[j]!;
+				if (
+					other.topLevel &&
+					other.stmt.type === "LabelStatement" &&
+					(other.stmt as VCLLabelStatement).name === label
+				) {
+					if (j > i) {
+						forward = true;
+						break;
+					}
+					backward = true;
+				}
+			}
+			if (!forward) {
+				throw new Error(
+					backward
+						? `Goto destination ${label} must be defined after the goto (backward jumps are not allowed) in subroutine ${subroutine.name}`
+						: `Goto destination ${label} is not defined in subroutine ${subroutine.name}`,
+				);
+			}
+		}
 	}
 
 	private compileSubroutine(
@@ -591,11 +1079,12 @@ export class VCLCompiler {
 		initialContext?: VCLContext,
 	): (context: VCLContext) => string {
 		const run = (context: VCLContext): string => {
-			// Merge the initial context (with ACLs) into the current context
-			if (initialContext?.acls) {
-				context.acls = { ...initialContext.acls, ...context.acls };
+			// Merge program declarations into the runtime context (once per
+			// context; every phase entry reuses the same context object).
+			if ((context as any).__declsMergedFrom !== initialContext) {
+				(context as any).__declsMergedFrom = initialContext;
+				this.mergeDeclarations(context, initialContext);
 			}
-
 			try {
 				// Execute each statement in the subroutine
 				// Handle both body and statements properties for backward compatibility
@@ -610,37 +1099,13 @@ export class VCLCompiler {
 					subroutine.body = [...subroutine.statements];
 				}
 
-				// Create a map of label names to statement indices for goto statements
+				// Map label names to their positions for goto statements. Labels are
+				// pure position markers; goto jumps forward to them.
 				const labelMap = new Map<string, number>();
-
-				// First pass: manually look for labels in the raw VCL code
-				const vclCode = subroutine.raw || "";
-				const labelRegex = /^\s*([a-zA-Z0-9_]+):\s*$/gm;
-				let match;
-
-				while ((match = labelRegex.exec(vclCode)) !== null) {
-					const labelName = match[1];
-
-					// Find the corresponding statement index
-					for (let i = 0; i < statements.length; i++) {
-						const stmt = statements[i];
-						if (
-							stmt &&
-							stmt.type === "LabelStatement" &&
-							(stmt as VCLLabelStatement).name === labelName
-						) {
-							labelMap.set(labelName!, i);
-							break;
-						}
-					}
-				}
-
-				// Second pass: look for label statements
-				for (let i = 0; i < statements.length; i++) {
-					const stmt = statements[i];
+				for (let idx = 0; idx < statements.length; idx++) {
+					const stmt = statements[idx];
 					if (stmt && stmt.type === "LabelStatement") {
-						const labelName = (stmt as VCLLabelStatement).name;
-						labelMap.set(labelName, i);
+						labelMap.set((stmt as VCLLabelStatement).name, idx);
 					}
 				}
 
@@ -661,102 +1126,22 @@ export class VCLCompiler {
 						}
 					}
 
-					let result = this.executeStatement(statement, context);
+					const result = this.executeStatement(statement, context);
 
-					// Handle goto statements
+					// A goto (possibly propagated out of a nested block) jumps to its
+					// label without executing the skipped statements.
 					if (result && typeof result === "string" && result.startsWith("__goto__:")) {
 						const labelName = result.substring("__goto__:".length);
 						const labelIndex = labelMap.get(labelName);
-
-						if (labelIndex !== undefined) {
-							// Jump to the label
-							i = labelIndex;
-
-							// Execute the label statement itself if it's a LabelStatement
-							const labelStatement = statements[i];
-							if (
-								i < statements.length &&
-								labelStatement &&
-								labelStatement.type === "LabelStatement"
-							) {
-								const labelStmt = labelStatement as VCLLabelStatement;
-
-								// Execute the statement associated with the label, if any
-								if (labelStmt.statement) {
-									this.executeStatement(labelStmt.statement, context);
-								}
-
-								i++;
-							}
-
-							// Execute all statements after the label until the next goto or return
-							while (i < statements.length) {
-								const stmt = statements[i];
-								if (!stmt) {
-									i++;
-									continue;
-								}
-
-								// Skip label statements
-								if (stmt.type === "LabelStatement") {
-									i++;
-									continue;
-								}
-
-								// Special handling for set statements after labels
-								if (stmt.type === "SetStatement") {
-									const setStmt = stmt as VCLSetStatement;
-
-									// Execute the set statement
-									this.executeSetStatement(setStmt, context);
-
-									// Move to the next statement
-									i++;
-									continue;
-								}
-
-								// Execute the statement
-								const stmtResult = this.executeStatement(stmt, context);
-
-								// If the statement returns a value, handle it
-								if (stmtResult && typeof stmtResult === "string") {
-									if (stmtResult.startsWith("__goto__:")) {
-										// Another goto, handle it
-										result = stmtResult;
-										break;
-									} else {
-										// Return statement, return from the subroutine
-										return stmtResult;
-									}
-								}
-
-								// Move to the next statement
-								i++;
-
-								// If we encounter another label, stop execution
-								const nextStmt = statements[i];
-								if (i < statements.length && nextStmt && nextStmt.type === "LabelStatement") {
-									break;
-								}
-							}
-
-							// If we have another goto, continue the loop
-							if (result && typeof result === "string" && result.startsWith("__goto__:")) {
-								continue;
-							}
-
-							// Otherwise, continue with the next statement
-							continue;
-						} else {
-							logError(`Label not found: ${labelName}`);
-							// Continue with the next statement
-							i++;
-							continue;
+						if (labelIndex === undefined) {
+							throw new Error(`Goto destination ${labelName} is not defined`);
 						}
+						i = labelIndex + 1;
+						continue;
 					}
 
 					// Handle return statements
-					if (result && typeof result === "string" && !result.startsWith("__goto__:")) {
+					if (result && typeof result === "string") {
 						return result;
 					}
 
@@ -814,7 +1199,61 @@ export class VCLCompiler {
 		};
 	}
 
+	/**
+	 * Statement scope guard: some statements are only legal while executing a
+	 * specific built-in subroutine (dynamically — custom subs inherit their
+	 * caller's scope). Throws a runtime error like Fastly does.
+	 */
+	private requireScope(statementName: string, context: VCLContext, allowed: string[]): void {
+		if (!this.currentSubroutine.startsWith("vcl_")) return;
+		const scope = this.currentSubroutine.slice(4).toUpperCase();
+		if (allowed.includes(scope)) return;
+		const message = `${statementName} statement is only available in ${allowed.join(", ")} scope`;
+		if (context.fastly) context.fastly.error = message;
+		logError(message);
+		throw new Error(message);
+	}
+
+	/** Merge the compile-time declaration context into a runtime context. */
+	private mergeDeclarations(context: VCLContext, initialContext?: VCLContext): void {
+		if (initialContext?.acls) {
+			context.acls = { ...initialContext.acls, ...context.acls };
+		}
+		if (initialContext?.tables) {
+			context.tables = { ...initialContext.tables, ...context.tables };
+		}
+		if (initialContext?.backends) {
+			// A VCL-declared backend takes precedence over the built-in
+			// placeholder of the same name (notably one named "default").
+			const runtimeBackends = { ...context.backends };
+			for (const [beName, be] of Object.entries(runtimeBackends)) {
+				if (be.builtin && initialContext.backends[beName]) delete runtimeBackends[beName];
+			}
+			context.backends = { ...initialContext.backends, ...runtimeBackends };
+			// Adopt the program's default backend unless the caller picked one.
+			if (initialContext.req.backend !== "default" && context.req.backend === "default") {
+				context.req.backend = initialContext.req.backend;
+			}
+		}
+		if (initialContext?.directors) {
+			context.directors = { ...initialContext.directors, ...context.directors };
+		}
+		if (initialContext?.ratelimit) {
+			if (!context.ratelimit) context.ratelimit = { counters: {}, penaltyboxes: {} };
+			context.ratelimit.counters = {
+				...initialContext.ratelimit.counters,
+				...context.ratelimit.counters,
+			};
+			context.ratelimit.penaltyboxes = {
+				...initialContext.ratelimit.penaltyboxes,
+				...context.ratelimit.penaltyboxes,
+			};
+		}
+	}
+
 	private executeStatement(statement: VCLStatement, context: VCLContext): string | undefined {
+		const scopes = STATEMENT_SCOPES[statement.type];
+		if (scopes) this.requireScope(scopes.label, context, scopes.allowed);
 		if (context.platform?.onTrace && statement.location) {
 			context.platform.onTrace({
 				phase: this.currentSubroutine,
@@ -864,10 +1303,15 @@ export class VCLCompiler {
 				return this.executeGotoStatement(statement as VCLGotoStatement, context);
 			case "RestartStatement":
 				return this.executeRestartStatement(statement as VCLRestartStatement, context);
-			case "LabelStatement": {
-				const labelStmt = statement as VCLLabelStatement;
-				if (labelStmt.statement) return this.executeStatement(labelStmt.statement, context);
-				return;
+			case "LabelStatement":
+				// Pure position marker for goto.
+				return undefined;
+			case "BlockStatement": {
+				for (const stmt of (statement as VCLBlockStatement).body) {
+					const result = this.executeStatement(stmt, context);
+					if (result && typeof result === "string") return result;
+				}
+				return undefined;
 			}
 			case "DeclareStatement":
 				this.executeDeclareStatement(statement as VCLDeclareStatement, context);
@@ -880,27 +1324,30 @@ export class VCLCompiler {
 		}
 	}
 
+	/** Coerce a value assigned to a local to its declared VCL type. */
+	private coerceLocalValue(declaredType: string | undefined, value: any): any {
+		// Strings assigned to STRING locals (the default) pass through; typed
+		// locals share the canonical converter.
+		if (!declaredType || declaredType === "STRING" || declaredType === "BOOL") return value;
+		return coerceToVclType(declaredType, value);
+	}
+
 	private executeDeclareStatement(statement: VCLDeclareStatement, context: VCLContext): void {
-		const typeDefaults: Record<string, any> = {
-			STRING: VCLString.notset(),
-			INTEGER: 0,
-			INT: 0,
-			FLOAT: 0.0,
-			BOOL: false,
-			BOOLEAN: false,
-			TIME: 0,
-			RTIME: 0,
-			IP: VCLString.notset(),
-		};
 		if (!context.locals) context.locals = {};
 		// Strip "var." prefix to match how evaluateIdentifier and executeSetStatement resolve var.* names
 		const varName = statement.variableName.startsWith("var.")
 			? statement.variableName.substring(4)
 			: statement.variableName;
+		const declaredType = statement.variableType.toUpperCase();
+		if (!context.localTypes) context.localTypes = {};
+		context.localTypes[varName] = declaredType;
 		if (statement.initialValue) {
-			context.locals[varName] = this.evaluateExpression(statement.initialValue, context);
+			context.locals[varName] = this.coerceLocalValue(
+				declaredType,
+				this.evaluateExpression(statement.initialValue, context),
+			);
 		} else {
-			context.locals[varName] = typeDefaults[statement.variableType.toUpperCase()] ?? "";
+			context.locals[varName] = LOCAL_TYPE_DEFAULTS[declaredType]?.() ?? "";
 		}
 	}
 
@@ -966,10 +1413,7 @@ export class VCLCompiler {
 		}
 
 		const conditionRaw = this.evaluateExpression(statement.test, context);
-		// VCLString NOTSET is falsy, non-NOTSET VCLString (even empty) is truthy
-		const condition =
-			conditionRaw instanceof VCLString ? !conditionRaw.isNotSet : Boolean(conditionRaw);
-		const stmts = condition ? statement.consequent : statement.alternate;
+		const stmts = this.isTruthyCondition(conditionRaw) ? statement.consequent : statement.alternate;
 		if (stmts) {
 			for (const stmt of stmts) {
 				const result = this.executeStatement(stmt, context);
@@ -978,18 +1422,38 @@ export class VCLCompiler {
 		}
 	}
 
-	private executeReturnStatement(statement: VCLReturnStatement, _context: VCLContext): string {
+	private executeReturnStatement(statement: VCLReturnStatement, context: VCLContext): string {
+		// Inside a functional (typed) subroutine, `return <expr>;` produces the
+		// subroutine's value rather than a state-machine action.
+		if (this.functionalSubDepth > 0 && statement.value) {
+			if (!context.locals) context.locals = {};
+			context.locals.__return_value__ = this.evaluateExpression(statement.value, context);
+			return "__typed_return__";
+		}
 		return statement.argument;
 	}
 
 	private executeErrorStatement(statement: VCLErrorStatement, context: VCLContext): string {
 		context.obj = context.obj || {};
-		context.obj.status = statement.status;
-		context.obj.response = statement.message;
 		context.obj.http = context.obj.http || {};
 
+		// The status can be any INTEGER expression; a bare `error;` re-raises
+		// with the current obj.status. The response is any STRING expression.
+		if (statement.status !== undefined) {
+			context.obj.status = Math.trunc(
+				Number(this.evaluateExpression(statement.status, context)) || 0,
+			);
+		}
+		if (statement.message !== undefined) {
+			context.obj.response = this.stringifyForOutput(
+				this.evaluateExpression(statement.message, context),
+			);
+		}
+		const status = context.obj.status;
+		const message = context.obj.response ?? "";
+
 		if (typeof context.error === "function") {
-			context.error(statement.status, statement.message);
+			context.error(status, message);
 		}
 
 		const errorSubroutine = this.program.subroutines.find((s) => s.name === "vcl_error");
@@ -1001,7 +1465,7 @@ export class VCLCompiler {
 
 		if (context.std && typeof context.std.error === "function") {
 			try {
-				context.std.error(statement.status, statement.message);
+				context.std.error(status, message);
 			} catch {}
 		}
 
@@ -1010,68 +1474,77 @@ export class VCLCompiler {
 
 	// resolveForCompound flattens a freshly evaluated value into the primitive a
 	// compound operator can combine. A multi-part concatenation is resolved with
-	// the same header/local rules a plain assignment would use, and a NOTSET
-	// string contributes nothing rather than its "(null)" display form.
+	// the same header/local rules a plain assignment would use; NOTSET tracking
+	// is preserved so "+=" can render a notset right-hand side as "(null)".
 	private resolveForCompound(value: any, isHeaderTarget: boolean): any {
 		if (value instanceof VCLConcatResult) {
-			const resolved = isHeaderTarget ? value.forHeader() : value.forLocal();
-			return resolved instanceof VCLString ? resolved.value : resolved;
-		}
-		if (value instanceof VCLString) {
-			return value.value;
+			return isHeaderTarget ? value.forHeader() : value.forLocal();
 		}
 		return value;
 	}
 
 	private applyCompoundOperator(operator: string, currentValue: any, newValue: any): any {
-		const cur = Number(currentValue) || 0;
-		const val = Number(newValue) || 0;
 		switch (operator) {
 			case "=":
 				return newValue;
 			case "+=":
-				if (typeof currentValue === "string" || typeof newValue === "string") {
-					return String(currentValue || "") + String(newValue);
-				}
-				return cur + val;
 			case "-=":
-				return cur - val;
 			case "*=":
-				return cur * val;
 			case "/=":
-				if (val === 0) throw new Error("Division by zero");
-				return cur / val;
-			case "%=":
-				if (val === 0) throw new Error("Modulo by zero");
-				return cur % val;
+			case "%=": {
+				const op = operator[0]!;
+				if (op === "+" && (isStringy(currentValue) || isStringy(newValue))) {
+					// String append: an unset current value contributes nothing,
+					// a notset right-hand side appends its "(null)" display form.
+					const curStr =
+						currentValue === undefined || currentValue === null || isNotSet(currentValue)
+							? ""
+							: currentValue instanceof VCLString
+								? currentValue.value
+								: vclToString(currentValue);
+					return curStr + toDisplayString(newValue);
+				}
+				if ((op === "/" || op === "%") && Number(newValue) === 0) {
+					throw new Error(op === "/" ? "Division by zero" : "Modulo by zero");
+				}
+				const cur =
+					currentValue === undefined || currentValue === null || isNotSet(currentValue)
+						? 0
+						: currentValue;
+				return applyArithmetic(op, cur, newValue);
+			}
 			case "&&=":
-				return Boolean(currentValue) && Boolean(newValue);
+				return toBool(currentValue) && toBool(newValue);
 			case "||=":
-				return Boolean(currentValue) || Boolean(newValue);
+				return toBool(currentValue) || toBool(newValue);
 			case "&=":
-				return cur & val;
+				return fromInt64(toInt64(currentValue) & toInt64(newValue));
 			case "|=":
-				return cur | val;
+				return fromInt64(toInt64(currentValue) | toInt64(newValue));
 			case "^=":
-				return cur ^ val;
-			case "<<=":
-				return cur << val;
-			case ">>=":
-				return cur >> val;
+				return fromInt64(toInt64(currentValue) ^ toInt64(newValue));
+			case "<<=": {
+				// Shifting a 64-bit integer by 64 or more bits always yields 0.
+				const b = toInt64(newValue);
+				if (b < 0n) throw new Error("Negative shift amount");
+				if (b >= 64n) return 0;
+				return fromInt64(toInt64(currentValue) << b);
+			}
+			case ">>=": {
+				// Arithmetic shift; counts past 63 saturate to the sign bit.
+				const b = toInt64(newValue);
+				if (b < 0n) throw new Error("Negative shift amount");
+				return fromInt64(toInt64(currentValue) >> (b >= 64n ? 63n : b));
+			}
 			case "rol=": {
-				// 64-bit rotation
-				const c = BigInt(cur);
-				const b = BigInt(val) & 63n;
-				const mask = 0xffffffffffffffffn;
-				const v = ((c << b) | ((c & mask) >> (64n - b))) & mask;
-				return Number(v > 0x7fffffffffffffffn ? v - 0x10000000000000000n : v);
+				const c = BigInt.asUintN(64, toInt64(currentValue));
+				const b = BigInt.asUintN(64, toInt64(newValue)) & 63n;
+				return fromInt64(BigInt.asUintN(64, (c << b) | (c >> (64n - b))));
 			}
 			case "ror=": {
-				const c = BigInt(cur);
-				const b = BigInt(val) & 63n;
-				const mask = 0xffffffffffffffffn;
-				const v = (((c & mask) >> b) | (c << (64n - b))) & mask;
-				return Number(v > 0x7fffffffffffffffn ? v - 0x10000000000000000n : v);
+				const c = BigInt.asUintN(64, toInt64(currentValue));
+				const b = BigInt.asUintN(64, toInt64(newValue)) & 63n;
+				return fromInt64(BigInt.asUintN(64, (c >> b) | (c << (64n - b))));
 			}
 			default:
 				return newValue;
@@ -1083,21 +1556,21 @@ export class VCLCompiler {
 		const part0 = parts[0] ?? "";
 		const part1 = parts[1] ?? "";
 
+		// Local variables keep their typed values so compound operators can
+		// apply INTEGER/FLOAT/TIME/RTIME arithmetic rules.
+		if (part0 === "var" && parts.length >= 2) {
+			return context.locals?.[parts.slice(1).join(".")];
+		}
+
 		if (parts.length >= 3 && part1 === "http") {
 			const headerName = parts.slice(2).join(".");
-			const httpObjects: Record<string, Record<string, string> | undefined> = {
-				req: context.req.http,
-				bereq: context.bereq.http,
-				beresp: context.beresp.http,
-				resp: context.resp.http,
-				obj: context.obj.http,
-			};
 			const [baseHeader, subfieldKey] = this.parseSubfield(headerName);
 			if (subfieldKey !== null) {
-				const headerValue = httpObjects[part0]?.[baseHeader] ?? "";
-				return this.dictGet(String(headerValue), subfieldKey) ?? "";
+				const headerValue = this.httpHeadersOf(context, part0)?.[baseHeader] ?? "";
+				return this.dictGet(firstHeaderFragment(String(headerValue)), subfieldKey) ?? "";
 			}
-			return httpObjects[part0]?.[headerName];
+			const raw = this.httpHeadersOf(context, part0)?.[headerName];
+			return raw === undefined ? undefined : firstHeaderFragment(raw);
 		}
 
 		if (part0 === "beresp") {
@@ -1129,7 +1602,7 @@ export class VCLCompiler {
 		const isHeaderTarget = parts.length >= 3 && part1 === "http";
 		const isVarTarget = parts.length >= 2 && part0 === "var";
 
-		// Special handling for req.backend - treat identifier values as literal backend names
+		// Special handling for req.backend assignments from a bare identifier
 		let newValue: any;
 		if (
 			parts.length === 2 &&
@@ -1138,8 +1611,25 @@ export class VCLCompiler {
 			statement.value &&
 			statement.value.type === "Identifier"
 		) {
-			// For backend assignments, use the identifier name directly as the backend name
-			newValue = (statement.value as VCLIdentifier).name;
+			const identName = (statement.value as VCLIdentifier).name;
+			if (context.backends?.[identName] || context.directors?.[identName]) {
+				// The identifier names a declared backend/director directly.
+				newValue = identName;
+			} else {
+				// Otherwise evaluate it: a BACKEND-typed local dereferences to the
+				// backend it holds. Unknown names stay literal for compatibility
+				// with backends registered later.
+				const resolved = this.evaluateExpression(statement.value, context);
+				if (resolved && typeof resolved === "object" && (resolved as any).name) {
+					newValue = (resolved as any).name;
+				} else if (resolved instanceof VCLString && !resolved.isNotSet && resolved.value) {
+					newValue = resolved.value;
+				} else if (typeof resolved === "string" && resolved) {
+					newValue = resolved;
+				} else {
+					newValue = identName;
+				}
+			}
 		} else {
 			newValue = this.evaluateExpression(statement.value, context);
 		}
@@ -1169,14 +1659,7 @@ export class VCLCompiler {
 
 		if (parts.length >= 3 && part1 === "http") {
 			const headerName = parts.slice(2).join(".");
-			const httpObjects: Record<string, Record<string, string>> = {
-				req: context.req.http,
-				bereq: context.bereq.http,
-				beresp: context.beresp.http,
-				resp: context.resp.http,
-				obj: context.obj.http,
-			};
-			if (httpObjects[part0]) {
+			if (this.httpHeadersOf(context, part0)) {
 				let resolved = value;
 				if (resolved instanceof VCLConcatResult) {
 					resolved = resolved.forHeader();
@@ -1188,21 +1671,25 @@ export class VCLCompiler {
 						? ""
 						: resolved instanceof VCLString
 							? resolved.value
-							: String(resolved);
-					const currentVal = httpObjects[part0]![baseHeader] ?? "";
+							: vclToString(resolved);
+					const currentVal = this.httpHeadersOf(context, part0)![baseHeader] ?? "";
 					const assembled = this.dictSet(currentVal, subfieldKey, strVal);
-					httpObjects[part0]![baseHeader] = assembled;
+					this.httpHeadersOf(context, part0)![baseHeader] = assembled;
 					this.chargeRequestWorkspace(context, part0, baseHeader, assembled);
-				} else if (isNotSet(resolved)) {
-					delete httpObjects[part0]![headerName];
+				} else if (isNotSet(resolved) || resolved === null || resolved === undefined) {
+					delete this.httpHeadersOf(context, part0)![headerName];
 				} else {
-					const stored = resolved instanceof VCLString ? resolved.value : String(resolved);
-					httpObjects[part0]![headerName] = stored;
+					const stored = resolved instanceof VCLString ? resolved.value : vclToString(resolved);
+					this.httpHeadersOf(context, part0)![headerName] = stored;
 					this.chargeRequestWorkspace(context, part0, headerName, stored);
 				}
 			}
 		} else if (parts.length === 2 && part0 === "req" && part1 === "backend") {
-			context.req.backend = String(value);
+			// A backend/director object dereferences to its name.
+			context.req.backend =
+				value && typeof value === "object" && (value as any).name
+					? String((value as any).name)
+					: String(value);
 
 			// Also update current_backend if the backend exists
 			if (context.backends?.[context.req.backend]) {
@@ -1278,7 +1765,7 @@ export class VCLCompiler {
 			} else if (typeof resolved === "string") {
 				resolved = VCLString.from(resolved);
 			}
-			context.locals[varName] = resolved;
+			context.locals[varName] = this.coerceLocalValue(context.localTypes?.[varName], resolved);
 		} else if (parts.length === 2 && part0 === "req" && part1 === "url") {
 			context.req.url = String(value);
 		} else if (parts.length === 2 && part0 === "bereq" && part1 === "url") {
@@ -1356,14 +1843,7 @@ export class VCLCompiler {
 		const part1 = parts[1] ?? "";
 		const headerName = parts.slice(2).join(".");
 		if (parts.length >= 3 && part1 === "http") {
-			const httpObjects: Record<string, Record<string, string>> = {
-				req: context.req.http,
-				bereq: context.bereq.http,
-				beresp: context.beresp.http,
-				resp: context.resp.http,
-				obj: context.obj.http,
-			};
-			const headers = httpObjects[part0];
+			const headers = this.httpHeadersOf(context, part0);
 			if (headers) {
 				const [baseHeader, subfieldKey] = this.parseSubfield(headerName);
 				if (subfieldKey !== null) {
@@ -1394,10 +1874,16 @@ export class VCLCompiler {
 		}
 	}
 
+	/** Resolve any runtime value to the string VCL would produce in an output sink (log, synthetic). */
+	private stringifyForOutput(value: any): string {
+		if (value instanceof VCLConcatResult) return value.display();
+		return vclToString(value);
+	}
+
 	private executeLogStatement(statement: VCLLogStatement, context: VCLContext): void {
 		context.platform.log({
 			level: "info",
-			message: `[VCL] ${this.evaluateExpression(statement.message, context)}`,
+			message: `[VCL] ${this.stringifyForOutput(this.evaluateExpression(statement.message, context))}`,
 		});
 	}
 
@@ -1405,7 +1891,7 @@ export class VCLCompiler {
 		context.obj.http["Content-Type"] = "text/html; charset=utf-8";
 		context.obj.response =
 			statement.expression !== undefined
-				? String(this.evaluateExpression(statement.expression, context))
+				? this.stringifyForOutput(this.evaluateExpression(statement.expression, context))
 				: statement.content;
 	}
 
@@ -1413,11 +1899,11 @@ export class VCLCompiler {
 		statement: VCLSyntheticBase64Statement,
 		context: VCLContext,
 	): void {
-		const encoded = this.evaluateExpression(statement.content, context);
+		const encoded = this.stringifyForOutput(this.evaluateExpression(statement.content, context));
 		try {
-			context.obj.response = Buffer.from(String(encoded), "base64").toString("utf-8");
+			context.obj.response = Buffer.from(encoded, "base64").toString("utf-8");
 		} catch {
-			context.obj.response = String(encoded);
+			context.obj.response = encoded;
 		}
 		context.obj.http["Content-Type"] = "text/html; charset=utf-8";
 	}
@@ -1435,23 +1921,13 @@ export class VCLCompiler {
 		// add only applies to HTTP headers
 		if (parts.length >= 3 && part1 === "http") {
 			const headerName = parts.slice(2).join(".");
-			const httpObjects: Record<string, Record<string, string>> = {
-				req: context.req.http,
-				bereq: context.bereq.http,
-				beresp: context.beresp.http,
-				resp: context.resp.http,
-				obj: context.obj.http,
-			};
-			const headers = httpObjects[part0];
+			const headers = this.httpHeadersOf(context, part0);
 			if (headers) {
 				const existing = headers[headerName];
-				const strVal = toRawString(value);
-				if (existing) {
-					const separator = headerName.toLowerCase() === "set-cookie" ? "\n" : ", ";
-					headers[headerName] = existing + separator + strVal;
-				} else {
-					headers[headerName] = strVal;
-				}
+				const strVal = this.stringifyForOutput(value);
+				// Each add creates a new header line; fragments are stored
+				// separated so plain reads return the first line only.
+				headers[headerName] = existing ? existing + HEADER_FRAGMENT_SEPARATOR + strVal : strVal;
 				this.chargeRequestWorkspace(context, part0, headerName, strVal);
 			}
 		}
@@ -1477,6 +1953,53 @@ export class VCLCompiler {
 				`Header overflow: request workspace limitation of ${MAX_REQUEST_WORKSPACE_SIZE} bytes exceeded`,
 			);
 		}
+	}
+
+	/** Execute a typed subroutine invoked as an expression and return its value. */
+	private executeFunctionalSub(
+		sub: VCLSubroutine,
+		argExprs: VCLExpression[],
+		context: VCLContext,
+	): any {
+		if (this.functionalSubDepth > 100) {
+			logError(`Functional subroutine recursion limit reached in ${sub.name}`);
+			return null;
+		}
+		if (!context.locals) context.locals = {};
+		const savedReturn = context.locals.__return_value__;
+		const savedParams: Record<string, any> = {};
+		if (sub.params) {
+			for (let i = 0; i < sub.params.length; i++) {
+				const param = sub.params[i]!;
+				savedParams[param.name] = context.locals[param.name];
+				context.locals[param.name] =
+					i < argExprs.length ? this.evaluateExpression(argExprs[i]!, context) : undefined;
+			}
+		}
+		this.functionalSubDepth++;
+		let value: any = null;
+		try {
+			delete context.locals.__return_value__;
+			for (const stmt of sub.body) {
+				const result = this.executeStatement(stmt, context);
+				if (result === "__typed_return__") {
+					value = context.locals.__return_value__ ?? null;
+					break;
+				}
+				if (result && typeof result === "string") break;
+			}
+		} finally {
+			this.functionalSubDepth--;
+			if (savedReturn === undefined) delete context.locals.__return_value__;
+			else context.locals.__return_value__ = savedReturn;
+			if (sub.params) {
+				for (const param of sub.params) {
+					if (savedParams[param.name] === undefined) delete context.locals[param.name];
+					else context.locals[param.name] = savedParams[param.name];
+				}
+			}
+		}
+		return value;
 	}
 
 	private executeCallStatement(
@@ -1534,35 +2057,48 @@ export class VCLCompiler {
 		statement: VCLSwitchStatement,
 		context: VCLContext,
 	): string | undefined {
+		// The control expression is stringified per VCL rules (INTEGER decimal,
+		// BOOL "1"/"0", FLOAT/RTIME three decimals) and cases compare as strings.
 		const subject = this.evaluateExpression(statement.subject, context);
-		let matched = false;
-		let falling = false;
+		let subjectStr: string;
+		if (subject instanceof VCLConcatResult) {
+			subjectStr = subject.forLocal();
+		} else if (subject instanceof VCLString) {
+			subjectStr = subject.value;
+		} else {
+			subjectStr = vclToString(subject);
+		}
 
-		for (const switchCase of statement.cases) {
-			if (!falling && switchCase.test !== null) {
-				const caseValue = this.evaluateExpression(switchCase.test, context);
-				if (subject === caseValue) {
-					matched = true;
-				}
+		// Scan cases in order, skipping default; it only runs when nothing matched.
+		let index = -1;
+		for (let n = 0; n < statement.cases.length; n++) {
+			const switchCase = statement.cases[n]!;
+			if (switchCase.test === null) continue;
+			const caseValue = this.evaluateExpression(switchCase.test, context);
+			const caseStr = caseValue instanceof VCLString ? caseValue.value : vclToString(caseValue);
+			const isMatch = switchCase.regex
+				? this.regexMatch(subjectStr, caseStr, context, false)
+				: subjectStr === caseStr;
+			if (isMatch) {
+				index = n;
+				break;
 			}
+		}
+		if (index === -1) {
+			index = statement.cases.findIndex((c) => c.test === null);
+			if (index === -1) return undefined;
+		}
 
-			if (matched || falling || switchCase.test === null) {
-				if (!matched && switchCase.test === null && !falling) {
-					// default case, only execute if nothing matched
-					matched = true;
-				}
-				if (matched || falling) {
-					for (const stmt of switchCase.body) {
-						const result = this.executeStatement(stmt, context);
-						if (result && typeof result === "string") return result;
-					}
-					if (switchCase.fallthrough) {
-						falling = true;
-					} else {
-						return undefined;
-					}
-				}
+		// Execute the matched case; fallthrough continues with the next case in
+		// textual order (which may be the default case).
+		while (index < statement.cases.length) {
+			const switchCase = statement.cases[index]!;
+			for (const stmt of switchCase.body) {
+				const result = this.executeStatement(stmt, context);
+				if (result && typeof result === "string") return result;
 			}
+			if (!switchCase.fallthrough) break;
+			index++;
 		}
 		return undefined;
 	}
@@ -1593,8 +2129,14 @@ export class VCLCompiler {
 		switch (expression.type) {
 			case "StringLiteral":
 				return (expression as VCLStringLiteral).value;
-			case "NumberLiteral":
-				return (expression as VCLNumberLiteral).value;
+			case "NumberLiteral": {
+				const num = expression as VCLNumberLiteral;
+				return num.isFloat ? new VCLFloat(num.value) : num.value;
+			}
+			case "RTimeLiteral":
+				return new VCLRTime((expression as any).seconds);
+			case "BoolLiteral":
+				return (expression as any).value as boolean;
 			case "RegexLiteral": {
 				const regex = expression as VCLRegexLiteral;
 				return new RegExp(regex.pattern, regex.flags || "");
@@ -1619,14 +2161,61 @@ export class VCLCompiler {
 		}
 	}
 
+	/**
+	 * Fastly condition truthiness: a STRING is true when it is set — even when
+	 * empty — and false only when notset. Other types use plain truthiness.
+	 */
+	private isTruthyCondition(value: any): boolean {
+		if (value instanceof VCLString) return !value.isNotSet;
+		if (value instanceof VCLConcatResult) return !value.allNotSet;
+		if (typeof value === "string") return true;
+		return Boolean(value);
+	}
+
 	private evaluateTernaryExpression(expression: VCLTernaryExpression, context: VCLContext): any {
-		const condition = this.evaluateExpression(expression.condition, context);
+		const conditionRaw = this.evaluateExpression(expression.condition, context);
+		const condition = this.isTruthyCondition(conditionRaw);
 		return this.evaluateExpression(condition ? expression.trueExpr : expression.falseExpr, context);
 	}
 
 	private evaluateFunctionCall(expression: VCLFunctionCall, context: VCLContext): any {
+		const result = this.evaluateFunctionCallInner(expression, context);
+		const rule = NULL_RESULT_RULES[expression.name];
+		if (rule && (result === null || result === undefined)) {
+			if (context.fastly) context.fastly.error = rule.error;
+			return coerceBuiltinReturn(expression.name, rule.value);
+		}
+		return coerceBuiltinReturn(expression.name, result);
+	}
+
+	private evaluateFunctionCallInner(expression: VCLFunctionCall, context: VCLContext): any {
 		const functionName = expression.name;
-		const args = expression.arguments.map((arg) => this.evaluateExpression(arg, context));
+		const overloads = BUILTIN_SIGNATURES[functionName]?.args;
+		const argTypes =
+			overloads?.find((o) => o.length === expression.arguments.length) ?? overloads?.[0];
+		const args = expression.arguments.map((arg, i) => {
+			const v = this.evaluateExpression(arg, context);
+			// STRING arguments receive the concatenated string form.
+			if (v instanceof VCLConcatResult) return this.stringifyForOutput(v);
+			// Unwrap typed values per the declared parameter type so module
+			// implementations receive plain JS primitives.
+			const declared = argTypes?.[i];
+			if (v !== null && v !== undefined) {
+				if (declared === "FLOAT" || declared === "INTEGER") return Number(v);
+				if (declared === "STRING" && typeof v !== "string" && !(v instanceof VCLString)) {
+					return vclToString(v);
+				}
+			}
+			return v;
+		});
+
+		// Functional (typed) user subroutines are called like builtin functions.
+		if (!functionName.includes(".")) {
+			const userSub = this.functionalSubs.get(functionName);
+			if (userSub) {
+				return this.executeFunctionalSub(userSub, expression.arguments, context);
+			}
+		}
 
 		const prefixModules: Record<string, any> = {
 			"addr.": context.addr,
@@ -1650,6 +2239,26 @@ export class VCLCompiler {
 			}
 		}
 
+		if (functionName === "std.collect" || functionName === "std.count") {
+			// Both operate on the header itself (ID argument), not its value.
+			const idArg = expression.arguments[0];
+			const idName = idArg?.type === "Identifier" ? (idArg as VCLIdentifier).name : "";
+			const idParts = idName.split(".");
+			if (idParts.length >= 3 && idParts[1] === "http") {
+				const headers = this.httpHeadersOf(context, idParts[0]!);
+				const headerName = idParts.slice(2).join(".");
+				const raw = headers?.[headerName];
+				if (functionName === "std.count") {
+					return raw === undefined ? 0 : raw.split(HEADER_FRAGMENT_SEPARATOR).length;
+				}
+				if (headers && raw !== undefined) {
+					const sep = args.length > 1 ? String(args[1]) : ", ";
+					headers[headerName] = raw.split(HEADER_FRAGMENT_SEPARATOR).join(sep);
+				}
+				return null;
+			}
+			return functionName === "std.count" ? 0 : null;
+		}
 		if (functionName === "std.log") {
 			context.platform.log({ level: "info", message: `[VCL] ${args[0]}` });
 			return null;
@@ -1718,14 +2327,11 @@ export class VCLCompiler {
 			}
 		} else if (functionName === "substr") {
 			if (args.length >= 2) {
-				const str = String(args[0]);
-				const offset = parseInt(args[1], 10);
-				if (args.length >= 3) {
-					const length = parseInt(args[2], 10);
-					return str.substring(offset, offset + length);
-				} else {
-					return str.substring(offset);
-				}
+				return substrImpl(
+					String(args[0]),
+					Number(args[1]),
+					args.length >= 3 ? Number(args[2]) : undefined,
+				);
 			}
 		} else if (functionName === "regsub") {
 			if (args.length === 3) {
@@ -1769,10 +2375,45 @@ export class VCLCompiler {
 			if (timeModule && typeof timeModule[fn] === "function") return timeModule[fn](...args);
 		} else if (functionName.startsWith("header.")) {
 			const fn = functionName.substring(7);
+			const whereArg = expression.arguments[0];
+			const whereName =
+				whereArg?.type === "Identifier" ? (whereArg as VCLIdentifier).name.split(".")[0] : "";
+			const headers = whereName ? this.httpHeadersOf(context, whereName) : undefined;
 			const headerModule = context.header as
 				| Record<string, (...args: any[]) => unknown>
 				| undefined;
-			if (headerModule && typeof headerModule[fn] === "function") return headerModule[fn](...args);
+			if (!headers || !headerModule || typeof headerModule[fn] !== "function") {
+				logError(`header.${fn}: invalid target ${whereName}`);
+				return null;
+			}
+			const names = args.slice(1).map((a) => String(a));
+			switch (fn) {
+				case "get": {
+					const v = headerModule.get!(headers, names[0] ?? "");
+					return v === undefined || v === null || v === "" ? VCLString.notset() : v;
+				}
+				case "set":
+					headerModule.set!(headers, names[0] ?? "", names[1] ?? "");
+					return null;
+				case "unset": {
+					// Unlike the `unset` statement, header.unset leaves the header
+					// readable as a set-but-empty string.
+					headerModule.unset!(headers, names[0] ?? "");
+					headers[names[0] ?? ""] = "";
+					return null;
+				}
+				case "filter":
+				case "filter_except": {
+					const result = headerModule[fn]!(headers, names) as Record<string, string>;
+					// Filtered-out headers read back as set-but-empty strings.
+					for (const key of Object.keys(headers)) {
+						headers[key] = key in result ? result[key]! : "";
+					}
+					return null;
+				}
+				default:
+					return headerModule[fn]!(...args);
+			}
 		} else if (functionName.startsWith("ratelimit.")) {
 			const fn = functionName.substring(10);
 			if (context.rateLimitModule && typeof context.rateLimitModule[fn] === "function") {
@@ -1791,64 +2432,27 @@ export class VCLCompiler {
 		} else if (functionName === "parse_time_delta" && context.parse_time_delta) {
 			return context.parse_time_delta(args[0] as string);
 		} else if (functionName === "urlencode") {
-			return encodeURIComponent(String(args[0]));
+			return urlencodeImpl(String(args[0]));
 		} else if (functionName === "urldecode") {
-			try {
-				return decodeURIComponent(String(args[0]).replace(/\+/g, " "));
-			} catch {
-				return String(args[0]);
-			}
+			return urldecodeImpl(String(args[0]));
 		} else if (
 			functionName === "json.escape" ||
 			functionName === "json_escape" ||
 			functionName === "cstr_escape"
 		) {
-			return String(args[0])
-				.replace(/\\/g, "\\\\")
-				.replace(/"/g, '\\"')
-				.replace(/\n/g, "\\n")
-				.replace(/\r/g, "\\r")
-				.replace(/\t/g, "\\t");
+			return functionName === "cstr_escape"
+				? cstrEscapeImpl(String(args[0]))
+				: jsonEscapeImpl(String(args[0]));
 		} else if (functionName === "xml_escape") {
-			return String(args[0])
-				.replace(/&/g, "&amp;")
-				.replace(/</g, "&lt;")
-				.replace(/>/g, "&gt;")
-				.replace(/"/g, "&quot;")
-				.replace(/'/g, "&#39;");
+			return xmlEscapeImpl(String(args[0]));
 		} else if (functionName === "boltsort.sort") {
-			const url = String(args[0]);
-			const qIdx = url.indexOf("?");
-			if (qIdx === -1) return url;
-			const base = url.substring(0, qIdx);
-			const query = url.substring(qIdx + 1);
-			const params = query.split("&").filter((p) => p.length > 0);
-			params.sort((a, b) => (a.split("=")[0] || "").localeCompare(b.split("=")[0] || ""));
-			return `${base}?${params.join("&")}`;
+			return boltsortImpl(String(args[0]));
 		} else if (functionName === "subfield") {
-			const str = String(args[0]);
-			const name = String(args[1]);
-			const sep = args.length > 2 ? String(args[2]) : ";";
-			const parts = str.split(sep).map((p) => p.trim());
-			for (const part of parts) {
-				const eqIdx = part.indexOf("=");
-				if (eqIdx === -1) {
-					if (part.trim() === name) return "";
-				} else {
-					const key = part.substring(0, eqIdx).trim();
-					const value = part.substring(eqIdx + 1).trim();
-					if (key === name) {
-						if (value.length >= 2 && value.startsWith('"') && value.endsWith('"')) {
-							return value.substring(1, value.length - 1).replace(/\\"/g, '"');
-						}
-						if (value.length >= 2 && value.startsWith("'") && value.endsWith("'")) {
-							return value.substring(1, value.length - 1);
-						}
-						return value;
-					}
-				}
-			}
-			return "";
+			return subfieldImpl(
+				String(args[0]),
+				String(args[1]),
+				args.length > 2 ? String(args[2]) : ",",
+			);
 		} else if (functionName === "randombool") {
 			const numerator = Math.floor(Number(args[0]));
 			const denominator = Math.floor(Number(args[1]));
@@ -1884,34 +2488,26 @@ export class VCLCompiler {
 			).join("");
 		} else if (functionName.startsWith("setcookie.")) {
 			const cookieFunction = functionName.substring(10);
+			const whereArg = expression.arguments[0];
+			const whereName =
+				whereArg?.type === "Identifier" ? (whereArg as VCLIdentifier).name.split(".")[0] : "";
+			const respObj =
+				whereName === "beresp" ? context.beresp : whereName === "resp" ? context.resp : null;
+			if (!respObj) {
+				logError(`setcookie.${cookieFunction}: invalid ident: ${whereName}`);
+				return null;
+			}
+			const setCookie = (respObj.http["Set-Cookie"] ?? "")
+				.split(HEADER_FRAGMENT_SEPARATOR)
+				.join(", ");
 			if (cookieFunction === "get_value_by_name") {
-				const header = String(args[0]);
-				const name = String(args[1]);
-				const cookies = header.split(",").map((c) => c.trim());
-				for (const cookie of cookies) {
-					const cookieParts = cookie.split(";")[0] ?? "";
-					const eqIdx = cookieParts.indexOf("=");
-					if (eqIdx !== -1) {
-						const key = cookieParts.substring(0, eqIdx).trim();
-						const value = cookieParts.substring(eqIdx + 1).trim();
-						if (key === name) return value;
-					}
-				}
-				return "";
+				return setcookie_get_value_by_name(setCookie, String(args[1]));
 			} else if (cookieFunction === "delete_by_name") {
-				const header = String(args[0]);
-				const name = String(args[1]);
-				const cookies = header.split(",").map((c) => c.trim());
-				const filtered = cookies.filter((cookie) => {
-					const cookieParts = cookie.split(";")[0] ?? "";
-					const eqIdx = cookieParts.indexOf("=");
-					if (eqIdx !== -1) {
-						const key = cookieParts.substring(0, eqIdx).trim();
-						return key !== name;
-					}
-					return true;
-				});
-				return filtered.join(", ");
+				const rebuilt = setcookie_delete_by_name(setCookie, String(args[1]));
+				if (rebuilt === setCookie) return false;
+				if (rebuilt === "") delete respObj.http["Set-Cookie"];
+				else respObj.http["Set-Cookie"] = rebuilt;
+				return true;
 			}
 		} else if (functionName === "http_status_matches") {
 			const status = Number(args[0]);
@@ -1946,7 +2542,9 @@ export class VCLCompiler {
 		} else if (functionName === "resp.tarpit" || functionName === "early_hints") {
 			return null;
 		} else if (functionName === "fastly.hash") {
-			return hashHex("sha256", Buffer.from(String(args[0])));
+			return fastlyHash(String(args[0]), Number(args[1]), Number(args[2]), Number(args[3]));
+		} else if (functionName === "url.normalize") {
+			return urlNormalizeImpl(String(args[0]));
 		} else if (functionName === "fastly.try_select_shield") {
 			return false;
 		} else if (
@@ -1968,11 +2566,18 @@ export class VCLCompiler {
 			if (cryptoModule && typeof cryptoModule[fn] === "function") return cryptoModule[fn](...args);
 		}
 
+		// An unknown function is a runtime error that aborts the subroutine.
+		if (context.fastly) context.fastly.error = `Function ${functionName} is not defined`;
 		logError(`Unknown function call: ${functionName}`);
-		return null;
+		throw new Error(`Function ${functionName} is not defined`);
 	}
 
 	private evaluateIdentifier(identifier: VCLIdentifier, context: VCLContext): any {
+		const result = this.evaluateIdentifierInner(identifier, context);
+		return coerceVariableRead(identifier.name, result);
+	}
+
+	private evaluateIdentifierInner(identifier: VCLIdentifier, context: VCLContext): any {
 		const name = identifier.name;
 		const parts = name.split(".");
 
@@ -2005,26 +2610,20 @@ export class VCLCompiler {
 		]);
 		if (VCL_ENUM_VALUES.has(name)) return name;
 
-		if (name === "now") return context.platform.now();
-		if (name === "now.sec") return Math.floor(context.platform.now() / 1000);
+		if (name === "now") return new VCLTime(context.platform.now());
+		if (name === "now.sec") return String(Math.floor(context.platform.now() / 1000));
 
 		if (parts.length >= 3 && idPart1 === "http") {
 			const headerName = parts.slice(2).join(".");
-			const httpObjects: Record<string, Record<string, string> | undefined> = {
-				req: context.req.http,
-				bereq: context.bereq.http,
-				beresp: context.beresp.http,
-				resp: context.resp.http,
-				obj: context.obj.http,
-			};
 			const [baseHeader, subfieldKey] = this.parseSubfield(headerName);
 			if (subfieldKey !== null) {
-				const headerValue = httpObjects[idPart0]?.[baseHeader] ?? "";
-				if (!headerValue) return VCLString.notset();
-				const val = this.dictGet(String(headerValue), subfieldKey);
+				const headerValue = this.httpHeadersOf(context, idPart0)?.[baseHeader];
+				if (headerValue === undefined || headerValue === "") return VCLString.notset();
+				const val = this.dictGet(firstHeaderFragment(String(headerValue)), subfieldKey);
 				return val !== undefined ? val : VCLString.notset();
 			}
-			return httpObjects[idPart0]?.[headerName] ?? VCLString.notset();
+			const raw = this.httpHeadersOf(context, idPart0)?.[headerName];
+			return raw === undefined ? VCLString.notset() : firstHeaderFragment(raw);
 		}
 
 		if (parts.length === 3 && idPart0 === "re" && idPart1 === "group") {
@@ -2032,7 +2631,8 @@ export class VCLCompiler {
 			if (!Number.isNaN(groupNumber) && context.re?.groups?.[groupNumber] !== undefined) {
 				return context.re.groups[groupNumber];
 			}
-			return "";
+			// No recorded match or out-of-range group reads as notset.
+			return VCLString.notset();
 		}
 
 		if (parts.length >= 2 && idPart0 === "var") {
@@ -2042,6 +2642,13 @@ export class VCLCompiler {
 
 		if (context.locals && name in context.locals) {
 			return context.locals[name];
+		}
+
+		// A bare identifier naming a declared backend or director evaluates to
+		// it, so BACKEND-typed locals can hold and later dereference it.
+		if (!name.includes(".")) {
+			const backend = context.backends?.[name] ?? context.directors?.[name];
+			if (backend) return backend;
 		}
 
 		return this.resolveVariable(name, context);
@@ -2066,11 +2673,13 @@ export class VCLCompiler {
 		}
 		if (name === "req.url.basename") {
 			const path = this.resolveVariable("req.url.path", context) as string;
+			if (path === "") return ".";
 			const lastSlash = path.lastIndexOf("/");
 			return lastSlash >= 0 ? path.substring(lastSlash + 1) : path;
 		}
 		if (name === "req.url.dirname") {
 			const path = this.resolveVariable("req.url.path", context) as string;
+			if (path === "") return ".";
 			const lastSlash = path.lastIndexOf("/");
 			return lastSlash >= 0 ? path.substring(0, lastSlash + 1) : "/";
 		}
@@ -2099,13 +2708,19 @@ export class VCLCompiler {
 		if (name === "req.hash") return ctx.hashData?.join(":") || "";
 		if (name === "req.hash_always_miss") return ctx.req?.hash_always_miss ?? false;
 		if (name === "req.hash_ignore_busy") return ctx.req?.hash_ignore_busy ?? false;
-		if (name === "req.grace") return ctx.req?.grace ?? 0;
-		if (name === "req.max_stale_if_error") return ctx.req?.max_stale_if_error ?? 0;
-		if (name === "req.max_stale_while_revalidate") return ctx.req?.max_stale_while_revalidate ?? 0;
-		if (name === "req.xid") return ctx.req?.xid || "0";
+		// Unless configured, staleness allowances default to the maximum RTIME.
+		if (name === "req.grace") return ctx.req?.grace ?? MAX_RTIME_SECONDS;
+		if (name === "req.max_stale_if_error") return ctx.req?.max_stale_if_error ?? MAX_RTIME_SECONDS;
+		if (name === "req.max_stale_while_revalidate")
+			return ctx.req?.max_stale_while_revalidate ?? MAX_RTIME_SECONDS;
+		if (name === "req.xid") {
+			if (!ctx.req.xid) ctx.req.xid = generateXid(context);
+			return ctx.req.xid;
+		}
 		if (name === "req.enable_range_on_pass") return false;
 		if (name === "req.enable_segmented_caching") return false;
-		if (name === "req.digest") return ctx.req?.digest || "";
+		// Before the cache key is computed the digest reads as all zeros.
+		if (name === "req.digest") return ctx.req?.digest || "0".repeat(64);
 		if (name === "req.digest.ratio") return ctx.req?.digest_ratio ?? 0;
 		if (name === "req.bytes_read") return 0;
 		if (name === "req.header_bytes_read") return 0;
@@ -2124,7 +2739,7 @@ export class VCLCompiler {
 		}
 		if (name === "req.vcl.generation") return 1;
 		if (name === "req.vcl.version") return 1;
-		if (name === "req.headers") return Object.keys(context.req.http || {}).length;
+		if (name === "req.headers") return serializeHeaders(context.req.http);
 		if (name.startsWith("req.backend.")) {
 			const prop = name.substring(12);
 			const be = context.current_backend || context.backends?.[context.req.backend || "default"];
@@ -2132,7 +2747,9 @@ export class VCLCompiler {
 			const beProps: Record<string, any> = {
 				name: be.name,
 				host: be.host,
-				ip: be.host,
+				// Backend hosts are not resolved locally; report the loopback
+				// address the emulated connection would use.
+				ip: "127.0.0.1",
 				port: be.port,
 				healthy: be.is_healthy ?? true,
 				is_cluster: false,
@@ -2158,11 +2775,13 @@ export class VCLCompiler {
 		}
 		if (name === "bereq.url.basename") {
 			const path = this.resolveVariable("bereq.url.path", context) as string;
+			if (path === "") return ".";
 			const lastSlash = path.lastIndexOf("/");
 			return lastSlash >= 0 ? path.substring(lastSlash + 1) : path;
 		}
 		if (name === "bereq.url.dirname") {
 			const path = this.resolveVariable("bereq.url.path", context) as string;
+			if (path === "") return ".";
 			const lastSlash = path.lastIndexOf("/");
 			return lastSlash >= 0 ? path.substring(0, lastSlash + 1) : "/";
 		}
@@ -2171,12 +2790,12 @@ export class VCLCompiler {
 			const dotIdx = basename.lastIndexOf(".");
 			return dotIdx >= 0 ? basename.substring(dotIdx + 1) : "";
 		}
-		if (name === "bereq.headers") return Object.keys(context.bereq.http || {}).length;
+		if (name === "bereq.headers") return serializeHeaders(context.bereq.http);
 		if (name === "bereq.max_reuse_idle_time") return ctx.bereq?.max_reuse_idle_time ?? 0;
 		if (name === "bereq.fetch_timeout") return ctx.bereq?.fetch_timeout ?? 0;
-		if (name === "bereq.connect_timeout") return ctx.bereq?.connect_timeout ?? 1000;
-		if (name === "bereq.first_byte_timeout") return ctx.bereq?.first_byte_timeout ?? 15000;
-		if (name === "bereq.between_bytes_timeout") return ctx.bereq?.between_bytes_timeout ?? 10000;
+		if (name === "bereq.connect_timeout") return ctx.bereq?.connect_timeout ?? 0;
+		if (name === "bereq.first_byte_timeout") return ctx.bereq?.first_byte_timeout ?? 15;
+		if (name === "bereq.between_bytes_timeout") return ctx.bereq?.between_bytes_timeout ?? 0;
 		if (name === "bereq.is_clustering") return false;
 		if (name === "bereq.bytes_written") return 0;
 		if (name === "bereq.header_bytes_written") return 0;
@@ -2190,7 +2809,7 @@ export class VCLCompiler {
 		if (name === "beresp.grace") return context.beresp.grace ?? 0;
 		if (name === "beresp.stale_if_error") return ctx.beresp?.stale_if_error ?? 0;
 		if (name === "beresp.stale_while_revalidate") return context.beresp.stale_while_revalidate ?? 0;
-		if (name === "beresp.cacheable") return ctx.beresp?.cacheable ?? true;
+		if (name === "beresp.cacheable") return ctx.beresp?.cacheable ?? false;
 		if (name === "beresp.do_esi") return context.beresp.do_esi ?? false;
 		if (name === "beresp.do_stream") return ctx.beresp?.do_stream ?? false;
 		if (name === "beresp.gzip") return ctx.beresp?.gzip ?? false;
@@ -2198,7 +2817,7 @@ export class VCLCompiler {
 		if (name === "beresp.saintmode") return ctx.beresp?.saintmode ?? 0;
 		if (name === "beresp.hipaa") return false;
 		if (name === "beresp.pci") return false;
-		if (name === "beresp.headers") return Object.keys(context.beresp.http || {}).length;
+		if (name === "beresp.headers") return serializeHeaders(context.beresp.http);
 		if (name === "beresp.handshake_time_to_origin_ms") return 100;
 		if (name === "beresp.used_alternate_path_to_origin") return false;
 		if (name.startsWith("beresp.backend.")) {
@@ -2208,11 +2827,13 @@ export class VCLCompiler {
 			const beProps: Record<string, any> = {
 				name: be.name,
 				host: be.host,
-				ip: be.host,
+				// No connection was actually established, so the peer address
+				// is empty until a real backend request records one.
+				ip: ctx.beresp?.backend_ip ?? "",
 				port: be.port,
 				src_ip: "127.0.0.1",
 				src_port: 0,
-				requests: 0,
+				requests: 1,
 				alternate_ips: "",
 			};
 			return beProps[prop] ?? "";
@@ -2223,87 +2844,105 @@ export class VCLCompiler {
 		if (name === "resp.response") return context.resp.statusText;
 		if (name === "resp.proto") return ctx.resp?.proto || "HTTP/1.1";
 		if (name === "resp.is_locally_generated") return ctx.resp?.is_locally_generated ?? false;
-		if (name === "resp.completed") return ctx.resp?.completed ?? false;
+		if (name === "resp.completed") return ctx.resp?.completed ?? true;
 		if (name === "resp.stale") return ctx.resp?.stale ?? false;
 		if (name === "resp.stale.is_error") return false;
 		if (name === "resp.stale.is_revalidating") return false;
-		if (name === "resp.headers") return Object.keys(context.resp.http || {}).length;
+		if (name === "resp.headers") return serializeHeaders(context.resp.http);
 		if (name === "resp.bytes_written") return 0;
 		if (name === "resp.header_bytes_written") return 0;
 		if (name === "resp.body_bytes_written") return 0;
 
 		// obj.* variables
 		if (name === "obj.status") return context.obj.status;
-		if (name === "obj.response") return context.obj.response;
+		if (name === "obj.response") return context.obj.response ?? VCLString.notset();
 		if (name === "obj.proto") return "HTTP/1.1";
 		if (name === "obj.hits") return context.obj.hits;
 		if (name === "obj.ttl") return ctx.obj?.ttl ?? 0;
 		if (name === "obj.age") return ctx.obj?.age ?? 0;
 		if (name === "obj.grace") return ctx.obj?.grace ?? 0;
 		if (name === "obj.lastuse") return ctx.obj?.lastuse ?? 0;
-		if (name === "obj.entered") return ctx.obj?.entered ?? ctx.platform.now();
-		if (name === "obj.cacheable") return ctx.obj?.cacheable ?? true;
+		if (name === "obj.entered") return ctx.obj?.entered ?? 0;
+		if (name === "obj.cacheable") return ctx.obj?.cacheable ?? false;
 		if (name === "obj.is_pci") return false;
 		if (name === "obj.stale_if_error") return ctx.obj?.stale_if_error ?? 0;
-		if (name === "obj.stale_while_revalidate") return ctx.obj?.stale_while_revalidate ?? 0;
-		if (name === "obj.headers") return Object.keys(context.obj.http || {}).length;
+		if (name === "obj.stale_while_revalidate") return ctx.obj?.stale_while_revalidate ?? 60;
+		if (name === "obj.headers") return serializeHeaders(context.obj.http);
 
 		// client.* variables
 		if (name === "client.ip") return context.client?.ip || "127.0.0.1";
-		if (name === "client.port") return ctx.client?.port ?? 0;
+		if (name === "client.port") return ctx.client?.port ?? 11111;
 		if (name === "client.identity")
 			return ctx.client?.identity || context.client?.ip || "127.0.0.1";
 		if (name === "client.requests") return ctx.client?.requests ?? 1;
 		if (name === "client.identified") return false;
-		if (name === "client.sess_timeout") return 0;
+		if (name === "client.sess_timeout") return ctx.client?.sess_timeout ?? 600;
 		if (name.startsWith("client.geo.")) {
 			const geoProp = name.substring(11);
 			const geo = ctx.client?.geo || {};
+			// Without a geolocation database, string fields read "unknown" and
+			// the coordinates point at Fastly's San Francisco headquarters.
 			const defaults: Record<string, any> = {
-				city: "",
-				"city.ascii": "",
-				"city.latin1": "",
-				"city.utf8": "",
-				country_code: "US",
-				country_code3: "USA",
-				country_name: "United States",
-				"country_name.ascii": "United States",
-				continent_code: "NA",
-				latitude: 37.7749,
-				longitude: -122.4194,
-				postal_code: "",
+				city: "unknown",
+				"city.ascii": "unknown",
+				"city.latin1": "unknown",
+				"city.utf8": "unknown",
+				country_code: "unknown",
+				country_code3: "unknown",
+				country_name: "unknown",
+				"country_name.ascii": "unknown",
+				"country_name.latin1": "unknown",
+				"country_name.utf8": "unknown",
+				continent_code: "unknown",
+				latitude: 37.779,
+				longitude: -122.398,
+				postal_code: "unknown",
 				metro_code: 0,
 				area_code: 0,
-				region: "",
-				"region.ascii": "",
-				"region.latin1": "",
-				"region.utf8": "",
-				gmt_offset: -800,
-				utc_offset: -800,
-				conn_speed: "broadband",
-				conn_type: "wired",
-				ip_override: "",
-				proxy_description: "",
-				proxy_type: "",
+				region: "unknown",
+				"region.ascii": "unknown",
+				"region.latin1": "unknown",
+				"region.utf8": "unknown",
+				gmt_offset: 0,
+				utc_offset: 0,
+				conn_speed: "unknown",
+				conn_type: "unknown",
+				ip_override: "unknown",
+				proxy_description: "unknown",
+				proxy_type: "unknown",
 			};
 			return geo[geoProp] ?? defaults[geoProp] ?? "";
 		}
 		if (name.startsWith("client.as.")) {
+			// Loopback/reserved space maps to the reserved AS.
 			const prop = name.substring(10);
-			return prop === "number" ? 0 : "";
+			if (prop === "number") return ctx.client?.as_number ?? 4294967294;
+			if (prop === "name") return ctx.client?.as_name ?? "Reserved";
+			return "";
 		}
-		if (name.startsWith("client.browser.")) return ctx.client?.browser?.[name.substring(15)] ?? "";
-		if (name.startsWith("client.os.")) return ctx.client?.os?.[name.substring(10)] ?? "";
+		if (name.startsWith("client.browser.")) {
+			const prop = name.substring(15);
+			return ctx.client?.browser?.[prop] ?? BROWSER_DEFAULTS[prop] ?? "";
+		}
+		if (name.startsWith("client.os.")) {
+			const prop = name.substring(10);
+			return ctx.client?.os?.[prop] ?? OS_DEFAULTS[prop] ?? "";
+		}
 		if (name === "client.bot.name") return "";
 		if (name.startsWith("client.class.")) return false;
 		if (name.startsWith("client.platform.")) {
-			if (name === "client.platform.hwtype") return "";
+			const prop = name.substring(16);
+			if (prop === "hwtype" || prop === "model" || prop === "vendor") return "";
 			return false;
 		}
 		if (name.startsWith("client.display.")) {
 			if (name === "client.display.touchscreen") return false;
-			return 0;
+			// Unknown display characteristics read as -1.
+			return -1;
 		}
+		if (name === "client.socket.congestion_algorithm") return "cubic";
+		if (name === "client.socket.cwnd") return 60;
+		if (name === "client.socket.nexthop") return "127.0.0.1";
 		if (name.startsWith("client.socket.")) return 0;
 
 		// server.* variables
@@ -2314,16 +2953,18 @@ export class VCLCompiler {
 		if (name === "server.pop") return ctx.server?.pop || "local";
 		if (name === "server.billing_region") return ctx.server?.billing_region || "local";
 		if (name === "server.ip") return ctx.server?.ip || "127.0.0.1";
-		if (name === "server.port") return ctx.server?.port ?? 8000;
+		if (name === "server.port") return ctx.server?.port ?? 3124;
 
 		// fastly.* variables
 		if (name === "fastly.error") return context.fastly?.error || "";
 		if (name === "fastly.is_staging") return false;
 		if (name === "fastly.ddos_detected") return false;
-		if (name === "fastly.ff.visits_this_pop") return 0;
-		if (name === "fastly.ff.visits_this_pop_this_service") return 0;
+		if (name === "fastly.ff.visits_this_pop") return 1;
+		if (name === "fastly.ff.visits_this_pop_this_service") return 1;
 		if (name === "fastly.ff.visits_this_service") return 0;
 		if (name.startsWith("fastly.ff.")) return 0;
+		if (name === "fastly.bot.name" || name === "fastly.bot.category") return "";
+		if (name.startsWith("fastly.bot.")) return false;
 
 		// fastly_info.* variables
 		if (name === "fastly_info.state") return context.fastly?.state || "";
@@ -2334,6 +2975,7 @@ export class VCLCompiler {
 		if (name === "fastly_info.edge.is_tls") return false;
 		if (name === "fastly_info.host_header") return context.req.http.Host || "";
 		if (name === "fastly_info.request_id") return ctx.fastly_info?.request_id || "local-req-id";
+		if (name === "fastly_info.h2.stream_id") return 1;
 		if (name.startsWith("fastly_info.h2.")) return 0;
 
 		// time.* variables
@@ -2356,14 +2998,27 @@ export class VCLCompiler {
 		if (name === "time.end.usec_frac") return (ctx.platform.now() * 1000) % 1000000;
 		if (name === "time.to_first_byte") return 0;
 
-		// tls.client.* variables
+		// tls.client.* variables. The emulated client handshake mirrors a
+		// typical OpenSSL client hello so fingerprint-style variables read
+		// like a realistic Fastly request.
 		if (name === "tls.client.protocol") return ctx.tls?.client?.protocol || "";
 		if (name === "tls.client.cipher") return ctx.tls?.client?.cipher || "";
 		if (name === "tls.client.servername") return ctx.tls?.client?.servername || "";
-		if (name === "tls.client.ja3_md5") return "";
-		if (name === "tls.client.ja4") return "";
+		if (name === "tls.client.ciphers_list") return SYNTHETIC_TLS_CLIENT.ciphersList;
+		if (name === "tls.client.ciphers_list_sha") return SYNTHETIC_TLS_CLIENT.ciphersListSha;
+		if (name === "tls.client.ciphers_list_txt") return SYNTHETIC_TLS_CLIENT.ciphersListTxt;
+		if (name === "tls.client.ciphers_sha") return SYNTHETIC_TLS_CLIENT.ciphersSha;
+		if (name === "tls.client.handshake_sent_bytes") return 4759;
+		if (name === "tls.client.iana_chosen_cipher_id") return 49199;
+		if (name === "tls.client.ja3_md5") return SYNTHETIC_TLS_CLIENT.ja3Md5;
+		if (name === "tls.client.ja4") return SYNTHETIC_TLS_CLIENT.ja4;
 		if (name.startsWith("tls.client.certificate.")) {
 			const prop = name.substring(23);
+			// The synthetic client certificate is "verified" and valid for a
+			// year starting now.
+			if (prop === "is_verified") return true;
+			if (prop === "not_before") return new VCLTime(context.platform.now());
+			if (prop === "not_after") return new VCLTime(context.platform.now() + 365 * 24 * 3600 * 1000);
 			if (prop.startsWith("is_")) return false;
 			return "";
 		}
@@ -2384,7 +3039,7 @@ export class VCLCompiler {
 		if (name === "waf.http_violation_score") return 0;
 		if (name === "waf.session_fixation_score") return 0;
 		if (name === "waf.php_injection_score") return 0;
-		if (name === "waf.rule_id") return "";
+		if (name === "waf.rule_id") return 0;
 		if (name === "waf.severity") return 0;
 		if (name === "waf.message") return "";
 		if (name === "waf.logdata") return "";
@@ -2431,11 +3086,13 @@ export class VCLCompiler {
 			"math.FLOAT_MIN_10_EXP": -307,
 			"math.FLOAT_MIN_EXP": -1021,
 			"math.FLOAT_RADIX": 2,
-			"math.INTEGER_MAX": 2147483647,
-			"math.INTEGER_MIN": -2147483648,
 			"math.INTEGER_BIT": 64,
 		};
 		if (mathConstants[name] !== undefined) return mathConstants[name];
+		// VCL INTEGERs are 64-bit; the extremes exceed double precision, so
+		// they are held as BigInt to stringify exactly.
+		if (name === "math.INTEGER_MAX") return 9223372036854775807n;
+		if (name === "math.INTEGER_MIN") return -9223372036854775808n;
 
 		// workspace.* variables
 		if (name === "workspace.bytes_total") return MAX_REQUEST_WORKSPACE_SIZE;
@@ -2447,23 +3104,29 @@ export class VCLCompiler {
 		}
 
 		// transport.* variables
-		if (name === "transport.type") return "http";
+		if (name === "transport.type") return "tcp";
 		if (name === "transport.bw_estimate") return 0;
 
 		// segmented_caching.* variables
+		if (name === "segmented_caching.block_number") return 1;
+		if (name === "segmented_caching.is_outer_req") return true;
+		if (name === "segmented_caching.error") return "";
 		if (name.startsWith("segmented_caching.")) return 0;
 
 		// esi.* variables
 		if (name === "esi.allow_inside_cdata") return false;
 
-		// stale.exists
-		if (name === "stale.exists") return false;
+		// stale.exists reads as an empty string when no stale object exists.
+		if (name === "stale.exists") return "";
 
 		// quic.* variables
 		if (name.startsWith("quic.")) return 0;
 
 		// backend.socket.* variables
+		if (name === "backend.socket.congestion_algorithm") return "cubic";
+		if (name === "backend.socket.cwnd") return 60;
 		if (name.startsWith("backend.socket.")) return 0;
+		if (name === "backend.conn.tls_protocol") return "TLSv1.2";
 		if (name.startsWith("backend.conn.")) return false;
 
 		// Dynamic backend.{name}.healthy / backend.{name}.connections_* variables
@@ -2504,11 +3167,8 @@ export class VCLCompiler {
 		}
 		const operand = this.evaluateExpression(expression.operand, context);
 		if (expression.operator === "!") {
-			// NOTSET values are falsy (! returns true)
-			if (isNotSet(operand)) return true;
-			// Non-NOTSET VCLStrings are truthy (even empty string)
-			if (operand instanceof VCLString) return false;
-			return !operand;
+			// STRING negation follows condition truthiness: only NOTSET is falsy.
+			return !this.isTruthyCondition(operand);
 		}
 		if (expression.operator === "-") return -operand;
 		logError(`Unknown unary operator: ${expression.operator}`);
@@ -2532,19 +3192,18 @@ export class VCLCompiler {
 				return new VCLConcatResult([...leftPart, ...rightPart]);
 			}
 			case "+":
-				return left + right;
 			case "-":
-				return left - right;
 			case "*":
-				return left * right;
 			case "/":
-				return left / right;
 			case "%":
-				return left % right;
+				return applyArithmetic(expression.operator, left, right);
 			case "==": {
 				// NOTSET values compare using their display string "(null)"
 				if (isNotSet(left) || isNotSet(right)) {
 					return toDisplayString(left) === toDisplayString(right);
+				}
+				if (isNumericValue(left) || isNumericValue(right)) {
+					return Number(left) === Number(right);
 				}
 				const l = left instanceof VCLString ? left.value : left;
 				const r = right instanceof VCLString ? right.value : right;
@@ -2553,6 +3212,9 @@ export class VCLCompiler {
 			case "!=": {
 				if (isNotSet(left) || isNotSet(right)) {
 					return toDisplayString(left) !== toDisplayString(right);
+				}
+				if (isNumericValue(left) || isNumericValue(right)) {
+					return Number(left) !== Number(right);
 				}
 				const l = left instanceof VCLString ? left.value : left;
 				const r = right instanceof VCLString ? right.value : right;

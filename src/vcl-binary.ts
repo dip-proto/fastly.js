@@ -1,7 +1,17 @@
+// Strict standard base64 decoding matching Go's base64.StdEncoding:
+// CR/LF are ignored, anything else outside the alphabet, bad padding, or a
+// bad length is an error (Fastly sets fastly.error=EINVAL and returns "").
 function base64ToBuffer(base64: string): Uint8Array | null {
+	const cleaned = base64.replace(/[\r\n]/g, "");
+	if (cleaned.length % 4 !== 0 || !/^[A-Za-z0-9+/]*(={1,2})?$/.test(cleaned)) {
+		return null;
+	}
+	const unpadded = cleaned.replace(/=+$/, "");
+	if (cleaned.length > 0 && unpadded.length % 4 === 1) {
+		return null;
+	}
 	try {
-		const cleanBase64 = base64.replace(/[^A-Za-z0-9+/]/g, "");
-		const binaryString = atob(cleanBase64);
+		const binaryString = atob(cleaned);
 		const buffer = new Uint8Array(binaryString.length);
 		for (let i = 0; i < binaryString.length; i++) {
 			buffer[i] = binaryString.charCodeAt(i);
@@ -12,18 +22,17 @@ function base64ToBuffer(base64: string): Uint8Array | null {
 	}
 }
 
+// Strict hex decoding matching Go's hex.DecodeString: case-insensitive, but
+// odd length or non-hex characters are an error.
 function hexToBuffer(hex: string): Uint8Array | null {
-	try {
-		const cleanHex = hex.replace(/[^0-9A-Fa-f]/g, "");
-		const paddedHex = cleanHex.length % 2 ? `0${cleanHex}` : cleanHex;
-		const buffer = new Uint8Array(paddedHex.length / 2);
-		for (let i = 0; i < paddedHex.length; i += 2) {
-			buffer[i / 2] = parseInt(paddedHex.substring(i, i + 2), 16);
-		}
-		return buffer;
-	} catch {
+	if (hex.length % 2 !== 0 || !/^[0-9A-Fa-f]*$/.test(hex)) {
 		return null;
 	}
+	const buffer = new Uint8Array(hex.length / 2);
+	for (let i = 0; i < hex.length; i += 2) {
+		buffer[i / 2] = parseInt(hex.substring(i, i + 2), 16);
+	}
+	return buffer;
 }
 
 function utf8ToBuffer(text: string): Uint8Array {
@@ -50,10 +59,11 @@ function bufferToBase64(buffer: Uint8Array): string {
 	return btoa(binaryString);
 }
 
+// Fastly's bin.base64_to_hex returns uppercase hex.
 function bufferToHex(buffer: Uint8Array): string {
 	let hexString = "";
 	for (let i = 0; i < buffer.length; i++) {
-		hexString += buffer[i]!.toString(16).padStart(2, "0");
+		hexString += buffer[i]!.toString(16).padStart(2, "0").toUpperCase();
 	}
 	return hexString;
 }
@@ -95,15 +105,16 @@ function isValidEncoding(encoding: string): encoding is Encoding {
 
 export const BinaryModule = {
 	base64_to_hex: (base64: string): string => {
-		const buffer = base64ToBuffer(base64);
+		const buffer = base64ToBuffer(String(base64));
 		return buffer ? bufferToHex(buffer) : "";
 	},
 
 	hex_to_base64: (hex: string): string => {
-		const buffer = hexToBuffer(hex);
+		const buffer = hexToBuffer(String(hex));
 		return buffer ? bufferToBase64(buffer) : "";
 	},
 
+	// Not part of Fastly VCL; kept as a local extension.
 	data_convert: (input: string, inputEncoding: string, outputEncoding: string): string => {
 		if (!isValidEncoding(inputEncoding) || !isValidEncoding(outputEncoding)) {
 			return "";

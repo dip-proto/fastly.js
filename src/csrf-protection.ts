@@ -50,7 +50,7 @@ sub vcl_recv {
       client.ip +
       req.http.User-Agent +
       "secret-salt" +
-      std.time.hex_to_time(time.hex)
+      strftime({"%Y%m%d"}, now)
     );
   }
   else {
@@ -59,7 +59,7 @@ sub vcl_recv {
       client.ip +
       req.http.User-Agent +
       "secret-salt" +
-      std.time.hex_to_time(time.hex)
+      strftime({"%Y%m%d"}, now)
     );
 
     if (req.http.X-CSRF-Token != var.expected_token) {

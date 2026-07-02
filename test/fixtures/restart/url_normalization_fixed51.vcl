@@ -25,7 +25,7 @@ sub vcl_recv {
     }
 
     # Step 2: Add trailing slash if needed (only if no extension and not already present)
-    if (req.http.X-Current-URL !~ "\\." && req.http.X-Current-URL !~ "/$") {
+    if (req.http.X-Current-URL !~ "\." && req.http.X-Current-URL !~ "/$") {
         set req.http.X-Current-URL = req.http.X-Current-URL + "/";
         set req.http.X-Restart-Reason = "add_trailing_slash";
         return(restart);

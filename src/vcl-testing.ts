@@ -382,6 +382,6 @@ function isTruthy(value: any): boolean {
 	if (value === 0) return false;
 	if (value === 1) return true;
 	if (typeof value === "string") return value !== "" && value !== "0";
-	if (value instanceof VCLString) return !isNotSet(value) && value.toString() !== "";
+	if (value instanceof VCLString) return !value.isNotSet && value.value !== "";
 	return Boolean(value);
 }

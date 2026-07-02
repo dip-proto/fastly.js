@@ -16,7 +16,7 @@ export interface Tables {
 }
 
 export interface TableModule {
-	lookup: (tables: Tables, tableName: string, key: string, defaultValue?: string) => string;
+	lookup: (tables: Tables, tableName: string, key: string, defaultValue?: string) => string | null;
 	lookup_bool: (tables: Tables, tableName: string, key: string, defaultValue?: boolean) => boolean;
 	lookup_integer: (tables: Tables, tableName: string, key: string, defaultValue?: number) => number;
 	lookup_float: (tables: Tables, tableName: string, key: string, defaultValue?: number) => number;
@@ -64,9 +64,13 @@ function parseTimeUnit(str: string, defaultValue: number): number {
 
 export function createTableModule(): TableModule {
 	return {
-		lookup: (tables: Tables, tableName: string, key: string, defaultValue: string = ""): string => {
+		lookup: (tables: Tables, tableName: string, key: string, defaultValue?: string): any => {
 			const value = findInTable(tables, tableName, key);
-			return value === undefined ? defaultValue : String(value);
+			if (value === undefined) {
+				// Without a default, a miss yields not-set.
+				return defaultValue === undefined ? null : defaultValue;
+			}
+			return String(value);
 		},
 
 		lookup_bool: (

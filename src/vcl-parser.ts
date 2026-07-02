@@ -1,5 +1,10 @@
 import { VCLParser } from "./vcl-parser-impl";
 
+const UTF8_ENCODER = new TextEncoder();
+const UTF8_STRICT_DECODER = new TextDecoder("utf-8", { fatal: true });
+// Sticky matcher for a long-string opener {DELIM" at the current position.
+const LONG_STRING_OPEN_RE = /\{([A-Za-z0-9_]*)"/y;
+
 export type VCLNodeType =
 	| "Program"
 	| "Subroutine"
@@ -24,6 +29,7 @@ export type VCLNodeType =
 	| "RestartStatement"
 	| "DeclareStatement"
 	| "ExpressionStatement"
+	| "BlockStatement"
 	| "IncludeStatement"
 	| "ImportStatement"
 	| "BackendDeclaration"
@@ -38,6 +44,8 @@ export type VCLNodeType =
 	| "Identifier"
 	| "StringLiteral"
 	| "NumberLiteral"
+	| "RTimeLiteral"
+	| "BoolLiteral"
 	| "RegexLiteral"
 	| "MemberAccess"
 	| "Comment"
@@ -120,7 +128,8 @@ export type VCLStatementType =
 	| "LabelStatement"
 	| "RestartStatement"
 	| "DeclareStatement"
-	| "ExpressionStatement";
+	| "ExpressionStatement"
+	| "BlockStatement";
 
 export interface VCLEmptyStatement extends VCLNode {
 	type: "Statement";
@@ -148,8 +157,10 @@ export interface VCLReturnStatement extends VCLNode {
 
 export interface VCLErrorStatement extends VCLNode {
 	type: "ErrorStatement";
-	status: number;
-	message: string;
+	/** Status code expression; absent for a bare `error;` re-raise. */
+	status?: VCLExpression;
+	/** Response text expression (may be a concatenation). */
+	message?: VCLExpression;
 }
 
 export interface VCLSetStatement extends VCLNode {
@@ -192,6 +203,8 @@ export interface VCLEsiStatement extends VCLNode {
 
 export interface VCLSwitchCase extends VCLNode {
 	test: VCLExpression | null; // null for default case
+	/** True for `case ~"pattern":` regex-match cases. */
+	regex?: boolean;
 	body: VCLStatement[];
 	fallthrough: boolean;
 }
@@ -231,11 +244,16 @@ export interface VCLGotoStatement extends VCLNode {
 export interface VCLLabelStatement extends VCLNode {
 	type: "LabelStatement";
 	name: string;
-	statement?: VCLStatement | null;
 }
 
 export interface VCLRestartStatement extends VCLNode {
 	type: "RestartStatement";
+}
+
+/** A bare `{ ... }` group of statements. */
+export interface VCLBlockStatement extends VCLNode {
+	type: "BlockStatement";
+	body: VCLStatement[];
 }
 
 // VCLStatement is a discriminated union of all statement types
@@ -260,7 +278,8 @@ export type VCLStatement =
 	| VCLLabelStatement
 	| VCLRestartStatement
 	| VCLDeclareStatement
-	| VCLExpressionStatement;
+	| VCLExpressionStatement
+	| VCLBlockStatement;
 
 export interface VCLIncludeStatement extends VCLNode {
 	type: "IncludeStatement";
@@ -339,6 +358,8 @@ export type VCLExpression =
 	| VCLIdentifier
 	| VCLStringLiteral
 	| VCLNumberLiteral
+	| VCLRTimeLiteral
+	| VCLBoolLiteral
 	| VCLRegexLiteral
 	| VCLMemberAccess;
 
@@ -381,6 +402,21 @@ export interface VCLStringLiteral extends VCLNode {
 export interface VCLNumberLiteral extends VCLNode {
 	type: "NumberLiteral";
 	value: number;
+	/** True when the literal was written with a decimal point (VCL FLOAT). */
+	isFloat?: boolean;
+}
+
+export interface VCLBoolLiteral extends VCLNode {
+	type: "BoolLiteral";
+	value: boolean;
+}
+
+export interface VCLRTimeLiteral extends VCLNode {
+	type: "RTimeLiteral";
+	/** Duration in seconds. */
+	seconds: number;
+	/** Original literal text, e.g. "10s", "1.5h". */
+	raw: string;
 }
 
 export interface VCLRegexLiteral extends VCLNode {
@@ -502,6 +538,12 @@ export class VCLLexer {
 				this.tokenizeNumber();
 				continue;
 			}
+			// Fastly-generated VCL contains C!/W! control markers; skip them.
+			if ((char === "C" || char === "W") && this.peek() === "!") {
+				this.advance();
+				this.advance();
+				continue;
+			}
 			if (/[a-zA-Z_]/.test(char)) {
 				this.tokenizeIdentifier();
 				continue;
@@ -519,10 +561,13 @@ export class VCLLexer {
 
 			if (char === "{") {
 				const prevToken = this.tokens[this.tokens.length - 1];
-				// A Fastly long string {"..."} can appear anywhere an expression can,
-				// so concatenations like {"a"} + obj.status + {"b"} tokenize correctly.
-				if (this.peek() === '"') {
-					this.tokenizeLongString();
+				// A Fastly long string {"..."} — or with a custom delimiter, e.g.
+				// {HTML"..."HTML} — can appear anywhere an expression can, so
+				// concatenations like {"a"} + obj.status + {"b"} tokenize correctly.
+				LONG_STRING_OPEN_RE.lastIndex = this.position;
+				const delimMatch = LONG_STRING_OPEN_RE.exec(this.input);
+				if (delimMatch) {
+					this.tokenizeLongString(delimMatch[1]!);
 					continue;
 				}
 				// The non-standard synthetic {expr} brace form is still scanned as one token.
@@ -669,33 +714,62 @@ export class VCLLexer {
 			return;
 		}
 
-		// Regular string with escape sequences
-		const escapes: Record<string, string> = {
-			n: "\n",
-			t: "\t",
-			r: "\r",
-			"\\": "\\",
-			'"': '"',
-			"'": "'",
-			"0": "\0",
-		};
-		let content = "";
-		while (this.position < this.input.length && this.input[this.position] !== quote) {
-			if (this.input[this.position] === "\\" && this.position + 1 < this.input.length) {
+		// Regular (short) string. Fastly short strings have no backslash
+		// escapes; "%XX" percent sequences decode to bytes (the byte stream
+		// must be valid UTF-8), and a "%" not followed by two hex digits is a
+		// lexing error. Literal "%" must be written "%25".
+		//
+		// Fast path: without any "%" the literal is taken verbatim.
+		const closing = this.input.indexOf(quote, this.position);
+		const rawEnd = closing === -1 ? this.input.length : closing;
+		const raw = this.input.substring(this.position, rawEnd);
+		let content: string;
+		if (!raw.includes("%")) {
+			for (const ch of raw) {
+				if (ch === "\n") {
+					this.line++;
+					this.column = 1;
+				}
 				this.advance();
-				const escChar = this.input[this.position] ?? "";
-				content += escapes[escChar] ?? `\\${escChar}`;
-				this.advance();
-				continue;
 			}
-			if (this.input[this.position] === "\n") {
-				this.line++;
-				this.column = 1;
+			if (this.position < this.input.length) this.advance();
+			content = raw;
+		} else {
+			const bytes: number[] = [];
+			while (this.position < this.input.length && this.input[this.position] !== quote) {
+				const ch = this.input[this.position]!;
+				if (ch === "%") {
+					const hex = this.input.substring(this.position + 1, this.position + 3);
+					if (!/^[0-9a-fA-F]{2}$/.test(hex)) {
+						throw new Error(
+							`Invalid percent escape in string literal at line ${this.line}, column ${this.column}`,
+						);
+					}
+					bytes.push(parseInt(hex, 16));
+					this.advance();
+					this.advance();
+					this.advance();
+					continue;
+				}
+				if (ch === "\n") {
+					this.line++;
+					this.column = 1;
+				}
+				// Consume a full code point so surrogate pairs encode correctly.
+				const cp = this.input.codePointAt(this.position)!;
+				const cpStr = String.fromCodePoint(cp);
+				for (const b of UTF8_ENCODER.encode(cpStr)) bytes.push(b);
+				for (let k = 0; k < cpStr.length; k++) this.advance();
 			}
-			content += this.input[this.position];
-			this.advance();
+			if (this.position < this.input.length) this.advance();
+			try {
+				content = UTF8_STRICT_DECODER.decode(new Uint8Array(bytes));
+			} catch {
+				throw new Error(
+					`Invalid UTF-8 percent escape in string literal at line ${startLine}, column ${startColumn}`,
+				);
+			}
 		}
-		if (this.position < this.input.length) this.advance();
 		this.tokens.push({
 			type: TokenType.STRING,
 			value: quote + content + quote,
@@ -705,13 +779,15 @@ export class VCLLexer {
 		});
 	}
 
-	private tokenizeLongString(): void {
+	private tokenizeLongString(delim: string = ""): void {
 		const start = this.position;
 		const startLine = this.line;
 		const startColumn = this.column;
 		this.advance();
-		const end = this.input.indexOf('"}', this.position + 1);
-		const stop = end === -1 ? this.input.length : end + 2;
+		// The string ends only at "DELIM} with the matching delimiter.
+		const close = `"${delim}}`;
+		const end = this.input.indexOf(close, this.position + delim.length + 1);
+		const stop = end === -1 ? this.input.length : end + close.length;
 		while (this.position < stop) this.advanceTrackingLine();
 		this.tokens.push({
 			type: TokenType.STRING,
@@ -763,18 +839,16 @@ export class VCLLexer {
 				this.advance();
 		}
 
-		// Time units (s, m, h, d, y)
-		if (this.position < this.input.length && /[smhdy]/.test(this.input[this.position] ?? "")) {
+		// RTIME units (ms, s, m, h, d, y). Consume the full alphabetic suffix so
+		// "10ms" lexes as one token rather than "10m" + "s".
+		const unitStart = this.position;
+		while (this.position < this.input.length && /[a-z]/.test(this.input[this.position] ?? ""))
 			this.advance();
-			const value = this.input.substring(start, this.position);
-			this.tokens.push({
-				type: TokenType.STRING,
-				value: `"${value}"`,
-				line: startLine,
-				column: startColumn,
-				position: start,
-			});
-			return;
+		const unit = this.input.substring(unitStart, this.position);
+		if (unit.length > 0 && !/^(ms|s|m|h|d|y)$/.test(unit)) {
+			// Not a valid RTIME unit; back off to just the numeric part.
+			this.column -= this.position - unitStart;
+			this.position = unitStart;
 		}
 
 		this.tokens.push({

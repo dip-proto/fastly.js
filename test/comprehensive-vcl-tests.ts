@@ -170,29 +170,29 @@ const comprehensiveVCLTests = {
 				// Check prefix detection
 				(context: VCLContext) => {
 					return assert(
-						context.req.http["X-Prefix"] === "true",
-						`Expected X-Prefix to be 'true', got '${context.req.http["X-Prefix"]}'`,
+						context.req.http["X-Prefix"] === "1",
+						`Expected X-Prefix to be '1', got '${context.req.http["X-Prefix"]}'`,
 					);
 				},
 				// Check suffix detection
 				(context: VCLContext) => {
 					return assert(
-						context.req.http["X-Suffix"] === "true",
-						`Expected X-Suffix to be 'true', got '${context.req.http["X-Suffix"]}'`,
+						context.req.http["X-Suffix"] === "1",
+						`Expected X-Suffix to be '1', got '${context.req.http["X-Suffix"]}'`,
 					);
 				},
 				// Check no prefix
 				(context: VCLContext) => {
 					return assert(
-						context.req.http["X-NoPrefix"] === "false",
-						`Expected X-NoPrefix to be 'false', got '${context.req.http["X-NoPrefix"]}'`,
+						context.req.http["X-NoPrefix"] === "0",
+						`Expected X-NoPrefix to be '0', got '${context.req.http["X-NoPrefix"]}'`,
 					);
 				},
 				// Check no suffix
 				(context: VCLContext) => {
 					return assert(
-						context.req.http["X-NoSuffix"] === "false",
-						`Expected X-NoSuffix to be 'false', got '${context.req.http["X-NoSuffix"]}'`,
+						context.req.http["X-NoSuffix"] === "0",
+						`Expected X-NoSuffix to be '0', got '${context.req.http["X-NoSuffix"]}'`,
 					);
 				},
 			],
@@ -208,7 +208,8 @@ const comprehensiveVCLTests = {
 
           # Strip query parameters except essential ones
           if (req.url ~ "\\?") {
-            set req.url = querystring.filter_except(req.url, "id,version,lang");
+            set req.url = querystring.filter_except(req.url,
+              "id" + querystring.filtersep() + "version" + querystring.filtersep() + "lang");
           }
 
           # Set cache policy based on URL pattern

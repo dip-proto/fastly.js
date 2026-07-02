@@ -1,37 +1,37 @@
 /**
  * VCL Time Functions Module
  *
- * Implements all time.* functions from Fastly VCL.
+ * Implements the date-and-time VCL builtins, matching Fastly's behavior.
+ *
  * Reference: https://developer.fastly.com/reference/vcl/functions/date-and-time/
  */
 
+import { VCLTime } from "./vcl-value";
+
 export interface TimeModule {
 	now: () => Date;
-	add: (time: Date, duration: number) => Date;
-	sub: (time1: Date, time2: Date) => number;
-	is_after: (time1: Date, time2: Date) => boolean;
-	hex_to_time: (hex: string) => Date;
-	units: (duration: string) => number;
-	runits: (seconds: number) => string;
-	interval_elapsed_ratio: (start: Date, interval: number) => number;
+	/** time.add(TIME, RTIME) -> TIME */
+	add: (time: any, duration?: any) => any;
+	/** time.sub(TIME, RTIME) -> TIME */
+	sub: (time: any, duration?: any) => any;
+	/** time.is_after(TIME, TIME) -> BOOL */
+	is_after: (time1: any, time2?: any) => boolean;
+	/** time.hex_to_time(INTEGER divisor, STRING hex) -> TIME */
+	hex_to_time: (divisor: any, hex?: any) => any;
+	/** time.units(STRING unit, TIME) -> STRING (null when unit is invalid: EINVAL) */
+	units: (unit: any, time?: any) => any;
+	/** time.runits(STRING unit, RTIME) -> STRING (null when unit is invalid: EINVAL) */
+	runits: (unit: any, rtime?: any) => any;
+	/** time.interval_elapsed_ratio(TIME now, TIME start, TIME end) -> FLOAT */
+	interval_elapsed_ratio: (now: any, start?: any, end?: any) => any;
 	hex?: string; // Current time as hex string (for compatibility)
 }
 
-export type StrftimeFunction = (format: string, time: Date) => string;
+export type StrftimeFunction = (format: string, time: Date) => any;
 
-export type ParseTimeDeltaFunction = (delta: string) => number;
+export type ParseTimeDeltaFunction = (delta: string) => any;
 
-const WEEKDAY_NAMES = [
-	"Sunday",
-	"Monday",
-	"Tuesday",
-	"Wednesday",
-	"Thursday",
-	"Friday",
-	"Saturday",
-];
-const WEEKDAY_ABBREV = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-const MONTH_NAMES = [
+const MONTHS = [
 	"January",
 	"February",
 	"March",
@@ -45,20 +45,11 @@ const MONTH_NAMES = [
 	"November",
 	"December",
 ];
-const MONTH_ABBREV = [
-	"Jan",
-	"Feb",
-	"Mar",
-	"Apr",
-	"May",
-	"Jun",
-	"Jul",
-	"Aug",
-	"Sep",
-	"Oct",
-	"Nov",
-	"Dec",
-];
+const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const MONTH_ABBREV = MONTHS.map((m) => m.slice(0, 3));
+
+const pad2 = (n: number) => String(n).padStart(2, "0");
+const padSpace2 = (n: number) => String(n).padStart(2, " ");
 
 const TIME_UNITS: Record<string, number> = {
 	ms: 0.001,
@@ -70,29 +61,40 @@ const TIME_UNITS: Record<string, number> = {
 	y: 31536000,
 };
 
-function pad(n: number, width: number): string {
-	return String(n).padStart(width, "0");
+/** Go's zero time.Time instant (year 1, Jan 1, 00:00:00 UTC) in epoch ms. */
+const GO_ZERO_TIME_MS = -62135596800000;
+
+/**
+ * Out-of-bounds TIME value (std.time with a negative epoch).
+ * Stringifies as "[out of bounds]", matching Fastly's behavior.
+ */
+class OutOfBoundsTime extends VCLTime {
+	override toUTCString(): string {
+		return "[out of bounds]";
+	}
 }
 
-function padSpace(n: number, width: number): string {
-	return String(n).padStart(width, " ");
+/** TIME arguments may arrive as Date/VCLTime or as epoch-milliseconds. */
+function toEpochMs(v: any): number {
+	if (v instanceof Date) return v.getTime();
+	return Number(v);
 }
 
-function getAmPm(hour: number): string {
-	return hour >= 12 ? "PM" : "AM";
+/** TIME +/- RTIME. A TIME passed as the duration contributes its epoch seconds. */
+function shiftTime(time: any, duration: any, sign: 1 | -1): VCLTime {
+	const base = toEpochMs(time);
+	const deltaMs = duration instanceof Date ? duration.getTime() : rtimeSeconds(duration) * 1000;
+	return new VCLTime(base + sign * deltaMs);
 }
 
-function getISOWeek(date: Date): number {
-	const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
-	const dayNum = d.getUTCDay() || 7;
-	d.setUTCDate(d.getUTCDate() + 4 - dayNum);
-	const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
-	return Math.ceil(((d.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
+/** Unix seconds the way Go computes them (floor of ms/1000). */
+function unixSeconds(ms: number): number {
+	return Math.floor(ms / 1000);
 }
 
-function getDayOfYear(date: Date): number {
-	const start = new Date(date.getFullYear(), 0, 0);
-	return Math.floor((date.getTime() - start.getTime()) / 86400000);
+/** RTIME arguments arrive as VCLRTime (valueOf() = seconds) or plain seconds. */
+function rtimeSeconds(v: any): number {
+	return Number(v);
 }
 
 export function parseTimeValue(str: string): number {
@@ -106,256 +108,493 @@ export function parseTimeValue(str: string): number {
 export function createTimeModule(platform?: { now(): number }): TimeModule {
 	const now = () => platform?.now() ?? Date.now();
 	return {
-		now: (): Date => new Date(now()),
+		now: (): Date => new VCLTime(now()),
 
-		add: (time: Date, duration: number): Date => new Date(time.getTime() + duration),
+		// TIME + RTIME -> TIME. When the second argument is a TIME, its
+		// seconds-within-the-minute component is added.
+		add: (time: any, duration?: any): any => shiftTime(time, duration, 1),
 
-		sub: (time1: Date, time2: Date): number => time1.getTime() - time2.getTime(),
+		// TIME - RTIME -> TIME.
+		sub: (time: any, duration?: any): any => shiftTime(time, duration, -1),
 
-		is_after: (time1: Date, time2: Date): boolean => time1.getTime() > time2.getTime(),
+		is_after: (time1: any, time2?: any): boolean => toEpochMs(time1) > toEpochMs(time2),
 
-		hex_to_time: (hex: string): Date => {
-			const trimmed = String(hex).trim();
-			if (!/^[0-9A-Fa-f]+$/.test(trimmed)) return new Date(0);
-			const timestamp = parseInt(trimmed, 16);
-			return Number.isNaN(timestamp) ? new Date(0) : new Date(timestamp * 1000);
+		// ParseInt(hex, 16, 64) / divisor = unix seconds. BigInt keeps the
+		// full int64 range exact, with truncating division like Go.
+		hex_to_time: (divisor: any, hex?: any): any => {
+			const div = Math.trunc(Number(divisor));
+			const str = String(hex);
+			if (div === 0 || Number.isNaN(div)) return null;
+			// Go's strconv.ParseInt(s, 16, 64): optional sign, hex digits only,
+			// and an error when the value overflows int64.
+			const m = str.match(/^([+-]?)([0-9A-Fa-f]+)$/);
+			if (!m) return null;
+			let ts = BigInt(`0x${m[2]}`);
+			if (m[1] === "-") ts = -ts;
+			if (ts > 9223372036854775807n || ts < -9223372036854775808n) return null;
+			return new VCLTime(Number(ts / BigInt(div)) * 1000);
 		},
 
-		units: (duration: string): number => parseTimeValue(String(duration).trim()),
-
-		runits: (seconds: number): string => {
-			const sec = Math.abs(seconds);
-			const sign = seconds < 0 ? "-" : "";
-
-			if (sec >= 31536000) return `${sign + (sec / 31536000).toFixed(3)}y`;
-			if (sec >= 604800) return `${sign + (sec / 604800).toFixed(3)}w`;
-			if (sec >= 86400) return `${sign + (sec / 86400).toFixed(3)}d`;
-			if (sec >= 3600) return `${sign + (sec / 3600).toFixed(3)}h`;
-			if (sec >= 60) return `${sign + (sec / 60).toFixed(3)}m`;
-			return `${sign + sec.toFixed(3)}s`;
+		// STRING unit, TIME -> STRING.
+		units: (unit: any, time?: any): any => {
+			const ms = toEpochMs(time);
+			switch (String(unit)) {
+				case "s":
+					return String(unixSeconds(ms));
+				case "ms":
+					return (ms / 1000).toFixed(3);
+				case "us":
+					return (ms / 1000).toFixed(6);
+				case "ns":
+					return (ms / 1000).toFixed(9);
+				default:
+					// Fastly sets fastly.error = "EINVAL" and returns a not-set STRING.
+					return null;
+			}
 		},
 
-		interval_elapsed_ratio: (start: Date, interval: number): number => {
-			if (interval <= 0) return 0;
-			const elapsed = now() - start.getTime();
-			return Math.min(1, Math.max(0, elapsed / interval));
+		// STRING unit, RTIME -> STRING. Go durations are integer nanoseconds
+		// and each unit truncates toward zero.
+		runits: (unit: any, rtime?: any): any => {
+			const ns = Math.round(rtimeSeconds(rtime) * 1e9);
+			switch (String(unit)) {
+				case "s":
+					return String(Math.trunc(ns / 1e9));
+				case "ms":
+					return (Math.trunc(ns / 1e6) / 1e3).toFixed(3);
+				case "us":
+					return (Math.trunc(ns / 1e3) / 1e6).toFixed(6);
+				case "ns":
+					return (ns / 1e9).toFixed(9);
+				default:
+					// Fastly sets fastly.error = "EINVAL" and returns a not-set STRING.
+					return null;
+			}
+		},
+
+		// Unclamped ratio over unix seconds.
+		interval_elapsed_ratio: (nowTime: any, start?: any, end?: any): any => {
+			const ref = unixSeconds(toEpochMs(nowTime));
+			const s = unixSeconds(toEpochMs(start));
+			const e = unixSeconds(toEpochMs(end));
+			// Division by zero yields Infinity/NaN exactly like Go float division.
+			return (ref - s) / (e - s);
 		},
 	};
 }
 
+/** std.integer2time(INTEGER unix-seconds) -> TIME. */
+export function std_integer2time(seconds: any): Date {
+	return new VCLTime(Math.trunc(Number(seconds)) * 1000);
+}
+
+interface ParsedParts {
+	year: number;
+	month: number; // 1-12
+	day: number;
+	hour: number;
+	minute: number;
+	second: number;
+}
+
+const MONTH_INDEX: Record<string, number> = {};
+for (let i = 0; i < MONTH_ABBREV.length; i++) MONTH_INDEX[MONTH_ABBREV[i]!.toLowerCase()] = i + 1;
+
+/** Month abbreviation to 1-12, ASCII case-insensitive like Go's matcher. */
+function monthIndex(abbr: string): number {
+	return MONTH_INDEX[abbr.toLowerCase()] ?? 0;
+}
+
+/** Go's two-digit year rule: 69-99 -> 19xx, 00-68 -> 20xx. */
+function expandYear2(yy: number): number {
+	return yy >= 69 ? 1900 + yy : 2000 + yy;
+}
+
+/**
+ * Validate the components and return epoch ms (UTC), or null when any
+ * component is out of range (Go's time.Parse rejects those).
+ */
+function componentsToUTC(p: ParsedParts): number | null {
+	if (p.month < 1 || p.month > 12) return null;
+	if (p.hour > 23 || p.minute > 59 || p.second > 59) return null;
+	const d = new Date(0);
+	d.setUTCFullYear(p.year, p.month - 1, p.day);
+	d.setUTCHours(p.hour, p.minute, p.second, 0);
+	if (
+		d.getUTCFullYear() !== p.year ||
+		d.getUTCMonth() !== p.month - 1 ||
+		d.getUTCDate() !== p.day ||
+		d.getUTCHours() !== p.hour
+	) {
+		return null; // e.g. day out of range for the month
+	}
+	return d.getTime();
+}
+
+/**
+ * Validate a timezone token the way Go's parseTimeZone does for the "MST"
+ * layout token: 3 uppercase letters, 4-5 uppercase letters ending in "T",
+ * the specials ChST/MeST/WITA, "GMT" optionally followed by a signed hour
+ * offset <= 23, or a signed numeric offset <= 23 ("+02", "+0000", ...).
+ *
+ * Go builds the parsed time with Date(..., UTC) and only setLoc()s a fake
+ * fixed zone afterwards, so none of these ever shift the instant; they all
+ * behave as UTC. (Abbreviations that happen to name the *host's local zone*
+ * do get their real offset applied in Go; that host-dependent behavior is
+ * intentionally not reproduced.)
+ */
+function isValidGoZone(z: string): boolean {
+	if (z.length < 3) return false;
+	if (z === "ChST" || z === "MeST" || z === "WITA") return true;
+	if (z.startsWith("GMT")) {
+		const rest = z.slice(3);
+		if (rest === "") return true;
+		const m = rest.match(/^[+-](\d+)$/);
+		return m !== null && Number(m[1]) <= 23;
+	}
+	if (z[0] === "+" || z[0] === "-") {
+		const m = z.match(/^[+-](\d+)$/);
+		return m !== null && Number(m[1]) <= 23;
+	}
+	if (/^[A-Z]{3}$/.test(z)) return true;
+	if (/^[A-Z]{4}$/.test(z)) return z[3] === "T";
+	if (/^[A-Z]{5}$/.test(z)) return z[4] === "T";
+	return false;
+}
+
+// Go's name matcher is ASCII case-insensitive, so weekday/month names match
+// in any case (zone tokens do not; they are validated separately).
+const WDAY_ABBR_RE = "(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)";
+const WDAY_FULL_RE = "(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)";
+const MON_RE = "(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)";
+
+const RFC1123_RE = new RegExp(
+	`^${WDAY_ABBR_RE}, (\\d{2}) ${MON_RE} (\\d{4}) (\\d{1,2}):(\\d{2}):(\\d{2}) (\\S+)$`,
+	"i",
+);
+const RFC822_RE = new RegExp(`^(\\d{2}) ${MON_RE} (\\d{2}) (\\d{1,2}):(\\d{2}) (\\S+)$`, "i");
+const RFC850_RE = new RegExp(
+	`^${WDAY_FULL_RE}, (\\d{2})-${MON_RE}-(\\d{2}) (\\d{1,2}):(\\d{2}):(\\d{2}) (\\S+)$`,
+	"i",
+);
+const ANSIC_RE = new RegExp(
+	`^${WDAY_ABBR_RE} ${MON_RE} {1,2}(\\d{1,2}) (\\d{1,2}):(\\d{2}):(\\d{2}) (\\d{4})$`,
+	"i",
+);
+
+// Go layouts tried in order: RFC1123, RFC822, RFC850, ANSIC, then
+// "2006-01-02 15:04:05".
+const STD_TIME_PARSERS: Array<(s: string) => number | null> = [
+	// RFC1123: "Mon, 02 Jan 2006 15:04:05 MST"
+	(s) => {
+		const m = s.match(RFC1123_RE);
+		if (!m || !isValidGoZone(m[7]!)) return null;
+		return componentsToUTC({
+			day: Number(m[1]),
+			month: monthIndex(m[2]!),
+			year: Number(m[3]),
+			hour: Number(m[4]),
+			minute: Number(m[5]),
+			second: Number(m[6]),
+		});
+	},
+	// RFC822: "02 Jan 06 15:04 MST"
+	(s) => {
+		const m = s.match(RFC822_RE);
+		if (!m || !isValidGoZone(m[6]!)) return null;
+		return componentsToUTC({
+			day: Number(m[1]),
+			month: monthIndex(m[2]!),
+			year: expandYear2(Number(m[3])),
+			hour: Number(m[4]),
+			minute: Number(m[5]),
+			second: 0,
+		});
+	},
+	// RFC850: "Monday, 02-Jan-06 15:04:05 MST"
+	(s) => {
+		const m = s.match(RFC850_RE);
+		if (!m || !isValidGoZone(m[7]!)) return null;
+		return componentsToUTC({
+			day: Number(m[1]),
+			month: monthIndex(m[2]!),
+			year: expandYear2(Number(m[3])),
+			hour: Number(m[4]),
+			minute: Number(m[5]),
+			second: Number(m[6]),
+		});
+	},
+	// ANSIC: "Mon Jan _2 15:04:05 2006" (no zone -> UTC)
+	(s) => {
+		const m = s.match(ANSIC_RE);
+		if (!m) return null;
+		return componentsToUTC({
+			month: monthIndex(m[1]!),
+			day: Number(m[2]),
+			hour: Number(m[3]),
+			minute: Number(m[4]),
+			second: Number(m[5]),
+			year: Number(m[6]),
+		});
+	},
+	// ISO 8601 subset: "2006-01-02 15:04:05" (parsed as UTC)
+	(s) => {
+		const m = s.match(/^(\d{4})-(\d{2})-(\d{2}) (\d{1,2}):(\d{2}):(\d{2})$/);
+		if (!m) return null;
+		return componentsToUTC({
+			year: Number(m[1]),
+			month: Number(m[2]),
+			day: Number(m[3]),
+			hour: Number(m[4]),
+			minute: Number(m[5]),
+			second: Number(m[6]),
+		});
+	},
+];
+
+/**
+ * std.time(STRING, TIME fallback) -> TIME.
+ *
+ * Tries the format list; on success returns immediately (no out-of-bounds
+ * check on that path, matching Fastly's behavior). Otherwise parses unix epoch seconds
+ * (anything after a "." is dropped); when that fails the fallback is used.
+ * On this second path, a negative unix time yields an out-of-bounds TIME
+ * that stringifies as "[out of bounds]".
+ */
+export function std_time(str: any, fallback: any): Date {
+	const s = String(str);
+	for (const parse of STD_TIME_PARSERS) {
+		const ms = parse(s);
+		if (ms !== null) return new VCLTime(ms);
+	}
+
+	// Try unix epoch seconds; strip anything after a ".".
+	const dot = s.indexOf(".");
+	const intPart = dot === -1 ? s : s.slice(0, dot);
+	let ms: number;
+	if (/^[+-]?\d+$/.test(intPart)) {
+		ms = parseInt(intPart, 10) * 1000;
+	} else {
+		ms = toEpochMs(fallback);
+	}
+
+	if (unixSeconds(ms) < 0) {
+		// An out-of-bounds TIME holding Go's zero time.
+		return new OutOfBoundsTime(GO_ZERO_TIME_MS);
+	}
+	return new VCLTime(ms);
+}
+
+/**
+ * strftime with Fastly's semantics (verified against production): standard
+ * POSIX conversion specifiers computed on UTC components, padding flags
+ * "0" (zero), "_" (space) and "-" (none) with optional width digits that are
+ * accepted but ignored, and no-op E/O modifiers. %Z is always "GMT" and %z
+ * "+0000" since VCL TIME values carry no zone. Unsupported specifiers
+ * (e.g. %l, %P) are a compile error on Fastly; this returns null (not set).
+ */
 export function createStrftime(): StrftimeFunction {
-	return (format: string, time: Date): string => {
-		const t = time;
+	return (format: any, time: any): any => {
+		const t = time instanceof Date ? time : new Date(Number(time));
 		const formatStr = String(format);
-		let result = "";
-		let i = 0;
+		if (Number.isNaN(t.getTime())) return null;
 
-		while (i < formatStr.length) {
-			if (formatStr[i] !== "%") {
-				result += formatStr[i++];
-				continue;
-			}
+		const year = t.getUTCFullYear();
+		const mon = t.getUTCMonth() + 1;
+		const day = t.getUTCDate();
+		const hour = t.getUTCHours();
+		const min = t.getUTCMinutes();
+		const sec = t.getUTCSeconds();
+		const wday = t.getUTCDay(); // Sunday = 0
+		const isoWday = wday === 0 ? 7 : wday; // Monday = 1 ... Sunday = 7
 
-			i++;
-			if (i >= formatStr.length) break;
+		const startOfYear = Date.UTC(year, 0, 1);
+		const yday = Math.floor((t.getTime() - startOfYear) / 86400000) + 1;
 
-			// Handle modifiers
-			let modifier = "";
-			const currentChar = formatStr[i] ?? "";
-			if ("-_0EO".includes(currentChar)) {
-				modifier = currentChar;
-				i++;
-				if (i >= formatStr.length) break;
-			}
+		// ISO 8601 week number and week-based year (%V, %G, %g)
+		const isoWeekAndYear = (): { week: number; year: number } => {
+			const target = new Date(Date.UTC(year, t.getUTCMonth(), day));
+			target.setUTCDate(target.getUTCDate() + 4 - isoWday);
+			const isoYear = target.getUTCFullYear();
+			const jan4 = new Date(Date.UTC(isoYear, 0, 4));
+			const jan4IsoWday = jan4.getUTCDay() === 0 ? 7 : jan4.getUTCDay();
+			const firstThursday = new Date(Date.UTC(isoYear, 0, 4 + (4 - jan4IsoWday)));
+			const week = 1 + Math.round((target.getTime() - firstThursday.getTime()) / 604800000);
+			return { week, year: isoYear };
+		};
 
-			const spec = formatStr[i++] ?? "";
-			const hour12 = t.getHours() % 12 || 12;
+		// POSIX %U (weeks start Sunday) and %W (weeks start Monday): days before
+		// the year's first week day count as week 0.
+		const weekOfYear = (firstDay: number): number => {
+			const shifted = firstDay === 0 ? wday : (wday + 6) % 7;
+			return Math.floor((yday + 6 - shifted) / 7);
+		};
 
+		const hour12 = hour % 12 === 0 ? 12 : hour % 12;
+		const ampm = hour < 12 ? "AM" : "PM";
+
+		type Conv = { value: string; numeric: boolean };
+		const convert = (spec: string): Conv | null => {
 			switch (spec) {
 				case "a":
-					result += WEEKDAY_ABBREV[t.getDay()];
-					break;
+					return { value: DAYS[wday]!.slice(0, 3), numeric: false };
 				case "A":
-					result += WEEKDAY_NAMES[t.getDay()];
-					break;
+					return { value: DAYS[wday]!, numeric: false };
 				case "b":
 				case "h":
-					result += MONTH_ABBREV[t.getMonth()];
-					break;
+					return { value: MONTHS[mon - 1]!.slice(0, 3), numeric: false };
 				case "B":
-					result += MONTH_NAMES[t.getMonth()];
-					break;
+					return { value: MONTHS[mon - 1]!, numeric: false };
 				case "c":
-					result += t.toLocaleString();
-					break;
+					return {
+						value: `${DAYS[wday]!.slice(0, 3)} ${MONTHS[mon - 1]!.slice(0, 3)} ${padSpace2(day)} ${pad2(hour)}:${pad2(min)}:${pad2(sec)} ${year}`,
+						numeric: false,
+					};
 				case "C":
-					result += Math.floor(t.getFullYear() / 100);
-					break;
+					return { value: pad2(Math.floor(year / 100)), numeric: true };
 				case "d":
-					result += modifier === "-" ? t.getDate() : pad(t.getDate(), 2);
-					break;
+					return { value: pad2(day), numeric: true };
 				case "D":
-					result +=
-						pad(t.getMonth() + 1, 2) +
-						"/" +
-						pad(t.getDate(), 2) +
-						"/" +
-						pad(t.getFullYear() % 100, 2);
-					break;
-				case "e":
-					result +=
-						modifier === "-"
-							? t.getDate()
-							: modifier === "0"
-								? pad(t.getDate(), 2)
-								: padSpace(t.getDate(), 2);
-					break;
-				case "F":
-					result += `${t.getFullYear()}-${pad(t.getMonth() + 1, 2)}-${pad(t.getDate(), 2)}`;
-					break;
-				case "g":
-					result += pad(t.getFullYear() % 100, 2);
-					break;
-				case "G":
-					result += t.getFullYear();
-					break;
-				case "H":
-					result += modifier === "-" ? t.getHours() : pad(t.getHours(), 2);
-					break;
-				case "I":
-					result += modifier === "-" ? hour12 : pad(hour12, 2);
-					break;
-				case "j":
-					result += pad(getDayOfYear(t), 3);
-					break;
-				case "k":
-					result += modifier === "0" ? pad(t.getHours(), 2) : padSpace(t.getHours(), 2);
-					break;
-				case "l":
-					result += modifier === "0" ? pad(hour12, 2) : padSpace(hour12, 2);
-					break;
-				case "m":
-					result += modifier === "-" ? t.getMonth() + 1 : pad(t.getMonth() + 1, 2);
-					break;
-				case "M":
-					result += pad(t.getMinutes(), 2);
-					break;
-				case "n":
-					result += "\n";
-					break;
-				case "p":
-					result += getAmPm(t.getHours());
-					break;
-				case "P":
-					result += getAmPm(t.getHours()).toLowerCase();
-					break;
-				case "r":
-					result +=
-						pad(hour12, 2) +
-						":" +
-						pad(t.getMinutes(), 2) +
-						":" +
-						pad(t.getSeconds(), 2) +
-						" " +
-						getAmPm(t.getHours());
-					break;
-				case "R":
-					result += `${pad(t.getHours(), 2)}:${pad(t.getMinutes(), 2)}`;
-					break;
-				case "s":
-					result += Math.floor(t.getTime() / 1000);
-					break;
-				case "S":
-					result += pad(t.getSeconds(), 2);
-					break;
-				case "t":
-					result += "\t";
-					break;
-				case "T":
-					result += `${pad(t.getHours(), 2)}:${pad(t.getMinutes(), 2)}:${pad(t.getSeconds(), 2)}`;
-					break;
-				case "u":
-					result += t.getDay() || 7;
-					break;
-				case "U":
-				case "V":
-				case "W":
-					result += pad(getISOWeek(t), 2);
-					break;
-				case "w":
-					result += t.getDay();
-					break;
 				case "x":
-					result +=
-						pad(t.getMonth() + 1, 2) +
-						"/" +
-						pad(t.getDate(), 2) +
-						"/" +
-						pad(t.getFullYear() % 100, 2);
-					break;
+					return { value: `${pad2(mon)}/${pad2(day)}/${pad2(year % 100)}`, numeric: false };
+				case "e":
+					return { value: padSpace2(day), numeric: true };
+				case "F":
+					return { value: `${year}-${pad2(mon)}-${pad2(day)}`, numeric: false };
+				case "G":
+					return { value: String(isoWeekAndYear().year), numeric: true };
+				case "g":
+					return { value: pad2(isoWeekAndYear().year % 100), numeric: true };
+				case "H":
+					return { value: pad2(hour), numeric: true };
+				case "I":
+					return { value: pad2(hour12), numeric: true };
+				case "j":
+					return { value: String(yday).padStart(3, "0"), numeric: true };
+				case "m":
+					return { value: pad2(mon), numeric: true };
+				case "M":
+					return { value: pad2(min), numeric: true };
+				case "n":
+					return { value: "\n", numeric: false };
+				case "p":
+					return { value: ampm, numeric: false };
+				case "r":
+					return { value: `${pad2(hour12)}:${pad2(min)}:${pad2(sec)} ${ampm}`, numeric: false };
+				case "R":
+					return { value: `${pad2(hour)}:${pad2(min)}`, numeric: false };
+				case "s":
+					return { value: String(Math.floor(t.getTime() / 1000)), numeric: true };
+				case "S":
+					return { value: pad2(sec), numeric: true };
+				case "t":
+					return { value: "\t", numeric: false };
+				case "T":
 				case "X":
-					result += `${pad(t.getHours(), 2)}:${pad(t.getMinutes(), 2)}:${pad(t.getSeconds(), 2)}`;
-					break;
+					return { value: `${pad2(hour)}:${pad2(min)}:${pad2(sec)}`, numeric: false };
+				case "u":
+					return { value: String(isoWday), numeric: true };
+				case "U":
+					return { value: pad2(weekOfYear(0)), numeric: true };
+				case "V":
+					return { value: pad2(isoWeekAndYear().week), numeric: true };
+				case "w":
+					return { value: String(wday), numeric: true };
+				case "W":
+					return { value: pad2(weekOfYear(1)), numeric: true };
 				case "y":
-					result += pad(t.getFullYear() % 100, 2);
-					break;
+					return { value: pad2(year % 100), numeric: true };
 				case "Y":
-					result += t.getFullYear();
-					break;
-				case "z": {
-					const offset = -t.getTimezoneOffset();
-					const sign = offset >= 0 ? "+" : "-";
-					const absOffset = Math.abs(offset);
-					result += sign + pad(Math.floor(absOffset / 60), 2) + pad(absOffset % 60, 2);
-					break;
-				}
+					return { value: String(year), numeric: true };
+				case "z":
+					return { value: "+0000", numeric: false };
 				case "Z":
-					result +=
-						Intl.DateTimeFormat("en", { timeZoneName: "short" })
-							.formatToParts(t)
-							.find((p) => p.type === "timeZoneName")?.value || "";
-					break;
+					return { value: "GMT", numeric: false };
 				case "%":
-					result += "%";
-					break;
+					return { value: "%", numeric: false };
 				default:
-					result += `%${spec}`;
+					return null;
 			}
+		};
+
+		let result = "";
+		let i = 0;
+		while (i < formatStr.length) {
+			const ch = formatStr[i]!;
+			if (ch !== "%") {
+				result += ch;
+				i++;
+				continue;
+			}
+			i++;
+			if (i >= formatStr.length) return null;
+
+			// Optional padding flag, then optional width digits (accepted but
+			// ignored), then no-op E/O modifiers.
+			let flag = "";
+			if (formatStr[i] === "0" || formatStr[i] === "_" || formatStr[i] === "-") {
+				flag = formatStr[i]!;
+				i++;
+			}
+			while (i < formatStr.length && formatStr[i]! >= "0" && formatStr[i]! <= "9") i++;
+			if (formatStr[i] === "E" || formatStr[i] === "O") i++;
+			if (i >= formatStr.length) return null;
+
+			const spec = formatStr[i]!;
+			i++;
+			const conv = convert(spec);
+			if (conv === null) return null;
+
+			let out = conv.value;
+			if (flag !== "" && conv.numeric) {
+				const bare = out.replace(/^[0 ]+(?=.)/, "");
+				if (flag === "-") out = bare;
+				else if (flag === "0") out = bare.padStart(out.length, "0");
+				else if (flag === "_") out = bare.padStart(out.length, " ");
+			}
+			result += out;
 		}
 
 		return result;
 	};
 }
 
+/**
+ * parse_time_delta: skip leading whitespace, parse an optional sign and a
+ * run of digits, then read at most one unit character (d/h/m, case
+ * insensitive; anything else means seconds). Everything after the unit is
+ * silently ignored ("1d2h" == "1d"). Invalid or negative input returns -1.
+ */
 export function createParseTimeDelta(): ParseTimeDeltaFunction {
-	return (delta: string): number => {
-		const str = String(delta);
-		let totalSeconds = 0;
-		let numStr = "";
+	return (delta: any): any => {
+		const spec = String(delta);
+		let i = 0;
+		while (i < spec.length && /[ \t\n\v\f\r]/.test(spec[i]!)) i++;
+		const start = i;
+		if (i < spec.length && (spec[i] === "+" || spec[i] === "-")) i++;
+		if (i === spec.length || spec[i]! < "0" || spec[i]! > "9") return -1;
+		while (i < spec.length && spec[i]! >= "0" && spec[i]! <= "9") i++;
+		const v = Number(spec.slice(start, i));
+		if (!Number.isSafeInteger(v) || v < 0) return -1;
 
-		for (const char of str) {
-			const c = char.toLowerCase();
-			if (c >= "0" && c <= "9") {
-				numStr += c;
-			} else if (c === "d") {
-				const num = parseInt(numStr, 10);
-				if (!Number.isNaN(num)) totalSeconds += num * 24 * 60 * 60;
-				numStr = "";
-			} else if (c === "h") {
-				const num = parseInt(numStr, 10);
-				if (!Number.isNaN(num)) totalSeconds += num * 60 * 60;
-				numStr = "";
-			} else if (c === "m") {
-				const num = parseInt(numStr, 10);
-				if (!Number.isNaN(num)) totalSeconds += num * 60;
-				numStr = "";
-			} else if (c === "s") {
-				const num = parseInt(numStr, 10);
-				if (!Number.isNaN(num)) totalSeconds += num;
-				numStr = "";
+		let unit = 1;
+		if (i < spec.length) {
+			switch (spec[i]) {
+				case "d":
+				case "D":
+					unit = 24 * 3600;
+					break;
+				case "h":
+				case "H":
+					unit = 3600;
+					break;
+				case "m":
+				case "M":
+					unit = 60;
+					break;
 			}
 		}
-
-		return totalSeconds;
+		const result = v * unit;
+		return Number.isSafeInteger(result) ? result : -1;
 	};
 }

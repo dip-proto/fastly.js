@@ -147,13 +147,17 @@ const timeFunctionsTests = {
 			},
 			assertions: [
 				(context: VCLContext) => {
-					const nowMs = Number(context.req.http["X-Now"]);
+					// now renders as IMF-fixdate ("Wed, 01 Jul 2026 20:00:00 GMT"),
+					// now.sec as the epoch-seconds string.
+					const nowStr = context.req.http["X-Now"] ?? "";
 					const nowSec = Number(context.req.http["X-Now-Sec"]);
+					const parsed = Date.parse(nowStr);
 					return assert(
-						Number.isFinite(nowMs) &&
-							nowMs > 1_000_000_000_000 &&
-							Math.floor(nowMs / 1000) === nowSec,
-						`Expected now/now.sec to be a numeric epoch, got ${context.req.http["X-Now"]} / ${context.req.http["X-Now-Sec"]}`,
+						/GMT$/.test(nowStr) &&
+							Number.isFinite(parsed) &&
+							Number.isFinite(nowSec) &&
+							Math.abs(parsed / 1000 - nowSec) <= 1,
+						`Expected now/now.sec to be IMF date + epoch seconds, got ${nowStr} / ${context.req.http["X-Now-Sec"]}`,
 					);
 				},
 			],

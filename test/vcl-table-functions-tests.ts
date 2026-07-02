@@ -58,10 +58,10 @@ describe("VCL Table Functions Tests", () => {
 
 		// Verify the headers
 		expect(context.req.http["Test-Lookup"]).toBe("true");
-		expect(context.req.http["Test-Lookup-Bool"]).toBe("true");
+		expect(context.req.http["Test-Lookup-Bool"]).toBe("1");
 		expect(context.req.http["Test-Lookup-Integer"]).toBe("10");
-		expect(context.req.http["Test-Lookup-Float"]).toBe("0.15");
-		expect(context.req.http["Test-Contains"]).toBe("true");
+		expect(context.req.http["Test-Lookup-Float"]).toBe("0.150");
+		expect(context.req.http["Test-Contains"]).toBe("1");
 		expect(context.req.http["Test-Lookup-Regex"]).toBe("true");
 	});
 
@@ -99,10 +99,10 @@ describe("VCL Table Functions Tests", () => {
 
 		// Verify the headers with default values
 		expect(context.req.http["Test-Lookup"]).toBe("default");
-		expect(context.req.http["Test-Lookup-Bool"]).toBe("false");
+		expect(context.req.http["Test-Lookup-Bool"]).toBe("0");
 		expect(context.req.http["Test-Lookup-Integer"]).toBe("0");
-		expect(context.req.http["Test-Lookup-Float"]).toBe("0");
-		expect(context.req.http["Test-Contains"]).toBe("false");
+		expect(context.req.http["Test-Lookup-Float"]).toBe("0.000");
+		expect(context.req.http["Test-Contains"]).toBe("0");
 		expect(context.req.http["Test-Lookup-Regex"]).toBe("true");
 	});
 });
