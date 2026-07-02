@@ -100,10 +100,10 @@ Examples for cryptographic operations and encoding, including:
 ### 5. Fastly-specific Functions
 
 Examples for Fastly-specific functionality, including:
-- Edge dictionary operations
-- Segmented caching
-- ESI processing
-- Fastly-specific headers and metadata
+- Consistent hashing with fastly.hash
+- Shield POP selection with fastly.try_select_shield
+- HTTP/2 server push and header compression control
+- HTTP/3 advertisement and 103 Early Hints
 
 ### 6. HTTP Functions
 
@@ -188,10 +188,10 @@ Examples for Web Application Firewall functionality, including:
 ### 16. Miscellaneous Functions
 
 Examples for functions that don't fit other categories, including:
-- Flow control
-- Synthetic responses
-- Error handling
-- Request restarts
+- Flow control (goto, return, restart)
+- Synthetic responses and error handling
+- Set-Cookie inspection and removal
+- Response tarpitting
 
 ## Usage
 

@@ -2,6 +2,8 @@
 
 This example demonstrates how to implement A/B testing in VCL, including random assignment, cookie-based persistence, and cache variations.
 
+> **Note:** Fastly.JS stores incoming request header names in lowercase and header lookups are case-sensitive, so the client's cookie header is read as `req.http.cookie` below. Headers you set yourself in VCL keep the casing you write.
+
 ## Complete Example
 
 ```vcl
@@ -19,15 +21,15 @@ sub vcl_recv {
   std.log("Received request: " + req.method + " " + req.url);
   
   # Check if the user already has an A/B test variant cookie
-  if (req.http.Cookie ~ "ABTest=") {
+  if (req.http.cookie ~ "ABTest=") {
     # Extract the variant from the cookie
-    if (req.http.Cookie ~ "ABTest=A") {
+    if (req.http.cookie ~ "ABTest=A") {
       set req.http.X-ABTest = "A";
       std.log("User already assigned to variant A");
-    } else if (req.http.Cookie ~ "ABTest=B") {
+    } else if (req.http.cookie ~ "ABTest=B") {
       set req.http.X-ABTest = "B";
       std.log("User already assigned to variant B");
-    } else if (req.http.Cookie ~ "ABTest=C") {
+    } else if (req.http.cookie ~ "ABTest=C") {
       set req.http.X-ABTest = "C";
       std.log("User already assigned to variant C");
     } else {
@@ -89,7 +91,7 @@ sub vcl_fetch {
   } else if (req.http.X-ABTest == "B") {
     # Variant B: Modified version
     # Example: Change the title
-    if (beresp.http.Content-Type ~ "text/html") {
+    if (beresp.http.content-type ~ "text/html") {
       set beresp.http.X-AB-Modified = "1";
       
       # Note: In a real implementation, you would modify the response body here
@@ -98,7 +100,7 @@ sub vcl_fetch {
   } else if (req.http.X-ABTest == "C") {
     # Variant C: Another modified version
     # Example: Change the layout
-    if (beresp.http.Content-Type ~ "text/html") {
+    if (beresp.http.content-type ~ "text/html") {
       set beresp.http.X-AB-Modified = "2";
       
       # Note: In a real implementation, you would modify the response body here
@@ -205,7 +207,7 @@ Then, open your browser and navigate to:
 http://127.0.0.1:8000
 ```
 
-You should see the content from example.com, and the response headers should include:
+Note that the bundled proxy in `index.ts` currently picks the origin itself (a built-in set of backends routed by URL pattern); the `backend default` declaration is available to the VCL logic but does not drive the proxy's origin selection. The response headers should include:
 
 - `X-ABTest`: Indicates the A/B test variant (A, B, or C)
 - `X-AB-Modified`: Indicates if the response was modified for A/B testing

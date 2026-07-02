@@ -4,42 +4,48 @@ This file demonstrates comprehensive examples of Query String Functions in VCL.
 These functions help manipulate URL query strings, enabling powerful URL
 transformations, parameter extraction, and query string normalization.
 
+Note that all of these functions operate on a full URL (for example `req.url`),
+not on a bare query string. The query string is the part of the URL after the
+first `?`. Functions that transform the query string return the whole URL with
+the query string modified.
+
 ## querystring.get
 
-Extracts the value of a specific parameter from a query string.
+Extracts the value of a specific parameter from the query string of a URL.
 
 ### Syntax
 
 ```vcl
-STRING querystring.get(STRING query_string, STRING parameter_name)
+STRING querystring.get(STRING url, STRING name)
 ```
 
 ### Parameters
 
-- `query_string`: The query string to extract from
-- `parameter_name`: The name of the parameter to extract
+- `url`: The URL whose query string to extract from
+- `name`: The name of the parameter to extract
 
 ### Return Value
 
-The value of the specified parameter, or an empty string if not found
+The value of the first occurrence of the named parameter, or not set if the
+parameter is not present
 
 ### Examples
 
 #### Basic parameter extraction
 
 ```vcl
-declare local var.query_string STRING;
+declare local var.url STRING;
 declare local var.product_id STRING;
 declare local var.category STRING;
 declare local var.sort_by STRING;
 
-# Set a sample query string
-set var.query_string = "product_id=12345&category=electronics&sort_by=price";
+# Set a sample URL
+set var.url = "/catalog?product_id=12345&category=electronics&sort_by=price";
 
 # Extract specific parameters
-set var.product_id = querystring.get(var.query_string, "product_id");
-set var.category = querystring.get(var.query_string, "category");
-set var.sort_by = querystring.get(var.query_string, "sort_by");
+set var.product_id = querystring.get(var.url, "product_id");
+set var.category = querystring.get(var.url, "category");
+set var.sort_by = querystring.get(var.url, "sort_by");
 
 # Log the extracted values
 log "Product ID: " + var.product_id;  # "12345"
@@ -54,15 +60,15 @@ declare local var.page STRING;
 declare local var.limit STRING;
 
 # Extract parameters directly from the request URL
-set var.page = querystring.get(req.url.qs, "page");
-set var.limit = querystring.get(req.url.qs, "limit");
+set var.page = querystring.get(req.url, "page");
+set var.limit = querystring.get(req.url, "limit");
 
 # Set default values if parameters are missing
-if (var.page == "") {
+if (!var.page) {
   set var.page = "1";  # Default to page 1
 }
 
-if (var.limit == "") {
+if (!var.limit) {
   set var.limit = "20";  # Default to 20 items per page
 }
 
@@ -77,7 +83,7 @@ set req.http.X-Limit = var.limit;
 declare local var.search_query STRING;
 
 # Extract a potentially URL-encoded search query
-set var.search_query = querystring.get(req.url.qs, "q");
+set var.search_query = querystring.get(req.url, "q");
 
 # URL-decode the search query if needed
 if (var.search_query != "") {
@@ -91,8 +97,8 @@ if (var.search_query != "") {
 ```vcl
 declare local var.tags STRING;
 
-# For a query string like "tags=red&tags=blue&tags=green"
-set var.tags = querystring.get(req.url.qs, "tags");
+# For a URL like "/items?tags=red&tags=blue&tags=green"
+set var.tags = querystring.get(req.url, "tags");
 
 # var.tags will contain only "red" (the first value)
 # To handle multiple values, you would need to use other techniques
@@ -104,53 +110,56 @@ set var.tags = querystring.get(req.url.qs, "tags");
 ```vcl
 declare local var.has_debug BOOL;
 
-# Check if a parameter exists, regardless of its value
-set var.has_debug = (querystring.get(req.url.qs, "debug") != "");
+# Check if a parameter exists and has a value
+# querystring.get returns not set when the parameter is absent
+set var.has_debug = (querystring.get(req.url, "debug") != "");
+```
+
 ## querystring.add
 
-Adds a parameter to a query string.
+Adds a parameter to the query string of a URL.
 
 ### Syntax
 
 ```vcl
-STRING querystring.add(STRING query_string, STRING parameter_name, STRING parameter_value)
+STRING querystring.add(STRING url, STRING name, STRING value)
 ```
 
 ### Parameters
 
-- `query_string`: The query string to add to
-- `parameter_name`: The name of the parameter to add
-- `parameter_value`: The value to set for the parameter
+- `url`: The URL to add the parameter to
+- `name`: The name of the parameter to add
+- `value`: The value to set for the parameter
 
 ### Return Value
 
-The modified query string with the new parameter added
+The URL with the new parameter appended to its query string
 
 ### Examples
 
-#### Adding a parameter to an empty query string
+#### Adding a parameter to a URL without a query string
 
 ```vcl
-declare local var.empty_qs STRING;
+declare local var.url STRING;
 declare local var.result1 STRING;
 
-set var.empty_qs = "";
-set var.result1 = querystring.add(var.empty_qs, "page", "1");
+set var.url = "/catalog";
+set var.result1 = querystring.add(var.url, "page", "1");
 
-# var.result1 is now "page=1"
+# var.result1 is now "/catalog?page=1"
 log "Result 1: " + var.result1;
 ```
 
 #### Adding a parameter to an existing query string
 
 ```vcl
-declare local var.existing_qs STRING;
+declare local var.existing_url STRING;
 declare local var.result2 STRING;
 
-set var.existing_qs = "category=electronics&sort=price";
-set var.result2 = querystring.add(var.existing_qs, "limit", "20");
+set var.existing_url = "/catalog?category=electronics&sort=price";
+set var.result2 = querystring.add(var.existing_url, "limit", "20");
 
-# var.result2 is now "category=electronics&sort=price&limit=20"
+# var.result2 is now "/catalog?category=electronics&sort=price&limit=20"
 log "Result 2: " + var.result2;
 ```
 
@@ -161,7 +170,7 @@ declare local var.result3 STRING;
 
 set var.result3 = querystring.add(var.result2, "category", "computers");
 
-# var.result3 is now "category=electronics&sort=price&limit=20&category=computers"
+# var.result3 is now "/catalog?category=electronics&sort=price&limit=20&category=computers"
 # Note: This will add a duplicate parameter, not replace the existing one
 log "Result 3: " + var.result3;
 ```
@@ -172,72 +181,72 @@ log "Result 3: " + var.result3;
 declare local var.result4 STRING;
 
 # URL-encode the value before adding it
-set var.result4 = querystring.add(var.existing_qs, "q", urlencode("laptop & tablet"));
+set var.result4 = querystring.add(var.existing_url, "q", urlencode("laptop & tablet"));
 
-# var.result4 is now "category=electronics&sort=price&q=laptop%20%26%20tablet"
+# var.result4 is now "/catalog?category=electronics&sort=price&q=laptop%20%26%20tablet"
 log "Result 4: " + var.result4;
 ```
 
 #### Building a query string from scratch
 
 ```vcl
-declare local var.built_qs STRING;
+declare local var.built_url STRING;
 
-# Start with an empty string and add parameters one by one
-set var.built_qs = "";
-set var.built_qs = querystring.add(var.built_qs, "product", "laptop");
-set var.built_qs = querystring.add(var.built_qs, "brand", "acme");
-set var.built_qs = querystring.add(var.built_qs, "price", "500-1000");
+# Start with a bare path and add parameters one by one
+set var.built_url = "/search";
+set var.built_url = querystring.add(var.built_url, "product", "laptop");
+set var.built_url = querystring.add(var.built_url, "brand", "acme");
+set var.built_url = querystring.add(var.built_url, "price", "500-1000");
 
-# var.built_qs is now "product=laptop&brand=acme&price=500-1000"
-log "Built query string: " + var.built_qs;
+# var.built_url is now "/search?product=laptop&brand=acme&price=500-1000"
+log "Built URL: " + var.built_url;
 ```
 
 ## querystring.set
 
-Sets or replaces a parameter in a query string.
+Sets or replaces a parameter in the query string of a URL.
 
 ### Syntax
 
 ```vcl
-STRING querystring.set(STRING query_string, STRING parameter_name, STRING parameter_value)
+STRING querystring.set(STRING url, STRING name, STRING value)
 ```
 
 ### Parameters
 
-- `query_string`: The query string to modify
-- `parameter_name`: The name of the parameter to set
-- `parameter_value`: The value to set for the parameter
+- `url`: The URL to modify
+- `name`: The name of the parameter to set
+- `value`: The value to set for the parameter
 
 ### Return Value
 
-The modified query string with the parameter set or replaced
+The URL with the parameter set or replaced in its query string
 
 ### Examples
 
-#### Setting a parameter in an empty query string
+#### Setting a parameter on a URL without a query string
 
 ```vcl
-declare local var.empty_qs STRING;
+declare local var.url STRING;
 declare local var.result1 STRING;
 
-set var.empty_qs = "";
-set var.result1 = querystring.set(var.empty_qs, "page", "1");
+set var.url = "/catalog";
+set var.result1 = querystring.set(var.url, "page", "1");
 
-# var.result1 is now "page=1"
+# var.result1 is now "/catalog?page=1"
 log "Result 1: " + var.result1;
 ```
 
 #### Setting a new parameter in an existing query string
 
 ```vcl
-declare local var.existing_qs STRING;
+declare local var.existing_url STRING;
 declare local var.result2 STRING;
 
-set var.existing_qs = "category=electronics&sort=price";
-set var.result2 = querystring.set(var.existing_qs, "limit", "20");
+set var.existing_url = "/catalog?category=electronics&sort=price";
+set var.result2 = querystring.set(var.existing_url, "limit", "20");
 
-# var.result2 is now "category=electronics&sort=price&limit=20"
+# var.result2 is now "/catalog?category=electronics&sort=price&limit=20"
 log "Result 2: " + var.result2;
 ```
 
@@ -246,9 +255,9 @@ log "Result 2: " + var.result2;
 ```vcl
 declare local var.result3 STRING;
 
-set var.result3 = querystring.set(var.existing_qs, "category", "computers");
+set var.result3 = querystring.set(var.existing_url, "category", "computers");
 
-# var.result3 is now "category=computers&sort=price"
+# var.result3 is now "/catalog?category=computers&sort=price"
 # Note: This replaces the existing "category" parameter
 log "Result 3: " + var.result3;
 ```
@@ -259,354 +268,374 @@ log "Result 3: " + var.result3;
 declare local var.result4 STRING;
 
 # URL-encode the value before setting it
-set var.result4 = querystring.set(var.existing_qs, "q", urlencode("laptop & tablet"));
+set var.result4 = querystring.set(var.existing_url, "q", urlencode("laptop & tablet"));
 
-# var.result4 is now "category=electronics&sort=price&q=laptop%20%26%20tablet"
+# var.result4 is now "/catalog?category=electronics&sort=price&q=laptop%20%26%20tablet"
 log "Result 4: " + var.result4;
 ```
 
 #### Practical application - normalizing pagination parameters
 
 ```vcl
-declare local var.normalized_qs STRING;
 declare local var.page STRING;
 declare local var.limit STRING;
 
 # Get current pagination parameters
-set var.page = querystring.get(req.url.qs, "page");
-set var.limit = querystring.get(req.url.qs, "limit");
+set var.page = querystring.get(req.url, "page");
+set var.limit = querystring.get(req.url, "limit");
 
 # Set default values if missing or invalid
-if (var.page == "" || std.atoi(var.page) < 1) {
+if (!var.page || std.atoi(var.page) < 1) {
   set var.page = "1";
 }
 
-if (var.limit == "" || std.atoi(var.limit) < 1 || std.atoi(var.limit) > 100) {
+if (!var.limit || std.atoi(var.limit) < 1 || std.atoi(var.limit) > 100) {
   set var.limit = "20";
 }
 
-# Normalize the query string
-set var.normalized_qs = req.url.qs;
-set var.normalized_qs = querystring.set(var.normalized_qs, "page", var.page);
-set var.normalized_qs = querystring.set(var.normalized_qs, "limit", var.limit);
-
-# Update the request URL with the normalized query string
-set req.url = req.url.path + "?" + var.normalized_qs;
+# Normalize the request URL
+set req.url = querystring.set(req.url, "page", var.page);
+set req.url = querystring.set(req.url, "limit", var.limit);
 ```
+
 ## querystring.remove
 
-Removes a parameter from a query string.
+Removes the entire query string from a URL. Note that this function removes
+the whole query string, including the `?`; to remove individual parameters,
+use `querystring.filter` (by name) or `querystring.regfilter` (by pattern).
 
 ### Syntax
 
 ```vcl
-STRING querystring.remove(STRING query_string, STRING parameter_name)
+STRING querystring.remove(STRING url)
 ```
 
 ### Parameters
 
-- `query_string`: The query string to modify
-- `parameter_name`: The name of the parameter to remove
+- `url`: The URL to strip the query string from
 
 ### Return Value
 
-The modified query string with the parameter removed
+The URL without its query string
 
 ### Examples
 
-#### Removing a parameter from a query string
+#### Removing the query string from a URL
 
 ```vcl
-declare local var.original_qs STRING;
+declare local var.original_url STRING;
 declare local var.result1 STRING;
 
-set var.original_qs = "category=electronics&sort=price&page=1";
-set var.result1 = querystring.remove(var.original_qs, "sort");
+set var.original_url = "/catalog?category=electronics&sort=price&page=1";
+set var.result1 = querystring.remove(var.original_url);
 
-# var.result1 is now "category=electronics&page=1"
+# var.result1 is now "/catalog"
 log "Result 1: " + var.result1;
 ```
 
-#### Removing a parameter that appears multiple times
+#### Removing a query string that isn't there
 
 ```vcl
-declare local var.multi_param_qs STRING;
 declare local var.result2 STRING;
 
-set var.multi_param_qs = "tag=red&tag=blue&tag=green&category=colors";
-set var.result2 = querystring.remove(var.multi_param_qs, "tag");
+set var.result2 = querystring.remove("/catalog");
 
-# var.result2 is now "category=colors"
-# Note: All instances of the parameter are removed
+# var.result2 is unchanged: "/catalog"
 log "Result 2: " + var.result2;
 ```
 
-#### Removing a parameter that doesn't exist
+#### Practical application - ignoring query strings for static assets
 
 ```vcl
-declare local var.result3 STRING;
-
-set var.result3 = querystring.remove(var.original_qs, "nonexistent");
-
-# var.result3 is unchanged: "category=electronics&sort=price&page=1"
-log "Result 3: " + var.result3;
-```
-
-#### Removing all parameters (one by one)
-
-```vcl
-declare local var.result4 STRING;
-
-set var.result4 = var.original_qs;
-set var.result4 = querystring.remove(var.result4, "category");
-set var.result4 = querystring.remove(var.result4, "sort");
-set var.result4 = querystring.remove(var.result4, "page");
-
-# var.result4 is now an empty string ""
-log "Result 4: '" + var.result4 + "'";
-```
-
-#### Practical application - removing tracking parameters
-
-```vcl
-declare local var.cleaned_qs STRING;
-
-# Remove common tracking parameters
-set var.cleaned_qs = req.url.qs;
-set var.cleaned_qs = querystring.remove(var.cleaned_qs, "utm_source");
-set var.cleaned_qs = querystring.remove(var.cleaned_qs, "utm_medium");
-set var.cleaned_qs = querystring.remove(var.cleaned_qs, "utm_campaign");
-set var.cleaned_qs = querystring.remove(var.cleaned_qs, "utm_term");
-set var.cleaned_qs = querystring.remove(var.cleaned_qs, "utm_content");
-set var.cleaned_qs = querystring.remove(var.cleaned_qs, "fbclid");
-set var.cleaned_qs = querystring.remove(var.cleaned_qs, "gclid");
-
-# Update the request URL with the cleaned query string
-if (var.cleaned_qs == "") {
-  set req.url = req.url.path;
-} else {
-  set req.url = req.url.path + "?" + var.cleaned_qs;
+if (req.url.ext == "css" || req.url.ext == "js" || req.url.ext == "png") {
+  # Static assets don't vary on query string parameters
+  set req.url = querystring.remove(req.url);
 }
 ```
 
 ## querystring.filter
 
-Removes parameters that match a regular expression pattern.
+Removes the named parameters from the query string of a URL. The parameter
+names are given as a list separated by `querystring.filtersep()`. For
+pattern-based filtering, see `querystring.regfilter` and
+`querystring.globfilter`.
 
 ### Syntax
 
 ```vcl
-STRING querystring.filter(STRING query_string, STRING pattern)
+STRING querystring.filter(STRING url, STRING filter_list)
 ```
 
 ### Parameters
 
-- `query_string`: The query string to filter
-- `pattern`: A regular expression pattern to match parameter names against
+- `url`: The URL to filter
+- `filter_list`: Parameter names to remove, separated by `querystring.filtersep()`
 
 ### Return Value
 
-The filtered query string with matching parameters removed
+The URL with the named parameters removed from its query string
 
 ### Examples
 
-#### Removing parameters with a simple pattern
+#### Removing a single parameter
 
 ```vcl
-declare local var.original_qs STRING;
+declare local var.original_url STRING;
 declare local var.result1 STRING;
 
-set var.original_qs = "id=123&debug=true&test=abc&prod=xyz";
-set var.result1 = querystring.filter(var.original_qs, "^(debug|test)$");
+set var.original_url = "/item?id=123&debug=true&prod=xyz";
+set var.result1 = querystring.filter(var.original_url, "debug");
 
-# var.result1 is now "id=123&prod=xyz"
-# Note: Parameters "debug" and "test" are removed
+# var.result1 is now "/item?id=123&prod=xyz"
 log "Result 1: " + var.result1;
 ```
 
-#### Removing parameters with a pattern prefix
+#### Removing several parameters
 
 ```vcl
 declare local var.result2 STRING;
 
-set var.original_qs = "utm_source=google&utm_medium=cpc&utm_campaign=spring&id=123";
-set var.result2 = querystring.filter(var.original_qs, "^utm_");
+set var.original_url = "/item?id=123&debug=true&test=abc&prod=xyz";
+set var.result2 = querystring.filter(var.original_url,
+    "debug" + querystring.filtersep() + "test");
 
-# var.result2 is now "id=123"
-# Note: All parameters starting with "utm_" are removed
+# var.result2 is now "/item?id=123&prod=xyz"
+# Note: Parameters "debug" and "test" are removed
 log "Result 2: " + var.result2;
 ```
 
-#### Removing parameters with a pattern suffix
+#### Practical application - removing tracking parameters
 
 ```vcl
-declare local var.result3 STRING;
+# Remove common tracking parameters from the request URL
+set req.url = querystring.filter(req.url,
+    "utm_source" + querystring.filtersep() +
+    "utm_medium" + querystring.filtersep() +
+    "utm_campaign" + querystring.filtersep() +
+    "utm_term" + querystring.filtersep() +
+    "utm_content" + querystring.filtersep() +
+    "fbclid" + querystring.filtersep() +
+    "gclid");
+```
 
-set var.original_qs = "id=123&sort_by=price&filter_by=brand&order_by=asc";
-set var.result3 = querystring.filter(var.original_qs, "_by$");
+## querystring.filter_except
 
-# var.result3 is now "id=123"
-# Note: All parameters ending with "_by" are removed
-log "Result 3: " + var.result3;
+Keeps only the named parameters in the query string of a URL. The parameter
+names are given as a list separated by `querystring.filtersep()`.
+
+### Syntax
+
+```vcl
+STRING querystring.filter_except(STRING url, STRING filter_list)
+```
+
+### Parameters
+
+- `url`: The URL to filter
+- `filter_list`: Parameter names to keep, separated by `querystring.filtersep()`
+
+### Return Value
+
+The URL with only the named parameters kept in its query string
+
+### Examples
+
+#### Keeping specific parameters
+
+```vcl
+declare local var.original_url STRING;
+declare local var.result1 STRING;
+
+set var.original_url = "/item?id=123&debug=true&test=abc&prod=xyz";
+set var.result1 = querystring.filter_except(var.original_url,
+    "id" + querystring.filtersep() + "prod");
+
+# var.result1 is now "/item?id=123&prod=xyz"
+# Note: Only parameters "id" and "prod" are kept
+log "Result 1: " + var.result1;
+```
+
+#### Practical application - keeping only essential parameters
+
+```vcl
+# Keep only the parameters that affect the response
+set req.url = querystring.filter_except(req.url,
+    "id" + querystring.filtersep() +
+    "category" + querystring.filtersep() +
+    "page" + querystring.filtersep() +
+    "limit" + querystring.filtersep() +
+    "sort");
+```
+
+## querystring.filtersep
+
+Returns the separator string used to build the parameter name lists consumed
+by `querystring.filter` and `querystring.filter_except`. Using this separator
+instead of a literal character avoids ambiguity when parameter names could
+contain the separator themselves.
+
+### Syntax
+
+```vcl
+STRING querystring.filtersep()
+```
+
+### Parameters
+
+None
+
+### Return Value
+
+The separator string for filter lists
+
+### Examples
+
+#### Building a filter list
+
+```vcl
+declare local var.filtered_url STRING;
+
+set var.filtered_url = querystring.filter(req.url,
+    "utm_source" + querystring.filtersep() +
+    "utm_medium" + querystring.filtersep() +
+    "utm_campaign");
+
+# All three tracking parameters are removed in a single call
+```
+
+## querystring.regfilter
+
+Removes parameters whose names match a regular expression from the query
+string of a URL.
+
+### Syntax
+
+```vcl
+STRING querystring.regfilter(STRING url, STRING regex)
+```
+
+### Parameters
+
+- `url`: The URL to filter
+- `regex`: A regular expression to match parameter names against
+
+### Return Value
+
+The URL with matching parameters removed from its query string
+
+### Examples
+
+#### Removing parameters with a pattern prefix
+
+```vcl
+declare local var.original_url STRING;
+declare local var.result1 STRING;
+
+set var.original_url = "/landing?utm_source=google&utm_medium=cpc&id=123";
+set var.result1 = querystring.regfilter(var.original_url, "^utm_");
+
+# var.result1 is now "/landing?id=123"
+# Note: All parameters starting with "utm_" are removed
+log "Result 1: " + var.result1;
 ```
 
 #### Removing parameters with a complex pattern
 
 ```vcl
-declare local var.result4 STRING;
+declare local var.result2 STRING;
 
-set var.original_qs = "p=1&page=1&pg=1&id=123&debug=true";
-set var.result4 = querystring.filter(var.original_qs, "^p(age)?$|^pg$|^debug$");
+set var.original_url = "/item?p=1&page=1&pg=1&id=123&debug=true";
+set var.result2 = querystring.regfilter(var.original_url, "^p(age)?$|^pg$|^debug$");
 
-# var.result4 is now "id=123"
+# var.result2 is now "/item?id=123"
 # Note: Parameters "p", "page", "pg", and "debug" are removed
-log "Result 4: " + var.result4;
+log "Result 2: " + var.result2;
 ```
 
 #### Practical application - removing all tracking and debug parameters
 
 ```vcl
-declare local var.cleaned_qs STRING;
-
-# Define a pattern for tracking and debug parameters
-declare local var.tracking_pattern STRING;
-set var.tracking_pattern = "^utm_|^fb_|^ga_|^msclkid$|^fbclid$|^gclid$|^dclid$|^debug$|^test$";
-
-# Remove tracking parameters
-set var.cleaned_qs = querystring.filter(req.url.qs, var.tracking_pattern);
-
-# Update the request URL with the cleaned query string
-if (var.cleaned_qs == "") {
-  set req.url = req.url.path;
-} else {
-  set req.url = req.url.path + "?" + var.cleaned_qs;
-}
+# Remove tracking and debug parameters in one pass
+set req.url = querystring.regfilter(req.url,
+    "^utm_|^fb_|^ga_|^msclkid$|^fbclid$|^gclid$|^dclid$|^debug$|^test$");
 ```
-## querystring.filter_except
 
-Keeps only parameters that match a regular expression pattern.
+## querystring.regfilter_except
+
+Keeps only parameters whose names match a regular expression in the query
+string of a URL.
 
 ### Syntax
 
 ```vcl
-STRING querystring.filter_except(STRING query_string, STRING pattern)
+STRING querystring.regfilter_except(STRING url, STRING regex)
 ```
 
 ### Parameters
 
-- `query_string`: The query string to filter
-- `pattern`: A regular expression pattern to match parameter names against
+- `url`: The URL to filter
+- `regex`: A regular expression to match parameter names against
 
 ### Return Value
 
-The filtered query string with only matching parameters kept
+The URL with only matching parameters kept in its query string
 
 ### Examples
 
 #### Keeping parameters with a simple pattern
 
 ```vcl
-declare local var.original_qs STRING;
+declare local var.original_url STRING;
 declare local var.result1 STRING;
 
-set var.original_qs = "id=123&debug=true&test=abc&prod=xyz";
-set var.result1 = querystring.filter_except(var.original_qs, "^(id|prod)$");
+set var.original_url = "/item?id=123&debug=true&test=abc&prod=xyz";
+set var.result1 = querystring.regfilter_except(var.original_url, "^(id|prod)$");
 
-# var.result1 is now "id=123&prod=xyz"
+# var.result1 is now "/item?id=123&prod=xyz"
 # Note: Only parameters "id" and "prod" are kept
 log "Result 1: " + var.result1;
-```
-
-#### Keeping parameters with a pattern prefix
-
-```vcl
-declare local var.result2 STRING;
-
-set var.original_qs = "utm_source=google&utm_medium=cpc&utm_campaign=spring&id=123";
-set var.result2 = querystring.filter_except(var.original_qs, "^utm_");
-
-# var.result2 is now "utm_source=google&utm_medium=cpc&utm_campaign=spring"
-# Note: Only parameters starting with "utm_" are kept
-log "Result 2: " + var.result2;
-```
-
-#### Keeping parameters with a pattern suffix
-
-```vcl
-declare local var.result3 STRING;
-
-set var.original_qs = "id=123&sort_by=price&filter_by=brand&order_by=asc";
-set var.result3 = querystring.filter_except(var.original_qs, "_by$");
-
-# var.result3 is now "sort_by=price&filter_by=brand&order_by=asc"
-# Note: Only parameters ending with "_by" are kept
-log "Result 3: " + var.result3;
-```
-
-#### Keeping parameters with a complex pattern
-
-```vcl
-declare local var.result4 STRING;
-
-set var.original_qs = "p=1&page=1&pg=1&id=123&debug=true";
-set var.result4 = querystring.filter_except(var.original_qs, "^p(age)?$|^pg$");
-
-# var.result4 is now "p=1&page=1&pg=1"
-# Note: Only parameters "p", "page", and "pg" are kept
-log "Result 4: " + var.result4;
 ```
 
 #### Practical application - keeping only essential parameters
 
 ```vcl
-declare local var.essential_qs STRING;
-
-# Define a pattern for essential parameters
-declare local var.essential_pattern STRING;
-set var.essential_pattern = "^(id|category|page|limit|sort)$";
-
-# Keep only essential parameters
-set var.essential_qs = querystring.filter_except(req.url.qs, var.essential_pattern);
-
-# Update the request URL with the essential query string
-if (var.essential_qs == "") {
-  set req.url = req.url.path;
-} else {
-  set req.url = req.url.path + "?" + var.essential_qs;
-}
+# Keep only the parameters that should be part of the cache key
+set req.url = querystring.regfilter_except(req.url,
+    "^(id|category|page|limit|sort)$");
 ```
 
 ## querystring.globfilter
 
-Removes parameters that match a glob pattern.
+Removes parameters whose names match a glob pattern from the query string of
+a URL.
 
 ### Syntax
 
 ```vcl
-STRING querystring.globfilter(STRING query_string, STRING pattern)
+STRING querystring.globfilter(STRING url, STRING glob)
 ```
 
 ### Parameters
 
-- `query_string`: The query string to filter
-- `pattern`: A glob pattern to match parameter names against
+- `url`: The URL to filter
+- `glob`: A glob pattern to match parameter names against
 
 ### Return Value
 
-The filtered query string with matching parameters removed
+The URL with matching parameters removed from its query string
 
 ### Examples
 
 #### Removing parameters with a simple glob pattern
 
 ```vcl
-declare local var.original_qs STRING;
+declare local var.original_url STRING;
 declare local var.result1 STRING;
 
-set var.original_qs = "id=123&debug=true&test=abc&prod=xyz";
-set var.result1 = querystring.globfilter(var.original_qs, "debug");
+set var.original_url = "/item?id=123&debug=true&test=abc&prod=xyz";
+set var.result1 = querystring.globfilter(var.original_url, "debug");
 
-# var.result1 is now "id=123&test=abc&prod=xyz"
+# var.result1 is now "/item?id=123&test=abc&prod=xyz"
 # Note: Parameter "debug" is removed
 log "Result 1: " + var.result1;
 ```
@@ -616,10 +645,10 @@ log "Result 1: " + var.result1;
 ```vcl
 declare local var.result2 STRING;
 
-set var.original_qs = "utm_source=google&utm_medium=cpc&utm_campaign=spring&id=123";
-set var.result2 = querystring.globfilter(var.original_qs, "utm_*");
+set var.original_url = "/landing?utm_source=google&utm_medium=cpc&id=123";
+set var.result2 = querystring.globfilter(var.original_url, "utm_*");
 
-# var.result2 is now "id=123"
+# var.result2 is now "/landing?id=123"
 # Note: All parameters starting with "utm_" are removed
 log "Result 2: " + var.result2;
 ```
@@ -629,80 +658,59 @@ log "Result 2: " + var.result2;
 ```vcl
 declare local var.result3 STRING;
 
-set var.original_qs = "id=123&sort_by=price&filter_by=brand&order_by=asc";
+set var.original_url = "/item?id=123&sort_by=price&filter_by=brand&order_by=asc";
 
 # Remove multiple patterns one by one
-set var.result3 = var.original_qs;
+set var.result3 = var.original_url;
 set var.result3 = querystring.globfilter(var.result3, "sort_*");
 set var.result3 = querystring.globfilter(var.result3, "filter_*");
 
-# var.result3 is now "id=123&order_by=asc"
+# var.result3 is now "/item?id=123&order_by=asc"
 log "Result 3: " + var.result3;
-```
-
-#### Removing parameters with question mark wildcard
-
-```vcl
-declare local var.result4 STRING;
-
-set var.original_qs = "p=1&page=1&pg=1&id=123&debug=true";
-set var.result4 = querystring.globfilter(var.original_qs, "p?");
-
-# var.result4 is now "page=1&id=123&debug=true"
-# Note: Parameter "pg" is removed (matches "p?" pattern)
-log "Result 4: " + var.result4;
 ```
 
 #### Practical application - removing tracking parameters
 
 ```vcl
-declare local var.cleaned_qs STRING;
-
 # Remove tracking parameters using glob patterns
-set var.cleaned_qs = req.url.qs;
-set var.cleaned_qs = querystring.globfilter(var.cleaned_qs, "utm_*");
-set var.cleaned_qs = querystring.globfilter(var.cleaned_qs, "fb*");
-set var.cleaned_qs = querystring.globfilter(var.cleaned_qs, "gclid");
-set var.cleaned_qs = querystring.globfilter(var.cleaned_qs, "msclkid");
-
-# Update the request URL with the cleaned query string
-if (var.cleaned_qs == "") {
-  set req.url = req.url.path;
-} else {
-  set req.url = req.url.path + "?" + var.cleaned_qs;
-}
+set req.url = querystring.globfilter(req.url, "utm_*");
+set req.url = querystring.globfilter(req.url, "fb*");
+set req.url = querystring.globfilter(req.url, "gclid");
+set req.url = querystring.globfilter(req.url, "msclkid");
 ```
+
 ## querystring.globfilter_except
 
-Keeps only parameters that match a glob pattern.
+Keeps only parameters whose names match a glob pattern in the query string of
+a URL.
 
 ### Syntax
 
 ```vcl
-STRING querystring.globfilter_except(STRING query_string, STRING pattern)
+STRING querystring.globfilter_except(STRING url, STRING glob)
 ```
 
 ### Parameters
 
-- `query_string`: The query string to filter
-- `pattern`: A glob pattern to match parameter names against
+- `url`: The URL to filter
+- `glob`: A glob pattern to match parameter names against
 
 ### Return Value
 
-The filtered query string with only matching parameters kept
+The URL with only matching parameters kept in its query string
 
 ### Examples
 
 #### Keeping parameters with a simple glob pattern
 
 ```vcl
-declare local var.original_qs STRING;
+declare local var.original_url STRING;
 declare local var.result1 STRING;
 
-set var.original_qs = "id=123&debug=true&test=abc&prod=xyz";
-set var.result1 = querystring.globfilter_except(var.original_qs, "id");
+set var.original_url = "/item?id=123&debug=true&test=abc&prod=xyz";
+set var.result1 = querystring.globfilter_except(var.original_url, "id");
 
-# var.result1 is now "id=123"
+# var.result1 is now "/item?id=123"
 # Note: Only parameter "id" is kept
 log "Result 1: " + var.result1;
 ```
@@ -712,133 +720,54 @@ log "Result 1: " + var.result1;
 ```vcl
 declare local var.result2 STRING;
 
-set var.original_qs = "utm_source=google&utm_medium=cpc&utm_campaign=spring&id=123";
-set var.result2 = querystring.globfilter_except(var.original_qs, "utm_*");
+set var.original_url = "/landing?utm_source=google&utm_medium=cpc&id=123";
+set var.result2 = querystring.globfilter_except(var.original_url, "utm_*");
 
-# var.result2 is now "utm_source=google&utm_medium=cpc&utm_campaign=spring"
+# var.result2 is now "/landing?utm_source=google&utm_medium=cpc"
 # Note: Only parameters starting with "utm_" are kept
 log "Result 2: " + var.result2;
 ```
 
-#### Keeping parameters with multiple glob patterns
+#### Keeping parameters matching several patterns
 
 ```vcl
-declare local var.result3 STRING;
-
-set var.original_qs = "id=123&sort_by=price&filter_by=brand&order_by=asc";
-
-# Keep parameters matching either pattern
-# Note: This requires multiple steps since globfilter_except only accepts one pattern
-declare local var.temp1 STRING;
-declare local var.temp2 STRING;
-
-set var.temp1 = querystring.globfilter_except(var.original_qs, "id");
-set var.temp2 = querystring.globfilter_except(var.original_qs, "sort_*");
-
-# Combine the results (this is a simplified approach)
-set var.result3 = var.temp1;
-
-if (var.temp2 != "") {
-  if (var.result3 != "") {
-    set var.result3 = var.result3 + "&" + var.temp2;
-  } else {
-    set var.result3 = var.temp2;
-  }
-}
-
-# var.result3 will contain parameters matching either pattern
-log "Result 3: " + var.result3;
-```
-
-#### Keeping parameters with question mark wildcard
-
-```vcl
-declare local var.result4 STRING;
-
-set var.original_qs = "p=1&page=1&pg=1&id=123&debug=true";
-set var.result4 = querystring.globfilter_except(var.original_qs, "p?");
-
-# var.result4 is now "pg=1"
-# Note: Only parameter "pg" is kept (matches "p?" pattern)
-log "Result 4: " + var.result4;
-```
-
-#### Practical application - keeping only essential parameters
-
-```vcl
-declare local var.essential_qs STRING;
-
-# Keep only essential parameters
-# Note: For multiple patterns, we need a more complex approach
-declare local var.id_qs STRING;
-declare local var.page_qs STRING;
-declare local var.sort_qs STRING;
-
-set var.id_qs = querystring.globfilter_except(req.url.qs, "id");
-set var.page_qs = querystring.globfilter_except(req.url.qs, "page");
-set var.sort_qs = querystring.globfilter_except(req.url.qs, "sort*");
-
-# Combine the results (simplified approach)
-set var.essential_qs = "";
-
-if (var.id_qs != "") {
-  set var.essential_qs = var.id_qs;
-}
-
-if (var.page_qs != "") {
-  if (var.essential_qs != "") {
-    set var.essential_qs = var.essential_qs + "&" + var.page_qs;
-  } else {
-    set var.essential_qs = var.page_qs;
-  }
-}
-
-if (var.sort_qs != "") {
-  if (var.essential_qs != "") {
-    set var.essential_qs = var.essential_qs + "&" + var.sort_qs;
-  } else {
-    set var.essential_qs = var.sort_qs;
-  }
-}
-
-# Update the request URL with the essential query string
-if (var.essential_qs == "") {
-  set req.url = req.url.path;
-} else {
-  set req.url = req.url.path + "?" + var.essential_qs;
-}
+# globfilter_except only accepts one pattern; to keep parameters matching
+# several distinct patterns, use querystring.regfilter_except with an
+# alternation instead
+set req.url = querystring.regfilter_except(req.url, "^id$|^page$|^sort");
 ```
 
 ## querystring.clean
 
-Removes empty parameters from a query string.
+Removes parameters with no value (empty parameters) from the query string of
+a URL.
 
 ### Syntax
 
 ```vcl
-STRING querystring.clean(STRING query_string)
+STRING querystring.clean(STRING url)
 ```
 
 ### Parameters
 
-- `query_string`: The query string to clean
+- `url`: The URL to clean
 
 ### Return Value
 
-The cleaned query string with empty parameters removed
+The URL with empty parameters removed from its query string
 
 ### Examples
 
 #### Cleaning a query string with empty parameters
 
 ```vcl
-declare local var.original_qs STRING;
+declare local var.original_url STRING;
 declare local var.result1 STRING;
 
-set var.original_qs = "id=123&empty=&blank=&valid=yes";
-set var.result1 = querystring.clean(var.original_qs);
+set var.original_url = "/item?id=123&empty=&blank=&valid=yes";
+set var.result1 = querystring.clean(var.original_url);
 
-# var.result1 is now "id=123&valid=yes"
+# var.result1 is now "/item?id=123&valid=yes"
 # Note: Parameters "empty" and "blank" are removed
 log "Result 1: " + var.result1;
 ```
@@ -848,59 +777,52 @@ log "Result 1: " + var.result1;
 ```vcl
 declare local var.result2 STRING;
 
-set var.original_qs = "id=123&category=electronics&sort=price";
-set var.result2 = querystring.clean(var.original_qs);
+set var.original_url = "/item?id=123&category=electronics&sort=price";
+set var.result2 = querystring.clean(var.original_url);
 
-# var.result2 is unchanged: "id=123&category=electronics&sort=price"
+# var.result2 is unchanged: "/item?id=123&category=electronics&sort=price"
 log "Result 2: " + var.result2;
 ```
 
 #### Practical application - cleaning user-submitted query strings
 
 ```vcl
-declare local var.cleaned_qs STRING;
-
-# Clean the query string to remove empty parameters
-set var.cleaned_qs = querystring.clean(req.url.qs);
-
-# Update the request URL with the cleaned query string
-if (var.cleaned_qs == "") {
-  set req.url = req.url.path;
-} else {
-  set req.url = req.url.path + "?" + var.cleaned_qs;
-}
+# Clean the request URL to remove empty parameters
+set req.url = querystring.clean(req.url);
 ```
 
 ## querystring.sort
 
-Sorts the parameters in a query string alphabetically.
+Sorts the parameters in the query string of a URL alphabetically.
 
 ### Syntax
 
 ```vcl
-STRING querystring.sort(STRING query_string)
+STRING querystring.sort(STRING url [, BOOL only_unique_keys])
 ```
 
 ### Parameters
 
-- `query_string`: The query string to sort
+- `url`: The URL whose query string to sort
+- `only_unique_keys`: Optional; when true, duplicate parameter names are
+  reduced to a single occurrence
 
 ### Return Value
 
-The sorted query string
+The URL with its query string parameters sorted
 
 ### Examples
 
 #### Sorting a query string
 
 ```vcl
-declare local var.original_qs STRING;
+declare local var.original_url STRING;
 declare local var.result1 STRING;
 
-set var.original_qs = "z=last&a=first&m=middle";
-set var.result1 = querystring.sort(var.original_qs);
+set var.original_url = "/item?z=last&a=first&m=middle";
+set var.result1 = querystring.sort(var.original_url);
 
-# var.result1 is now "a=first&m=middle&z=last"
+# var.result1 is now "/item?a=first&m=middle&z=last"
 # Note: Parameters are sorted alphabetically by name
 log "Result 1: " + var.result1;
 ```
@@ -910,10 +832,10 @@ log "Result 1: " + var.result1;
 ```vcl
 declare local var.result2 STRING;
 
-set var.original_qs = "tag=blue&id=123&tag=red";
-set var.result2 = querystring.sort(var.original_qs);
+set var.original_url = "/item?tag=blue&id=123&tag=red";
+set var.result2 = querystring.sort(var.original_url);
 
-# var.result2 is now "id=123&tag=blue&tag=red"
+# var.result2 is now "/item?id=123&tag=blue&tag=red"
 # Note: Duplicate parameters maintain their relative order
 log "Result 2: " + var.result2;
 ```
@@ -921,78 +843,35 @@ log "Result 2: " + var.result2;
 #### Practical application - normalizing cache keys
 
 ```vcl
-declare local var.cache_key STRING;
-
-# Sort the query string to create a consistent cache key
-set var.cache_key = querystring.sort(req.url.qs);
-
-# Use the sorted query string as part of the cache key
-set req.http.X-Cache-Key = req.url.path + "?" + var.cache_key;
+# Sort the query string so equivalent URLs share a cache object
+set req.url = querystring.sort(req.url);
 ```
 
-## querystring.filtersep
+## boltsort.sort
 
-Removes parameters with a specific separator from a query string.
+A legacy alias of `querystring.sort`. New code should use `querystring.sort`.
 
 ### Syntax
 
 ```vcl
-STRING querystring.filtersep(STRING query_string, STRING pattern, STRING separator)
+STRING boltsort.sort(STRING url [, BOOL only_unique_keys])
 ```
 
 ### Parameters
 
-- `query_string`: The query string to filter
-- `pattern`: A regular expression pattern to match parameter names against
-- `separator`: The separator character to use
+- `url`: The URL whose query string to sort
+- `only_unique_keys`: Optional; when true, duplicate parameter names are
+  reduced to a single occurrence
 
 ### Return Value
 
-The filtered query string with matching parameters removed
+The URL with its query string parameters sorted
 
 ### Examples
 
-#### Filtering parameters with a separator
-
 ```vcl
-declare local var.original_qs STRING;
-declare local var.result1 STRING;
-
-set var.original_qs = "user.id=123&user.name=john&product.id=456";
-set var.result1 = querystring.filtersep(var.original_qs, "^user", ".");
-
-# var.result1 is now "product.id=456"
-# Note: Parameters with prefix "user" and separator "." are removed
-log "Result 1: " + var.result1;
-```
-
-#### Filtering with a different separator
-
-```vcl
-declare local var.result2 STRING;
-
-set var.original_qs = "data[user]=john&data[product]=laptop&id=123";
-set var.result2 = querystring.filtersep(var.original_qs, "^data", "[");
-
-# var.result2 is now "id=123"
-# Note: Parameters with prefix "data" and separator "[" are removed
-log "Result 2: " + var.result2;
-```
-
-#### Practical application - filtering nested parameters
-
-```vcl
-declare local var.filtered_qs STRING;
-
-# Filter out all nested user parameters
-set var.filtered_qs = querystring.filtersep(req.url.qs, "^user", ".");
-
-# Update the request URL with the filtered query string
-if (var.filtered_qs == "") {
-  set req.url = req.url.path;
-} else {
-  set req.url = req.url.path + "?" + var.filtered_qs;
-}
+set req.url = boltsort.sort(req.url);
+# Equivalent to: set req.url = querystring.sort(req.url);
 ```
 
 ## Integrated Example: Complete Query String Management System
@@ -1002,91 +881,66 @@ This example demonstrates how multiple query string functions can work together 
 ```vcl
 sub vcl_recv {
   # Step 1: Extract and normalize essential parameters
-  
+
   # Get pagination parameters with defaults
   declare local var.page STRING;
   declare local var.limit STRING;
-  
-  set var.page = querystring.get(req.url.qs, "page");
-  set var.limit = querystring.get(req.url.qs, "limit");
-  
+
+  set var.page = querystring.get(req.url, "page");
+  set var.limit = querystring.get(req.url, "limit");
+
   # Set default values if missing or invalid
-  if (var.page == "" || std.atoi(var.page) < 1) {
+  if (!var.page || std.atoi(var.page) < 1) {
     set var.page = "1";
   }
-  
-  if (var.limit == "" || std.atoi(var.limit) < 1 || std.atoi(var.limit) > 100) {
+
+  if (!var.limit || std.atoi(var.limit) < 1 || std.atoi(var.limit) > 100) {
     set var.limit = "20";
   }
-  
+
   # Get sorting parameters
   declare local var.sort_field STRING;
   declare local var.sort_dir STRING;
-  
-  set var.sort_field = querystring.get(req.url.qs, "sort");
-  set var.sort_dir = querystring.get(req.url.qs, "dir");
-  
+
+  set var.sort_field = querystring.get(req.url, "sort");
+  set var.sort_dir = querystring.get(req.url, "dir");
+
   # Set default values if missing or invalid
-  if (var.sort_field == "") {
+  if (!var.sort_field) {
     set var.sort_field = "date";
   }
-  
-  if (var.sort_dir == "" || (var.sort_dir != "asc" && var.sort_dir != "desc")) {
+
+  if (var.sort_dir != "asc" && var.sort_dir != "desc") {
     set var.sort_dir = "desc";
   }
-  
-  # Step 2: Clean the query string
-  declare local var.cleaned_qs STRING;
-  
-  # Remove empty parameters
-  set var.cleaned_qs = querystring.clean(req.url.qs);
-  
+
+  # Step 2: Remove empty parameters
+  set req.url = querystring.clean(req.url);
+
   # Step 3: Remove tracking and debug parameters
-  declare local var.tracking_pattern STRING;
-  set var.tracking_pattern = "^utm_|^fb_|^ga_|^msclkid$|^fbclid$|^gclid$|^dclid$|^debug$|^test$";
-  
-  set var.cleaned_qs = querystring.filter(var.cleaned_qs, var.tracking_pattern);
-  
-  # Step 4: Keep only essential parameters for caching
-  declare local var.cache_qs STRING;
-  declare local var.essential_pattern STRING;
-  
-  set var.essential_pattern = "^(id|category|page|limit|sort|dir|q|filter)$";
-  set var.cache_qs = querystring.filter_except(var.cleaned_qs, var.essential_pattern);
-  
-  # Step 5: Sort the parameters for consistent cache keys
-  set var.cache_qs = querystring.sort(var.cache_qs);
-  
-  # Step 6: Set normalized parameters
-  declare local var.normalized_qs STRING;
-  
-  set var.normalized_qs = var.cleaned_qs;
-  set var.normalized_qs = querystring.set(var.normalized_qs, "page", var.page);
-  set var.normalized_qs = querystring.set(var.normalized_qs, "limit", var.limit);
-  set var.normalized_qs = querystring.set(var.normalized_qs, "sort", var.sort_field);
-  set var.normalized_qs = querystring.set(var.normalized_qs, "dir", var.sort_dir);
-  
-  # Step 7: Update the request URL with the normalized query string
-  if (var.normalized_qs == "") {
-    set req.url = req.url.path;
-  } else {
-    set req.url = req.url.path + "?" + var.normalized_qs;
-  }
-  
-  # Step 8: Set cache key based on essential parameters
-  set req.http.X-Cache-Key = req.url.path + "?" + var.cache_qs;
-  
-  # Step 9: Store original and normalized query strings for debugging
-  set req.http.X-Original-QueryString = req.url.qs;
-  set req.http.X-Normalized-QueryString = var.normalized_qs;
-  set req.http.X-Cache-QueryString = var.cache_qs;
+  set req.url = querystring.regfilter(req.url,
+      "^utm_|^fb_|^ga_|^msclkid$|^fbclid$|^gclid$|^dclid$|^debug$|^test$");
+
+  # Step 4: Keep only essential parameters
+  set req.url = querystring.regfilter_except(req.url,
+      "^(id|category|page|limit|sort|dir|q|filter)$");
+
+  # Step 5: Set normalized parameters
+  set req.url = querystring.set(req.url, "page", var.page);
+  set req.url = querystring.set(req.url, "limit", var.limit);
+  set req.url = querystring.set(req.url, "sort", var.sort_field);
+  set req.url = querystring.set(req.url, "dir", var.sort_dir);
+
+  # Step 6: Sort the parameters so equivalent URLs share a cache object
+  set req.url = querystring.sort(req.url);
 }
 ```
 
 ## Best Practices for Query String Functions
 
 1. Parameter Extraction:
-   - Always check if parameters exist before using them
+   - Always check if parameters exist before using them (querystring.get
+     returns not set for missing parameters)
    - Provide default values for missing parameters
    - Consider URL-decoding values when needed
 
@@ -1112,7 +966,9 @@ sub vcl_recv {
 
 6. Performance Optimization:
    - Minimize the number of query string operations
-   - Use the most specific function for each task
+   - Use the most specific function for each task: querystring.filter for
+     fixed names, querystring.globfilter for globs, querystring.regfilter
+     for regular expressions
    - Consider the performance impact of complex regex patterns
 
 7. URL Normalization:

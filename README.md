@@ -25,7 +25,7 @@ For comprehensive documentation, tutorials, and examples, please visit the [docu
 - Caching: Advanced caching capabilities with fine-grained control
 - Backend Configuration: Support for multiple backends, health checks, and load balancing
 - Error Handling: Comprehensive error handling with custom error pages
-- Edge Side Includes (ESI): Dynamic content assembly at the edge with ESI tags
+- Edge Side Includes (ESI): Processing of ESI tags (include, remove, comment, choose/when/otherwise) in HTML responses; includes are resolved with simulated content locally
 - Random Functions: Generate random values with deterministic seeded options
 - UUID Functions: Generate and validate UUIDs (v3, v4, v5) with namespace support
 - WAF Functions: Web Application Firewall with attack detection and rate limiting
@@ -118,10 +118,15 @@ sub vcl_recv {
     }
   }
 
-  # Add the variant to the cache key
-  set req.http.Fastly-Cache-Key = req.http.X-ABTest;
-
   return(lookup);
+}
+
+sub vcl_hash {
+  # Add the variant to the cache key so each variant is cached separately
+  hash_data(req.url);
+  hash_data(req.http.host);
+  hash_data(req.http.X-ABTest);
+  return(hash);
 }
 
 sub vcl_deliver {
@@ -193,9 +198,10 @@ sub vcl_recv {
     error 403 "Forbidden";
   }
 
-  # Block XSS attempts
-  if (waf.detect_attack(req.http.User-Agent, "xss")) {
-    waf.log("XSS attempt detected in User-Agent: " + req.http.User-Agent);
+  # Block XSS attempts (incoming header names are stored lowercase,
+  # and header lookups are case-sensitive)
+  if (waf.detect_attack(req.http.user-agent, "xss")) {
+    waf.log("XSS attempt detected in User-Agent: " + req.http.user-agent);
     error 403 "Forbidden";
   }
 
@@ -300,7 +306,7 @@ Create a file named `goto-flow.vcl` with the following content:
 
 ```vcl
 sub vcl_recv {
-  if (req.http.Cookie ~ "logged_in=true") {
+  if (req.http.cookie ~ "logged_in=true") {
     # Jump to logged-in user processing
     goto logged_in_user;
   } else {
@@ -312,7 +318,7 @@ sub vcl_recv {
   logged_in_user:
     set req.http.X-User-Type = "logged_in";
 
-    if (req.http.Cookie ~ "user_role=admin") {
+    if (req.http.cookie ~ "user_role=admin") {
       # Jump to admin user processing
       goto admin_user;
     } else {
@@ -579,7 +585,7 @@ functions, caching behavior, backend error handling, random/accept/address/binar
 request restarts, and real-world VCL configurations.
 
 To run everything, including the root, integration, table, crypto-compatibility,
-browser-simulation, and browser-bundle suites:
+limits, browser-simulation, and browser-bundle suites:
 
 ```bash
 bun run test:all
@@ -587,7 +593,7 @@ bun run test:all
 
 Individual suites are available as `test:basic`, `test:stdlib`, `test:caching`,
 `test:backend`, `test:root`, `test:integration`, `test:tables`, `test:compat`,
-`test:sim`, and `test:browser` (see `package.json` for the full list).
+`test:limits`, `test:sim`, and `test:browser` (see `package.json` for the full list).
 
 ## Project Structure
 
@@ -644,4 +650,4 @@ This is an independent, community project and is not affiliated with, endorsed b
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+This project is licensed under the MIT License.

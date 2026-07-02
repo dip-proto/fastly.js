@@ -2,6 +2,8 @@
 
 This example demonstrates how to implement basic caching in VCL, including different TTLs for different content types, cache variations, and debugging headers.
 
+> **Note:** Fastly.JS stores the header names of incoming requests and origin responses in lowercase, and header lookups are case-sensitive. Client and origin headers (`cookie`, `authorization`, `user-agent`, `content-type`, ...) are therefore read with lowercase names below. Headers you set yourself in VCL keep whatever casing you write.
+
 ## Complete Example
 
 ```vcl
@@ -24,12 +26,12 @@ sub vcl_recv {
   }
   
   # Don't cache requests with authentication
-  if (req.http.Authorization) {
+  if (req.http.authorization) {
     return(pass);
   }
   
   # Don't cache requests with cookies
-  if (req.http.Cookie) {
+  if (req.http.cookie) {
     return(pass);
   }
   
@@ -54,7 +56,7 @@ sub vcl_hash {
   hash_data(req.http.host);
   
   # Vary cache based on User-Agent type (mobile vs. desktop)
-  if (req.http.User-Agent ~ "Mobile|Android|iPhone|iPad") {
+  if (req.http.user-agent ~ "Mobile|Android|iPhone|iPad") {
     hash_data("mobile");
   } else {
     hash_data("desktop");
@@ -101,21 +103,21 @@ sub vcl_fetch {
   # Set different TTLs based on content type
   
   # Cache images for 1 day
-  if (beresp.http.Content-Type ~ "image/") {
+  if (beresp.http.content-type ~ "image/") {
     set beresp.ttl = 1d;
     set beresp.grace = 12h;
     std.log("Caching image for 1 day: " + req.url);
   }
   
   # Cache CSS and JavaScript for 1 hour
-  else if (req.url ~ "\.(css|js)$" || beresp.http.Content-Type ~ "text/css" || beresp.http.Content-Type ~ "application/javascript") {
+  else if (req.url ~ "\.(css|js)$" || beresp.http.content-type ~ "text/css" || beresp.http.content-type ~ "application/javascript") {
     set beresp.ttl = 1h;
     set beresp.grace = 6h;
     std.log("Caching CSS/JS for 1 hour: " + req.url);
   }
   
   # Cache HTML for 5 minutes
-  else if (beresp.http.Content-Type ~ "text/html") {
+  else if (beresp.http.content-type ~ "text/html") {
     set beresp.ttl = 5m;
     set beresp.grace = 1h;
     std.log("Caching HTML for 5 minutes: " + req.url);
@@ -222,10 +224,10 @@ Then, open your browser and navigate to:
 http://127.0.0.1:8000
 ```
 
-You should see the content from example.com, and the response headers should include:
+One caveat: the bundled proxy in `index.ts` currently picks the origin itself — `/api/*` requests go to httpbin.org, requests for static file extensions go to example.com, and everything else goes through a director spread over perdu.com and example.com. The `backend default` declaration is available to the VCL logic, but it does not drive the proxy's origin selection. The response headers should include:
 
 - `X-Cache`: Indicates whether the response was cached (HIT or MISS)
-- `X-Cache-Hits`: Indicates the number of cache hits (if the response was cached)
+- `X-Cache-Hits`: Set when the response came from cache (currently always 1; hits are not counted per object)
 - `X-Powered-By`: Indicates the proxy server (Fastly.JS)
 - `X-Cache-TTL`: Indicates the cache TTL for the response
 - `X-Cache-Grace`: Indicates the grace period for the response
@@ -248,9 +250,9 @@ sub vcl_recv {
   # ... existing code ...
   
   # Cache API responses for authenticated users with a user-specific cache key
-  if (req.url ~ "^/api/" && req.http.Authorization) {
+  if (req.url ~ "^/api/" && req.http.authorization) {
     # Extract the user ID from the Authorization header
-    set req.http.X-User-ID = regsub(req.http.Authorization, "Bearer ([^;]+).*", "\1");
+    set req.http.X-User-ID = regsub(req.http.authorization, "Bearer ([^;]+).*", "\1");
     
     # Continue to cache lookup
     return(lookup);

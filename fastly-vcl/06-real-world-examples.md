@@ -4,6 +4,8 @@
 
 This document provides complete, practical examples of Fastly VCL configurations for various real-world use cases. These examples demonstrate how to apply the concepts covered in the previous documents to solve common problems and implement popular patterns.
 
+Note: when uploading custom VCL to a real Fastly service, each built-in subroutine you override should contain the corresponding `#FASTLY` macro comment (`#FASTLY recv`, `#FASTLY fetch`, and so on). Fastly expands these markers into its own boilerplate logic, and some platform features will not work without them. They are omitted from the examples below for readability.
+
 ## Example 1: E-commerce Website
 
 This example demonstrates a complete VCL configuration for an e-commerce website, including:
@@ -97,12 +99,6 @@ acl purge_acl {
     "192.168.0.0"/24;
 }
 
-# VCL Initialization
-sub vcl_init {
-    # Initialize any runtime variables or tables
-    return(ok);
-}
-
 # Request processing
 sub vcl_recv {
     # Normalize URL
@@ -117,12 +113,13 @@ sub vcl_recv {
         set req.url = regsub(req.url, "/$", "");
     }
     
-    # Handle PURGE requests
-    if (req.method == "PURGE") {
+    # Restrict purge requests to specific IPs.  Fastly performs the
+    # actual purge after vcl_recv and vcl_hash; purge requests show up
+    # here with the method FASTLYPURGE.
+    if (req.method == "FASTLYPURGE") {
         if (client.ip !~ purge_acl) {
             error 403 "Forbidden";
         }
-        return(lookup);
     }
     
     # Set X-Forwarded-For header
@@ -154,9 +151,6 @@ sub vcl_recv {
         } else {
             set req.http.X-ABTest = "B";
         }
-        
-        # Set cookie for consistent experience
-        add req.http.Cookie = "ABTest=" + req.http.X-ABTest + "; path=/; max-age=3600";
     } else {
         # Extract test group from cookie
         set req.http.X-ABTest = regsub(req.http.Cookie, ".*ABTest=([^;]+).*", "\1");
@@ -188,48 +182,36 @@ sub vcl_recv {
 # Cache key generation
 sub vcl_hash {
     # Default hash
-    hash_data(req.url);
+    set req.hash += req.url;
     
     if (req.http.host) {
-        hash_data(req.http.host);
+        set req.hash += req.http.host;
     } else {
-        hash_data(server.ip);
+        set req.hash += server.ip;
     }
     
     # Vary cache by device type
-    hash_data(req.http.X-Device-Type);
+    set req.hash += req.http.X-Device-Type;
     
     # Vary cache by country for certain paths
     if (req.url ~ "^/products/" || req.url ~ "^/categories/") {
-        hash_data(req.http.X-Country-Code);
+        set req.hash += req.http.X-Country-Code;
     }
     
     # Vary cache by A/B test group
-    hash_data(req.http.X-ABTest);
+    set req.hash += req.http.X-ABTest;
     
     return(hash);
 }
 
 # Cache hit processing
 sub vcl_hit {
-    # Handle PURGE requests
-    if (req.method == "PURGE") {
-        purge;
-        error 200 "Purged";
-    }
-    
     # Deliver from cache
     return(deliver);
 }
 
 # Cache miss processing
 sub vcl_miss {
-    # Handle PURGE requests
-    if (req.method == "PURGE") {
-        purge;
-        error 200 "Purged";
-    }
-    
     # Fetch from backend
     return(fetch);
 }
@@ -250,7 +232,7 @@ sub vcl_fetch {
     if (req.url ~ "^/products/") {
         # Product pages: cache for 2 hours
         set beresp.ttl = 2h;
-        set beresp.grace = 24h;
+        set beresp.stale_if_error = 24h;
         
         # Add surrogate key for purging
         set beresp.http.Surrogate-Key = "products";
@@ -260,7 +242,7 @@ sub vcl_fetch {
     } else if (req.url ~ "^/categories/") {
         # Category pages: cache for 4 hours
         set beresp.ttl = 4h;
-        set beresp.grace = 24h;
+        set beresp.stale_if_error = 24h;
         
         # Add surrogate key for purging
         set beresp.http.Surrogate-Key = "categories";
@@ -270,19 +252,19 @@ sub vcl_fetch {
     } else if (req.url ~ "\.(jpg|jpeg|png|gif)$") {
         # Images: cache for 7 days
         set beresp.ttl = 7d;
-        set beresp.grace = 7d;
+        set beresp.stale_if_error = 7d;
     } else if (req.url ~ "\.(css|js)$") {
         # Static assets: cache for 1 day
         set beresp.ttl = 1d;
-        set beresp.grace = 7d;
+        set beresp.stale_if_error = 7d;
     } else if (req.url ~ "^/api/") {
         # API responses: cache for 5 minutes
         set beresp.ttl = 5m;
-        set beresp.grace = 1h;
+        set beresp.stale_if_error = 1h;
     } else {
         # Default: cache for 1 hour
         set beresp.ttl = 1h;
-        set beresp.grace = 24h;
+        set beresp.stale_if_error = 24h;
     }
     
     # Don't cache error responses
@@ -369,6 +351,11 @@ sub vcl_deliver {
         set resp.http.X-Cache = "MISS";
     }
     
+    # Persist the A/B test assignment on the client
+    if (req.http.Cookie !~ "ABTest=") {
+        add resp.http.Set-Cookie = "ABTest=" + req.http.X-ABTest + "; path=/; max-age=3600";
+    }
+    
     # Add security headers
     set resp.http.Strict-Transport-Security = "max-age=31536000; includeSubDomains";
     set resp.http.X-Content-Type-Options = "nosniff";
@@ -403,6 +390,8 @@ sub vcl_log {
     
     return(deliver);
 }
+```
+
 ## Example 2: Content Delivery for a Media Website
 
 This example demonstrates a VCL configuration for a media website that serves news articles, videos, and images:
@@ -475,12 +464,13 @@ sub vcl_recv {
         set req.url = regsub(req.url, "\?$", "");
     }
     
-    # Handle PURGE requests
-    if (req.method == "PURGE") {
+    # Restrict purge requests to specific IPs (purge requests reach
+    # vcl_recv with the method FASTLYPURGE; the platform performs the
+    # actual purge)
+    if (req.method == "FASTLYPURGE") {
         if (client.ip !~ purge_acl) {
             error 403 "Forbidden";
         }
-        return(lookup);
     }
     
     # Detect device type
@@ -516,17 +506,17 @@ sub vcl_recv {
 # Cache key generation
 sub vcl_hash {
     # Default hash
-    hash_data(req.url);
+    set req.hash += req.url;
     
     if (req.http.host) {
-        hash_data(req.http.host);
+        set req.hash += req.http.host;
     } else {
-        hash_data(server.ip);
+        set req.hash += server.ip;
     }
     
     # Vary cache by device type for articles
     if (req.url ~ "^/articles/") {
-        hash_data(req.http.X-Device-Type);
+        set req.hash += req.http.X-Device-Type;
     }
     
     return(hash);
@@ -534,23 +524,11 @@ sub vcl_hash {
 
 # Cache hit processing
 sub vcl_hit {
-    # Handle PURGE requests
-    if (req.method == "PURGE") {
-        purge;
-        error 200 "Purged";
-    }
-    
     return(deliver);
 }
 
 # Cache miss processing
 sub vcl_miss {
-    # Handle PURGE requests
-    if (req.method == "PURGE") {
-        purge;
-        error 200 "Purged";
-    }
-    
     return(fetch);
 }
 
@@ -560,7 +538,7 @@ sub vcl_fetch {
     if (req.url ~ "^/articles/") {
         # News articles: cache for 15 minutes
         set beresp.ttl = 15m;
-        set beresp.grace = 4h;
+        set beresp.stale_if_error = 4h;
         
         # Add surrogate key for purging
         set beresp.http.Surrogate-Key = "articles";
@@ -575,7 +553,7 @@ sub vcl_fetch {
     } else if (req.url ~ "^/videos/") {
         # Videos: cache for 1 day
         set beresp.ttl = 1d;
-        set beresp.grace = 7d;
+        set beresp.stale_if_error = 7d;
         
         # Add surrogate key for purging
         set beresp.http.Surrogate-Key = "videos";
@@ -585,18 +563,18 @@ sub vcl_fetch {
     } else if (req.url ~ "^/images/") {
         # Images: cache for 7 days
         set beresp.ttl = 7d;
-        set beresp.grace = 7d;
+        set beresp.stale_if_error = 7d;
         
         # Add surrogate key for purging
         set beresp.http.Surrogate-Key = "images";
     } else if (req.url ~ "\.(css|js)$") {
         # Static assets: cache for 1 day
         set beresp.ttl = 1d;
-        set beresp.grace = 7d;
+        set beresp.stale_if_error = 7d;
     } else {
         # Default: cache for 5 minutes
         set beresp.ttl = 5m;
-        set beresp.grace = 1h;
+        set beresp.stale_if_error = 1h;
     }
     
     # Don't cache error responses
@@ -708,14 +686,10 @@ acl internal_networks {
     "192.168.0.0"/16;
 }
 
-# VCL Initialization
-sub vcl_init {
-    # Initialize rate limiting
-    # Create a rate counter with a 10-second window
-    new rate_counter = ratecounter.open_window(10s);
-    
-    return(ok);
-}
+# Rate limiting state: a rate counter to track request rates and a
+# penalty box to hold clients that exceed the limit
+ratecounter rl_counter {}
+penaltybox rl_pb {}
 
 # Request processing
 sub vcl_recv {
@@ -767,17 +741,14 @@ sub vcl_recv {
             set var.rate_key = client.ip;
         }
         
-        # Increment rate counter
-        declare local var.rate INTEGER;
-        set var.rate = rate_counter.increment(var.rate_key, 1);
-        
-        # Set rate headers for debugging
-        set req.http.X-RateLimit-Count = var.rate;
-        
-        # Apply rate limit (100 requests per 10 seconds)
-        if (var.rate > 100) {
+        # Allow an average of 10 requests per second measured over a
+        # 10-second window; offenders are blocked for 2 minutes
+        if (ratelimit.check_rate(var.rate_key, rl_counter, 1, 10, 10, rl_pb, 2m)) {
             error 429 "Too Many Requests";
         }
+        
+        # Expose the estimated request rate for debugging
+        set req.http.X-RateLimit-Rate = ratecounter.rl_counter.rate.10s;
     }
     
     # Always pass API requests (don't cache)
@@ -816,40 +787,39 @@ sub vcl_error {
     # Custom error responses
     if (obj.status == 429) {
         set obj.response = "Too Many Requests";
-        synthetic {"{"error": "Rate limit exceeded", "status": 429, "message": "You have exceeded the rate limit. Please try again later."}"};
+        synthetic {"{"error": "Rate limit exceeded", "status": 429, "message": "You have exceeded the rate limit. Please try again later." }"};
         return(deliver);
     }
     
     if (obj.status == 401) {
         set obj.response = "Unauthorized";
-        synthetic {"{"error": "Unauthorized", "status": 401, "message": "Authentication is required to access this resource."}"};
+        synthetic {"{"error": "Unauthorized", "status": 401, "message": "Authentication is required to access this resource." }"};
         return(deliver);
     }
     
     if (obj.status == 403) {
         set obj.response = "Forbidden";
-        synthetic {"{"error": "Forbidden", "status": 403, "message": "You do not have permission to access this resource."}"};
+        synthetic {"{"error": "Forbidden", "status": 403, "message": "You do not have permission to access this resource." }"};
         return(deliver);
     }
     
     if (obj.status == 404) {
         set obj.response = "Not Found";
-        synthetic {"{"error": "Not found", "status": 404, "message": "The requested resource could not be found."}"};
+        synthetic {"{"error": "Not found", "status": 404, "message": "The requested resource could not be found." }"};
         return(deliver);
     }
     
     # Generic error
-    synthetic {"{"error": "Server error", "status": "} obj.status {", "message": "An error occurred while processing your request."}"};
+    synthetic {"{"error": "Server error", "status": "} obj.status {", "message": "An error occurred while processing your request." }"};
     return(deliver);
 }
 
 # Response delivery
 sub vcl_deliver {
     # Add rate limit headers
-    if (req.http.X-RateLimit-Count) {
-        set resp.http.X-RateLimit-Limit = "100";
-        set resp.http.X-RateLimit-Remaining = "" + (100 - std.atoi(req.http.X-RateLimit-Count));
-        set resp.http.X-RateLimit-Reset = "10";
+    if (req.http.X-RateLimit-Rate) {
+        set resp.http.X-RateLimit-Limit = "10";
+        set resp.http.X-RateLimit-Observed = req.http.X-RateLimit-Rate;
     }
     
     # Add security headers

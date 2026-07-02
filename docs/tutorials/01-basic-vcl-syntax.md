@@ -47,11 +47,14 @@ director main_director random {
 
 ## Comments
 
-Comments in VCL start with a hash symbol (`#`) and continue to the end of the line:
+VCL supports three comment styles: `#` and `//` for line comments, and `/* ... */` for block comments:
 
 ```vcl
 # This is a comment
-set req.http.X-Test = "value"; # This is also a comment
+// This is also a comment
+/* This is a
+   block comment */
+set req.http.X-Test = "value"; # Trailing comments work too
 ```
 
 ## Data Types
@@ -85,13 +88,15 @@ Examples:
 
 ```vcl
 # Accessing request properties
-set req.http.Host = "example.com";
+set req.http.host = "example.com";
 set req.url = "/new-path";
 
 # Accessing response properties
-set resp.http.Content-Type = "text/html";
+set resp.http.content-type = "text/html";
 set resp.status = 200;
 ```
+
+Note that header lookups are case-sensitive in Fastly.JS, and the proxy stores incoming request and backend response header names in lowercase. Use lowercase names (`req.http.user-agent`, `beresp.http.content-type`) when reading or overriding headers that arrive from outside; headers your own VCL creates can use any casing, as long as you stay consistent.
 
 ## Variable Declaration
 
@@ -133,7 +138,7 @@ Examples:
 set var.result = 5 + 3 * 2;
 
 # Comparison
-if (req.http.User-Agent == "Mozilla/5.0") {
+if (req.http.user-agent == "Mozilla/5.0") {
   # Do something
 }
 
@@ -151,7 +156,7 @@ if (req.url ~ "^/static/") {
 set req.http.X-Test = "value";
 
 # Concatenation
-set req.http.X-Full-URL = "https://" + req.http.Host + req.url;
+set req.http.X-Full-URL = "https://" + req.http.host + req.url;
 ```
 
 ## Control Structures
@@ -187,17 +192,22 @@ if (req.url ~ "^/api/") {
 
 ### Switch Statements
 
-VCL doesn't have a native switch statement, but you can simulate one using if-else chains:
+Fastly.JS supports native switch statements. The control expression is stringified and compared against the case values; `case ~` matches a regular expression, and `default` runs when nothing else matched:
 
 ```vcl
-if (req.http.X-Action == "cache") {
-  return(lookup);
-} else if (req.http.X-Action == "pass") {
-  return(pass);
-} else if (req.http.X-Action == "error") {
-  error 403 "Forbidden";
-} else {
-  return(lookup);
+switch (req.http.X-Action) {
+  case "cache":
+    set req.http.X-Result = "lookup";
+    break;
+  case "pass":
+    set req.http.X-Result = "pass";
+    break;
+  case ~ "^err":
+    set req.http.X-Result = "error";
+    break;
+  default:
+    set req.http.X-Result = "default";
+    break;
 }
 ```
 
@@ -229,22 +239,24 @@ Fastly.JS implements the following built-in subroutines:
 
 ### Return Statements
 
-Each subroutine must end with a return statement that determines the next step in the request flow:
+A subroutine can end with a return statement that determines the next step in the request flow:
 
 ```vcl
 return(action);
 ```
 
-The available actions depend on the subroutine:
+A return statement is not required: if a built-in subroutine finishes without one, Fastly.JS applies a default (`lookup` for `vcl_recv`, `fetch` for `vcl_miss` and `vcl_pass`, `deliver` for `vcl_hit` and `vcl_fetch`).
 
-- **vcl_recv**: `lookup`, `pass`, `pipe`, `error`, `hash`, `purge`
+The actions honored by the request pipeline depend on the subroutine:
+
+- **vcl_recv**: `lookup`, `pass`, `error`, `restart` (`pipe` and `purge` are accepted by the parser, but currently behave like `pass`)
 - **vcl_hash**: `hash`
-- **vcl_hit**: `deliver`, `pass`, `restart`, `error`
-- **vcl_miss**: `fetch`, `pass`, `error`
-- **vcl_pass**: `fetch`, `error`
-- **vcl_fetch**: `deliver`, `pass`, `error`, `restart`
-- **vcl_deliver**: `deliver`, `restart`, `error`
-- **vcl_error**: `deliver`, `restart`
+- **vcl_hit**: `deliver` serves the cached object; any other action (such as `pass` or `fetch`) refetches from the backend
+- **vcl_miss**: `fetch`, `pass`
+- **vcl_pass**: `fetch`
+- **vcl_fetch**: `deliver` caches the response (if cacheable) and delivers it; `pass` delivers it without caching
+- **vcl_deliver**: the return value is currently ignored; the response is always delivered
+- **vcl_error**: `deliver`
 - **vcl_log**: No return value required
 
 ## Next Steps

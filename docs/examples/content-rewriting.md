@@ -10,6 +10,10 @@ Content rewriting is a powerful feature that allows you to modify the content of
 
 This guide demonstrates how to use Fastly.JS to implement content rewriting in your VCL configurations.
 
+> **Note:** Rewriting the body of proxied origin responses is not yet implemented in Fastly.JS. Assignments to `resp.body` parse and execute, but they have no effect on the body that is actually delivered. The `resp.body` examples below show the intended usage for reference. What does work today: rewriting headers, and generating complete bodies with `synthetic` in `vcl_error`.
+>
+> Also note that Fastly.JS stores incoming request and origin response header names in lowercase, and header lookups are case-sensitive, so origin headers such as `content-type` are read with lowercase names.
+
 ## Basic Text Replacement
 
 The simplest form of content rewriting is replacing text in the response body. Here's an example that replaces all occurrences of "Product" with "Solution" in HTML responses:
@@ -17,10 +21,7 @@ The simplest form of content rewriting is replacing text in the response body. H
 ```vcl
 sub vcl_fetch {
   # Only process HTML responses
-  if (beresp.http.Content-Type ~ "text/html") {
-    # Enable ESI processing
-    set beresp.do_esi = true;
-    
+  if (beresp.http.content-type ~ "text/html") {
     # Set a flag to indicate that we want to modify the response
     set beresp.http.X-Modify-Content = "true";
   }
@@ -49,10 +50,11 @@ You can also insert dynamic content into the response body. This example inserts
 ```vcl
 sub vcl_deliver {
   # Only process HTML responses
-  if (resp.http.Content-Type ~ "text/html") {
-    # Define the banner HTML
+  if (resp.http.content-type ~ "text/html") {
+    # Define the banner HTML. A {"..."} long string avoids the %-escape
+    # processing that plain string literals go through.
     declare local var.banner STRING;
-    set var.banner = "<div class='banner'>Special offer: 20% off all items today!</div>";
+    set var.banner = {"<div class='banner'>Special offer: 20% off all items today!</div>"};
     
     # Insert the banner after the opening body tag
     set resp.body = regsuball(resp.body, "<body>", "<body>" + var.banner);
@@ -69,7 +71,7 @@ URL rewriting allows you to modify URLs in the response body. This is useful for
 ```vcl
 sub vcl_deliver {
   # Only process HTML and CSS responses
-  if (resp.http.Content-Type ~ "text/html" || resp.http.Content-Type ~ "text/css") {
+  if (resp.http.content-type ~ "text/html" || resp.http.content-type ~ "text/css") {
     # Replace all references to the old domain with the new domain
     set resp.body = regsuball(resp.body, "old-domain.com", "new-domain.com");
     
@@ -83,18 +85,20 @@ sub vcl_deliver {
 
 ## Edge Side Includes (ESI)
 
-Edge Side Includes (ESI) is a markup language that allows you to include dynamic content in otherwise static pages. Fastly.JS supports ESI processing:
+Edge Side Includes (ESI) is a markup language that allows you to include dynamic content in otherwise static pages. Fastly.JS ships an ESI processor and accepts the `beresp.do_esi` flag (as well as the `esi;` statement):
 
 ```vcl
 sub vcl_fetch {
   # Enable ESI processing for HTML responses
-  if (beresp.http.Content-Type ~ "text/html") {
+  if (beresp.http.content-type ~ "text/html") {
     set beresp.do_esi = true;
   }
   
   return(deliver);
 }
 ```
+
+> **Note:** The bundled proxy does not currently run origin response bodies through the ESI processor; only synthetic response bodies are processed. Treat the flag as accepted-but-inert for proxied content.
 
 With ESI enabled, you can include dynamic content in your HTML using ESI tags:
 
@@ -128,51 +132,61 @@ With ESI enabled, you can include dynamic content in your HTML using ESI tags:
 
 ## Content Compression
 
-You can also modify the compression settings for responses:
+You can mark responses for gzip compression with the `beresp.gzip` flag:
 
 ```vcl
 sub vcl_fetch {
-  # Enable gzip compression for text-based responses
-  if (beresp.http.Content-Type ~ "text|application/json|application/javascript") {
-    set beresp.do_gzip = true;
+  # Mark text-based responses for gzip compression
+  if (beresp.http.content-type ~ "text|application/json|application/javascript") {
+    set beresp.gzip = true;
   }
   
   return(deliver);
 }
 ```
 
+> **Note:** Fastly.JS tracks the `beresp.gzip` flag but does not actually compress response bodies locally.
+
 ## Complete Example
 
 Here's a complete example that combines several content rewriting techniques:
 
 ```vcl
+# The backend to fetch content from ("default" is a reserved word,
+# so the backend gets an explicit name)
+backend origin {
+  .host = "example.com";
+  .port = "80";
+}
+
 sub vcl_recv {
-  # Set the default backend
-  set req.backend = default;
+  # Route requests to the origin backend
+  set req.backend = origin;
   
   return(lookup);
 }
 
 sub vcl_fetch {
   # Enable ESI processing for HTML responses
-  if (beresp.http.Content-Type ~ "text/html") {
+  if (beresp.http.content-type ~ "text/html") {
     set beresp.do_esi = true;
   }
   
-  # Enable gzip compression for text-based responses
-  if (beresp.http.Content-Type ~ "text|application/json|application/javascript") {
-    set beresp.do_gzip = true;
+  # Mark text-based responses for gzip compression
+  if (beresp.http.content-type ~ "text|application/json|application/javascript") {
+    set beresp.gzip = true;
   }
   
   return(deliver);
 }
 
 sub vcl_deliver {
-  # Only process HTML responses
-  if (resp.http.Content-Type ~ "text/html") {
+  # Only process HTML responses (the resp.body rewrites below are
+  # reference syntax; see the note at the top of this page)
+  if (resp.http.content-type ~ "text/html") {
     # Define the banner HTML
     declare local var.banner STRING;
-    set var.banner = "<div class='banner'>Special offer: 20% off all items today!</div>";
+    set var.banner = {"<div class='banner'>Special offer: 20% off all items today!</div>"};
     
     # Insert the banner after the opening body tag
     set resp.body = regsuball(resp.body, "<body>", "<body>" + var.banner);
@@ -199,10 +213,10 @@ Save the above VCL to a file named `content-rewriting.vcl` and run it with Fastl
 bun run index.ts content-rewriting.vcl
 ```
 
-This will start a local HTTP proxy server that applies the content rewriting rules to all responses.
+This will start a local HTTP proxy server. Keep in mind that, as noted above, the header rewrites take effect but the `resp.body` rewrites currently do not.
 
 ## Conclusion
 
-Content rewriting is a powerful feature that allows you to modify HTTP responses at the edge. With Fastly.JS, you can test and develop content rewriting rules locally before deploying them to your production Fastly service.
+Content rewriting is a powerful feature that allows you to modify HTTP responses at the edge. With Fastly.JS, you can parse and exercise content rewriting VCL locally; header rewriting is fully functional, while body rewriting of proxied responses is not yet implemented.
 
 For more information on the VCL functions used in this example, see the [VCL Functions Reference](../reference/vcl-functions.md).

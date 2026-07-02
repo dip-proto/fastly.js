@@ -63,11 +63,13 @@ sub vcl_error {
       </html>
     "};
   } else {
+    # Everything inside a {"..."} long string is literal, so the string
+    # has to be closed and reopened around dynamic values like obj.status.
     synthetic {"
       <!DOCTYPE html>
       <html>
         <head>
-          <title>Error " + obj.status + "</title>
+          <title>Error "} + obj.status + {"</title>
           <style>
             body {
               font-family: Arial, sans-serif;
@@ -81,7 +83,7 @@ sub vcl_error {
           </style>
         </head>
         <body>
-          <h1>Error " + obj.status + "</h1>
+          <h1>Error "} + obj.status + {"</h1>
           <p>Sorry, an error occurred while processing your request.</p>
           <p>Please try again later or contact support if the problem persists.</p>
         </body>
@@ -98,10 +100,21 @@ sub vcl_error {
 You can also generate error pages in the `vcl_recv` subroutine:
 
 ```vcl
+# The ACL referenced by the check below. ACL matching only works in
+# the "client.ip ~ acl" form, so the deny case goes in the else branch.
+acl internal_ips {
+  "192.168.0.0"/16;
+  "10.0.0.0"/8;
+}
+
 sub vcl_recv {
   # Check if the request is for a restricted area
-  if (req.url ~ "^/admin" && client.ip !~ internal_ips) {
-    error 403 "Forbidden";
+  if (req.url ~ "^/admin") {
+    if (client.ip ~ internal_ips) {
+      # Internal address, let it through
+    } else {
+      error 403 "Forbidden";
+    }
   }
   
   # Check if the requested resource exists
@@ -122,12 +135,13 @@ sub vcl_error {
   # Set the response content type
   set obj.http.Content-Type = "text/html; charset=utf-8";
   
-  # Create a custom error page with request information
+  # Create a custom error page with request information. The current
+  # time comes from the "now" variable.
   synthetic {"
     <!DOCTYPE html>
     <html>
       <head>
-        <title>Error " + obj.status + "</title>
+        <title>Error "} + obj.status + {"</title>
         <style>
           body {
             font-family: Arial, sans-serif;
@@ -147,13 +161,13 @@ sub vcl_error {
         </style>
       </head>
       <body>
-        <h1>Error " + obj.status + ": " + obj.response + "</h1>
+        <h1>Error "} + obj.status + ": " + obj.response + {"</h1>
         <p>Sorry, an error occurred while processing your request.</p>
         <div class='details'>
-          <p><strong>URL:</strong> " + req.url + "</p>
-          <p><strong>Method:</strong> " + req.method + "</p>
-          <p><strong>Time:</strong> " + std.time.now() + "</p>
-          <p><strong>Error ID:</strong> " + digest.hash_md5(req.url + std.time.now()) + "</p>
+          <p><strong>URL:</strong> "} + req.url + {"</p>
+          <p><strong>Method:</strong> "} + req.method + {"</p>
+          <p><strong>Time:</strong> "} + now + {"</p>
+          <p><strong>Error ID:</strong> "} + digest.hash_md5(req.url + now) + {"</p>
         </div>
         <p>Please try again later or contact support if the problem persists.</p>
       </body>
@@ -181,19 +195,16 @@ sub vcl_recv {
 sub vcl_error {
   # Check if this is an API request
   if (req.http.X-API-Request == "true") {
-    # Set the response content type to JSON
-    set obj.http.Content-Type = "application/json";
+    # Build the JSON body directly in the synthetic statement. The long
+    # strings carry the literal double quotes and are closed around the
+    # dynamic values.
+    synthetic {"{ "error": { "status": "} + obj.status +
+              {", "message": ""} + obj.response +
+              {"", "path": ""} + req.url + {"" } }"};
     
-    # Create a JSON error response
-    # Note: Build JSON by concatenating strings with proper escaping
-    set req.http.X-Error-JSON = "{" + LF
-      + {"  "error": {"} + LF
-      + {"    "status": "} + obj.status + "," + LF
-      + {"    "message": ""} + obj.response + {"","} + LF
-      + {"    "path": ""} + req.url + {"""} + LF
-      + "  }" + LF
-      + "}";
-    synthetic req.http.X-Error-JSON;
+    # The synthetic statement resets Content-Type to text/html,
+    # so set the JSON Content-Type afterwards
+    set obj.http.Content-Type = "application/json";
   } else {
     # For non-API requests, use HTML error pages
     set obj.http.Content-Type = "text/html; charset=utf-8";
@@ -203,7 +214,7 @@ sub vcl_error {
       <!DOCTYPE html>
       <html>
         <head>
-          <title>Error " + obj.status + "</title>
+          <title>Error "} + obj.status + {"</title>
           <style>
             body {
               font-family: Arial, sans-serif;
@@ -217,7 +228,7 @@ sub vcl_error {
           </style>
         </head>
         <body>
-          <h1>Error " + obj.status + ": " + obj.response + "</h1>
+          <h1>Error "} + obj.status + ": " + obj.response + {"</h1>
           <p>Sorry, an error occurred while processing your request.</p>
           <p>Please try again later or contact support if the problem persists.</p>
         </body>
@@ -255,11 +266,11 @@ sub vcl_error {
     <!DOCTYPE html>
     <html>
       <head>
-        <title>Error " + obj.status + "</title>
+        <title>Error "} + obj.status + {"</title>
       </head>
       <body>
-        <h1>Error " + obj.status + "</h1>
-        <p>" + obj.response + "</p>
+        <h1>Error "} + obj.status + {"</h1>
+        <p>"} + obj.response + {"</p>
       </body>
     </html>
   "};
@@ -279,8 +290,9 @@ sub vcl_recv {
     set req.http.X-API-Request = "true";
   }
   
-  # Check for maintenance mode
-  if (req.http.X-Maintenance-Mode == "true" && req.url !~ "^/maintenance") {
+  # Check for maintenance mode (client-sent header names are stored
+  # lowercase, and header lookups are case-sensitive)
+  if (req.http.x-maintenance-mode == "true" && req.url !~ "^/maintenance") {
     error 503 "Service Unavailable";
   }
   
@@ -293,19 +305,14 @@ sub vcl_error {
   
   # Check if this is an API request
   if (req.http.X-API-Request == "true") {
-    # Set the response content type to JSON
-    set obj.http.Content-Type = "application/json";
+    # Build the JSON body directly in the synthetic statement
+    synthetic {"{ "error": { "status": "} + obj.status +
+              {", "message": ""} + obj.response +
+              {"", "path": ""} + req.url + {"" } }"};
     
-    # Create a JSON error response
-    # Note: Build JSON by concatenating strings with proper escaping
-    set req.http.X-Error-JSON = "{" + LF
-      + {"  "error": {"} + LF
-      + {"    "status": "} + obj.status + "," + LF
-      + {"    "message": ""} + obj.response + {"","} + LF
-      + {"    "path": ""} + req.url + {"""} + LF
-      + "  }" + LF
-      + "}";
-    synthetic req.http.X-Error-JSON;
+    # The synthetic statement resets Content-Type to text/html,
+    # so set the JSON Content-Type afterwards
+    set obj.http.Content-Type = "application/json";
   } else {
     # For non-API requests, use HTML error pages
     set obj.http.Content-Type = "text/html; charset=utf-8";
@@ -366,7 +373,7 @@ sub vcl_error {
         <!DOCTYPE html>
         <html>
           <head>
-            <title>Error " + obj.status + "</title>
+            <title>Error "} + obj.status + {"</title>
             <style>
               body {
                 font-family: Arial, sans-serif;
@@ -380,7 +387,7 @@ sub vcl_error {
             </style>
           </head>
           <body>
-            <h1>Error " + obj.status + ": " + obj.response + "</h1>
+            <h1>Error "} + obj.status + ": " + obj.response + {"</h1>
             <p>Sorry, an error occurred while processing your request.</p>
             <p>Please try again later or contact support if the problem persists.</p>
           </body>

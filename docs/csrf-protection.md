@@ -28,7 +28,7 @@ The most robust protection is token-based CSRF protection. Here's how to impleme
 
 ### 1. Generate a CSRF Token
 
-In your `vcl_recv` subroutine, generate a token for GET requests:
+In your `vcl_recv` subroutine, generate a token for GET requests. The token binds the client IP, the User-Agent, a secret salt, and the current date, so it rotates daily and cannot be reused from another client:
 
 ```vcl
 sub vcl_recv {
@@ -36,9 +36,9 @@ sub vcl_recv {
   if (req.method == "GET") {
     set req.http.X-CSRF-Token = digest.hash_sha256(
       client.ip + 
-      req.http.User-Agent + 
+      req.http.user-agent + 
       "secret-salt" + 
-      std.time.hex_to_time(time.hex)
+      strftime({"%Y%m%d"}, now)
     );
   }
   
@@ -46,6 +46,12 @@ sub vcl_recv {
   return(lookup);
 }
 ```
+
+Note that header lookups are case-sensitive and incoming request header names
+are stored in lowercase, so headers sent by the client (`user-agent`,
+`referer`, and the `x-csrf-token` the browser sends back) are read with
+lowercase names. The `X-CSRF-Token` header the VCL sets itself keeps the
+casing it was written with.
 
 ### 2. Include the Token in Responses
 
@@ -76,13 +82,13 @@ sub vcl_recv {
     declare local var.expected_token STRING;
     set var.expected_token = digest.hash_sha256(
       client.ip + 
-      req.http.User-Agent + 
+      req.http.user-agent + 
       "secret-salt" + 
-      std.time.hex_to_time(time.hex)
+      strftime({"%Y%m%d"}, now)
     );
     
-    # Check if the token is valid
-    if (req.http.X-CSRF-Token != var.expected_token) {
+    # Check if the token is valid (the client-sent header arrives lowercase)
+    if (req.http.x-csrf-token != var.expected_token) {
       error 403 "CSRF token validation failed";
     }
   }
@@ -127,7 +133,7 @@ sub vcl_recv {
   # For state-changing requests, verify the origin
   if (req.method ~ "^(POST|PUT|DELETE|PATCH)$") {
     # Check if the Referer header is present and from our domain
-    if (!req.http.Referer || req.http.Referer !~ "^https?://([^/]+\.)?example\.com/") {
+    if (!req.http.referer || req.http.referer !~ "^https?://([^/]+\.)?example\.com/") {
       error 403 "Invalid request origin";
     }
   }
@@ -142,9 +148,10 @@ Modern browsers support the SameSite attribute for cookies, which can prevent CS
 
 ```vcl
 sub vcl_deliver {
-  # Set SameSite attribute for cookies
-  if (resp.http.Set-Cookie) {
-    set resp.http.Set-Cookie = resp.http.Set-Cookie + "; SameSite=Strict";
+  # Set SameSite attribute for cookies (origin response header names
+  # are stored lowercase)
+  if (resp.http.set-cookie) {
+    set resp.http.set-cookie = resp.http.set-cookie + "; SameSite=Strict";
   }
   
   return(deliver);
@@ -161,15 +168,15 @@ sub vcl_recv {
   if (req.method == "GET") {
     set req.http.X-CSRF-Token = digest.hash_sha256(
       client.ip + 
-      req.http.User-Agent + 
+      req.http.user-agent + 
       "secret-salt" + 
-      std.time.hex_to_time(time.hex)
+      strftime({"%Y%m%d"}, now)
     );
   } 
   # For other methods, validate the token and origin
   else {
     # Verify the origin
-    if (!req.http.Referer || req.http.Referer !~ "^https?://([^/]+\.)?example\.com/") {
+    if (!req.http.referer || req.http.referer !~ "^https?://([^/]+\.)?example\.com/") {
       error 403 "Invalid request origin";
     }
     
@@ -177,12 +184,12 @@ sub vcl_recv {
     declare local var.expected_token STRING;
     set var.expected_token = digest.hash_sha256(
       client.ip + 
-      req.http.User-Agent + 
+      req.http.user-agent + 
       "secret-salt" + 
-      std.time.hex_to_time(time.hex)
+      strftime({"%Y%m%d"}, now)
     );
     
-    if (req.http.X-CSRF-Token != var.expected_token) {
+    if (req.http.x-csrf-token != var.expected_token) {
       error 403 "CSRF token validation failed";
     }
   }
@@ -197,8 +204,8 @@ sub vcl_deliver {
   }
   
   # Set SameSite attribute for cookies
-  if (resp.http.Set-Cookie) {
-    set resp.http.Set-Cookie = resp.http.Set-Cookie + "; SameSite=Strict";
+  if (resp.http.set-cookie) {
+    set resp.http.set-cookie = resp.http.set-cookie + "; SameSite=Strict";
   }
   
   return(deliver);
@@ -206,3 +213,14 @@ sub vcl_deliver {
 ```
 
 By implementing these measures, you can protect your application from CSRF attacks.
+
+## TypeScript Helpers
+
+If you are driving the engine from JavaScript or TypeScript rather than pure VCL, `src/csrf-protection.ts` ships the same logic as a small module:
+
+- `generateCSRFToken(context, secret)`: Computes the SHA-256 token from the client IP, User-Agent, secret, and current time.
+- `validateCSRFToken(context, token, secret)`: Recomputes the expected token and compares it to the supplied one.
+- `protectAgainstCSRF(context, secret)`: For GET requests, generates a token and stores it in `req.http.X-CSRF-Token`; for all other methods, validates the incoming `X-CSRF-Token` header and returns `false` if it is missing or invalid.
+- `addCSRFTokenToResponse(context)`: Copies the token from `req.http.X-CSRF-Token` to `resp.http.X-CSRF-Token` on GET requests.
+
+The module also exports `csrfProtectionVCL`, a ready-made VCL snippet implementing the token scheme described above.

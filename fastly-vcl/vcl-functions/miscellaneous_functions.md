@@ -6,7 +6,7 @@ functionality for various use cases.
 
 ## goto
 
-Jumps to a specific label in the current subroutine.
+Jumps to a specific label in the current subroutine. Only forward jumps are allowed: the label must appear after the goto statement, so loops cannot be built with goto.
 
 ### Syntax
 
@@ -16,7 +16,7 @@ goto label_name;
 
 ### Parameters
 
-- `label_name`: The name of the label to jump to
+- `label_name`: The name of the label to jump to (must be declared later in the same subroutine)
 
 ### Return Value
 
@@ -108,29 +108,7 @@ processing_end:
   set req.http.X-Processing-Path-Complete = "true";
 ```
 
-#### Loop-like behavior with goto
-
-```vcl
-declare local var.counter INTEGER;
-set var.counter = 0;
-
-# Start of the loop
-counter_loop:
-  # Increment the counter
-  set var.counter = var.counter + 1;
-  
-  # Add the counter to a header
-  if (req.http.X-Counter) {
-    set req.http.X-Counter = req.http.X-Counter + "," + var.counter;
-  } else {
-    set req.http.X-Counter = var.counter;
-  }
-  
-  # Continue the loop if the counter is less than 5
-  if (var.counter < 5) {
-    goto counter_loop;
-  }
-```
+Note: Backward jumps are a compile error. VCL intentionally has no loops; if repetition is needed, use `restart` (which re-runs the whole request, bounded by the restart limit).
 
 #### Complex flow control with goto
 
@@ -176,12 +154,13 @@ user_end:
 
 ## synthetic
 
-Sets the response body for synthetic responses.
+Sets the response body for synthetic responses (a statement, usable in `vcl_error`). A companion statement, `synthetic.base64`, takes a base64-encoded string and decodes it into the response body, which is useful for binary content.
 
 ### Syntax
 
 ```vcl
-synthetic STRING response_body
+synthetic response_body;
+synthetic.base64 base64_encoded_body;
 ```
 
 ### Parameters
@@ -513,10 +492,9 @@ if (beresp.status == 404) {
 #### Handling large files
 
 ```vcl
-if (beresp.http.Content-Length ~ "^[0-9]{7,}") {
-  # Don't cache files larger than 10MB
+if (beresp.http.Content-Length ~ "^[0-9]{8,}") {
+  # Don't cache files of 10MB or more
   set beresp.ttl = 0s;
-  set beresp.uncacheable = true;
   
   # Pass the response to the client
   return(pass);
@@ -525,18 +503,18 @@ if (beresp.http.Content-Length ~ "^[0-9]{7,}") {
 
 ## error
 
-Generates a synthetic error response.
+Generates a synthetic error response. This is a statement, not a function: the status and message are written without parentheses or commas.
 
 ### Syntax
 
 ```vcl
-error(INTEGER status, STRING message)
+error status "message";
 ```
 
 ### Parameters
 
 - `status`: The HTTP status code to return
-- `message`: The error message
+- `message`: The response reason phrase (optional)
 
 ### Return Value
 
@@ -673,6 +651,92 @@ if (req.restarts < 3 && resp.status >= 500) {
   
   # Restart the request
   restart;
+}
+```
+
+## setcookie.get_value_by_name
+
+Reads the value of a specific cookie from Set-Cookie headers in a response.
+
+### Syntax
+
+```vcl
+STRING setcookie.get_value_by_name(ID where, STRING cookie_name)
+```
+
+### Parameters
+
+- `where`: The response to read from, as a bare identifier: `resp` or `beresp`
+- `cookie_name`: The name of the cookie
+
+### Return Value
+
+The value of the named cookie, or not set if no Set-Cookie header matches
+
+### Examples
+
+```vcl
+declare local var.session STRING;
+
+# Read the "session" cookie set by the backend
+set var.session = setcookie.get_value_by_name(beresp, "session");
+```
+
+## setcookie.delete_by_name
+
+Removes the Set-Cookie header for a specific cookie from a response.
+
+### Syntax
+
+```vcl
+BOOL setcookie.delete_by_name(ID where, STRING cookie_name)
+```
+
+### Parameters
+
+- `where`: The response to modify, as a bare identifier: `resp` or `beresp`
+- `cookie_name`: The name of the cookie to remove
+
+### Return Value
+
+TRUE if a matching Set-Cookie header was removed, FALSE otherwise
+
+### Examples
+
+```vcl
+# Strip a tracking cookie from cached responses
+if (setcookie.delete_by_name(beresp, "tracking_id")) {
+  set beresp.http.X-Cookie-Stripped = "true";
+}
+```
+
+## resp.tarpit
+
+Deliberately slows down delivery of the response, sending it to the client in small chunks separated by pauses. Useful for slowing down abusive clients. Only available in `vcl_deliver`.
+
+### Syntax
+
+```vcl
+resp.tarpit(INTEGER interval_s, INTEGER chunk_size_bytes)
+```
+
+### Parameters
+
+- `interval_s`: The pause between chunks, in seconds
+- `chunk_size_bytes`: The number of bytes to send per chunk
+
+### Return Value
+
+None
+
+### Examples
+
+```vcl
+sub vcl_deliver {
+  if (req.http.X-Suspected-Bot == "true") {
+    # Trickle the response out 128 bytes every 2 seconds
+    resp.tarpit(2, 128);
+  }
 }
 ```
 

@@ -36,11 +36,11 @@ You can set different TTLs for different types of content:
 ```vcl
 sub vcl_fetch {
   # Cache static assets for 1 day
-  if (beresp.http.Content-Type ~ "image/" || req.url ~ "\.(css|js)$") {
+  if (beresp.http.content-type ~ "image/" || req.url ~ "\.(css|js)$") {
     set beresp.ttl = 1d;
   }
   # Cache HTML for 5 minutes
-  else if (beresp.http.Content-Type ~ "text/html") {
+  else if (beresp.http.content-type ~ "text/html") {
     set beresp.ttl = 5m;
   }
   # Cache everything else for 1 hour
@@ -50,15 +50,15 @@ sub vcl_fetch {
 }
 ```
 
-### Respecting Cache-Control Headers
+### Cache-Control Headers and the Default TTL
 
-You can respect the `Cache-Control` headers sent by the backend:
+Fastly.JS does not derive the TTL from the backend's `Cache-Control` header. If `vcl_fetch` finishes with `beresp.ttl` unset, a default of 5 minutes is applied (along with a 1 hour grace period and 10 seconds of stale-while-revalidate). To honor `Cache-Control`, inspect the header yourself:
 
 ```vcl
 sub vcl_fetch {
-  # If the backend sends a Cache-Control header, respect it
-  if (beresp.http.Cache-Control) {
-    # Do nothing, use the TTL set by the backend
+  # Use the backend's max-age when present
+  if (beresp.http.cache-control ~ "max-age=(\d+)") {
+    set beresp.ttl = std.atoi(re.group.1);
   }
   # Otherwise, set a default TTL
   else {
@@ -69,7 +69,7 @@ sub vcl_fetch {
 
 ## Grace Periods
 
-Grace periods allow Fastly.JS to serve stale content while fetching a fresh copy from the backend. This helps reduce latency and handle backend failures.
+Grace periods allow Fastly.JS to keep serving stale content after the TTL has expired. A stale response is delivered with `X-Cache: HIT-STALE`, and the next request for the same object fetches a fresh copy from the backend.
 
 ### Setting Grace Periods
 
@@ -87,7 +87,7 @@ sub vcl_fetch {
 
 ### Stale-While-Revalidate
 
-Stale-while-revalidate allows Fastly.JS to serve stale content while asynchronously fetching a fresh copy from the backend.
+`stale_while_revalidate` extends the window during which a stale object may still be served. As with the grace period, the refresh happens on the request that follows a stale delivery rather than in the background.
 
 ```vcl
 sub vcl_fetch {
@@ -114,13 +114,13 @@ sub vcl_hash {
   hash_data(req.http.host);
   
   # Vary cache based on User-Agent
-  if (req.http.User-Agent) {
-    hash_data(req.http.User-Agent);
+  if (req.http.user-agent) {
+    hash_data(req.http.user-agent);
   }
   
   # Vary cache based on Accept-Language
-  if (req.http.Accept-Language) {
-    hash_data(req.http.Accept-Language);
+  if (req.http.accept-language) {
+    hash_data(req.http.accept-language);
   }
   
   return(hash);
@@ -138,8 +138,8 @@ sub vcl_hash {
   hash_data(req.http.host);
   
   # Vary cache based on a specific cookie
-  if (req.http.Cookie ~ "user_pref=") {
-    set req.http.X-User-Pref = regsub(req.http.Cookie, ".*user_pref=([^;]+).*", "\1");
+  if (req.http.cookie ~ "user_pref=") {
+    set req.http.X-User-Pref = regsub(req.http.cookie, ".*user_pref=([^;]+).*", "\1");
     hash_data(req.http.X-User-Pref);
   }
   
@@ -184,16 +184,17 @@ Cache invalidation allows you to remove items from the cache before they expire.
 
 ### Purging
 
-You can purge items from the cache using the `purge` return value in `vcl_recv`:
+Fastly VCL has a `purge` return action in `vcl_recv`, and Fastly.JS accepts the syntax:
 
 ```vcl
 sub vcl_recv {
-  # Purge a specific URL
   if (req.method == "PURGE") {
     return(purge);
   }
 }
 ```
+
+However, cache invalidation is not implemented yet: returning `purge` currently behaves like a `pass` and leaves the cached object in place. In practice, objects leave the cache when their TTL (plus grace and stale-while-revalidate) expires, or when the cache is cleared programmatically (the cache handed to the pipeline is a plain JavaScript `Map`).
 
 ### Surrogate Keys
 
@@ -229,12 +230,12 @@ sub vcl_recv {
   }
   
   # Don't cache requests with authentication
-  if (req.http.Authorization) {
+  if (req.http.authorization) {
     return(pass);
   }
   
   # Don't cache requests with certain cookies
-  if (req.http.Cookie ~ "session=") {
+  if (req.http.cookie ~ "session=") {
     return(pass);
   }
   
@@ -243,21 +244,23 @@ sub vcl_recv {
 }
 ```
 
-### Setting TTL to 0
+### Passing in vcl_fetch
 
-You can prevent caching by setting the TTL to 0 in `vcl_fetch`:
+Be careful with `set beresp.ttl = 0s;`: a TTL of exactly 0 is treated as "unset", so the default 5 minute TTL is applied and the response gets cached anyway. To keep a backend response out of the cache, return `pass` from `vcl_fetch`:
 
 ```vcl
 sub vcl_fetch {
   # Don't cache error responses
   if (beresp.status >= 500) {
-    set beresp.ttl = 0s;
+    return(pass);
   }
   
   # Don't cache responses with certain headers
-  if (beresp.http.Cache-Control ~ "private" || beresp.http.Cache-Control ~ "no-store") {
-    set beresp.ttl = 0s;
+  if (beresp.http.cache-control ~ "private" || beresp.http.cache-control ~ "no-store") {
+    return(pass);
   }
+
+  return(deliver);
 }
 ```
 

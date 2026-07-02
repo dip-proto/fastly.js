@@ -6,21 +6,23 @@ load balancing, A/B testing, sampling, and feature flagging.
 
 ## randombool
 
-Generates a random boolean value with a specified probability.
+Generates a random boolean value with a specified probability, expressed as a
+fraction: the result is true with probability `numerator / denominator`.
 
 ### Syntax
 
 ```vcl
-BOOL randombool(REAL probability)
+BOOL randombool(INTEGER numerator, INTEGER denominator)
 ```
 
 ### Parameters
 
-- `probability`: A number between 0.0 and 1.0 representing the probability of returning TRUE
+- `numerator`: The numerator of the probability fraction
+- `denominator`: The denominator of the probability fraction
 
 ### Return Value
 
-- TRUE with the specified probability
+- TRUE with probability numerator/denominator
 - FALSE otherwise
 
 ### Examples
@@ -31,7 +33,7 @@ BOOL randombool(REAL probability)
 declare local var.result1 BOOL;
 
 # Generate a random boolean with 50% probability of being true
-set var.result1 = randombool(0.5);
+set var.result1 = randombool(1, 2);
 
 # Log the result
 log "Random boolean (50%): " + if(var.result1, "true", "false");
@@ -44,10 +46,10 @@ declare local var.low_prob BOOL;
 declare local var.high_prob BOOL;
 
 # Generate with 10% probability of being true
-set var.low_prob = randombool(0.1);
+set var.low_prob = randombool(1, 10);
 
 # Generate with 90% probability of being true
-set var.high_prob = randombool(0.9);
+set var.high_prob = randombool(9, 10);
 
 # Log the results
 log "Random boolean (10%): " + if(var.low_prob, "true", "false");
@@ -62,7 +64,7 @@ This example demonstrates how to use randombool for A/B testing:
 declare local var.in_experiment BOOL;
 
 # Determine if the user is in the experiment (20% of users)
-set var.in_experiment = randombool(0.2);
+set var.in_experiment = randombool(1, 5);
 
 if (var.in_experiment) {
   # User is in the experiment group
@@ -83,7 +85,7 @@ This example demonstrates how to use randombool for sampling requests to log:
 declare local var.should_log BOOL;
 
 # Sample 1% of requests for detailed logging
-set var.should_log = randombool(0.01);
+set var.should_log = randombool(1, 100);
 
 if (var.should_log) {
   # Enable detailed logging for this request
@@ -100,7 +102,7 @@ This example demonstrates how to use randombool for gradual feature rollout:
 declare local var.feature_enabled BOOL;
 
 # Enable the feature for 5% of requests
-set var.feature_enabled = randombool(0.05);
+set var.feature_enabled = randombool(1, 20);
 
 if (var.feature_enabled) {
   # Enable the new feature
@@ -113,22 +115,25 @@ if (var.feature_enabled) {
 
 ## randombool_seeded
 
-Generates a random boolean value with a specified probability, using a seed.
+Generates a random boolean value with a specified probability, using an
+integer seed. The result is fully determined by the arguments, so the same
+seed always yields the same result.
 
 ### Syntax
 
 ```vcl
-BOOL randombool_seeded(REAL probability, STRING seed)
+BOOL randombool_seeded(INTEGER numerator, INTEGER denominator, INTEGER seed)
 ```
 
 ### Parameters
 
-- `probability`: A number between 0.0 and 1.0 representing the probability of returning TRUE
-- `seed`: A string used as a seed for the random number generator
+- `numerator`: The numerator of the probability fraction
+- `denominator`: The denominator of the probability fraction
+- `seed`: An integer used as a seed for the random number generator
 
 ### Return Value
 
-- TRUE with the specified probability (deterministic for the same seed)
+- TRUE with probability numerator/denominator (deterministic for the same seed)
 - FALSE otherwise
 
 ### Examples
@@ -137,25 +142,23 @@ BOOL randombool_seeded(REAL probability, STRING seed)
 
 ```vcl
 declare local var.result1 BOOL;
-declare local var.seed STRING;
 
-# Use a consistent seed
-set var.seed = "fixed-seed-123";
-
-# Generate a random boolean with 50% probability using the seed
-set var.result1 = randombool_seeded(0.5, var.seed);
+# Generate a random boolean with 50% probability using a fixed seed
+set var.result1 = randombool_seeded(1, 2, 12345);
 
 # Log the result
 # Note: This will always produce the same result for the same seed
-log "Seeded random boolean (50%, seed=" + var.seed + "): " + if(var.result1, "true", "false");
+log "Seeded random boolean (50%, seed=12345): " + if(var.result1, "true", "false");
 ```
 
 #### User-specific A/B testing
 
-This example demonstrates how to use randombool_seeded for consistent A/B testing:
+The seed is an INTEGER, so string identifiers such as user IDs have to be
+converted to a number first, typically by hashing:
 
 ```vcl
 declare local var.user_id STRING;
+declare local var.user_seed INTEGER;
 declare local var.in_experiment BOOL;
 
 # Get a stable identifier for the user
@@ -168,9 +171,12 @@ if (req.http.Cookie:user_id) {
   set var.user_id = client.ip;
 }
 
+# Derive an integer seed from the user ID
+set var.user_seed = std.strtol(substr(digest.hash_sha256(var.user_id), 0, 8), 16);
+
 # Determine if the user is in the experiment (20% of users)
 # Using the user ID as seed ensures the same user always gets the same result
-set var.in_experiment = randombool_seeded(0.2, var.user_id);
+set var.in_experiment = randombool_seeded(1, 5, var.user_seed);
 
 if (var.in_experiment) {
   # User is in the experiment group
@@ -189,17 +195,18 @@ This example demonstrates how to use randombool_seeded for consistent feature fl
 
 ```vcl
 declare local var.experiment_name STRING;
-declare local var.feature_seed STRING;
+declare local var.feature_seed INTEGER;
 declare local var.feature_enabled BOOL;
 
 # Set the experiment name
 set var.experiment_name = "new-ui-design";
 
-# Create a seed that combines the user ID and experiment name
-set var.feature_seed = var.user_id + "-" + var.experiment_name;
+# Derive a seed from the user ID and experiment name combined
+set var.feature_seed = std.strtol(
+    substr(digest.hash_sha256(var.user_id + "-" + var.experiment_name), 0, 8), 16);
 
 # Enable the feature for 10% of users
-set var.feature_enabled = randombool_seeded(0.1, var.feature_seed);
+set var.feature_enabled = randombool_seeded(1, 10, var.feature_seed);
 
 if (var.feature_enabled) {
   # Enable the new feature
@@ -215,24 +222,20 @@ if (var.feature_enabled) {
 This example demonstrates how to run multiple experiments with the same user base:
 
 ```vcl
-declare local var.exp1_name STRING;
-declare local var.exp2_name STRING;
-declare local var.exp1_seed STRING;
-declare local var.exp2_seed STRING;
+declare local var.exp1_seed INTEGER;
+declare local var.exp2_seed INTEGER;
 declare local var.in_exp1 BOOL;
 declare local var.in_exp2 BOOL;
 
-# Set experiment names
-set var.exp1_name = "header-design";
-set var.exp2_name = "footer-design";
-
-# Create seeds for each experiment
-set var.exp1_seed = var.user_id + "-" + var.exp1_name;
-set var.exp2_seed = var.user_id + "-" + var.exp2_name;
+# Derive independent seeds for each experiment
+set var.exp1_seed = std.strtol(
+    substr(digest.hash_sha256(var.user_id + "-header-design"), 0, 8), 16);
+set var.exp2_seed = std.strtol(
+    substr(digest.hash_sha256(var.user_id + "-footer-design"), 0, 8), 16);
 
 # Determine if the user is in each experiment
-set var.in_exp1 = randombool_seeded(0.5, var.exp1_seed);
-set var.in_exp2 = randombool_seeded(0.5, var.exp2_seed);
+set var.in_exp1 = randombool_seeded(1, 2, var.exp1_seed);
+set var.in_exp2 = randombool_seeded(1, 2, var.exp2_seed);
 
 # Set headers based on experiment participation
 set req.http.X-Header-Version = if(var.in_exp1, "new", "current");
@@ -244,14 +247,14 @@ set req.http.X-Footer-Version = if(var.in_exp2, "new", "current");
 This example demonstrates how to use randombool_seeded for consistent sampling:
 
 ```vcl
-declare local var.log_seed STRING;
+declare local var.log_seed INTEGER;
 declare local var.should_log BOOL;
 
-# Create a seed based on the URL path
-set var.log_seed = req.url.path;
+# Derive a seed from the URL path
+set var.log_seed = std.strtol(substr(digest.hash_sha256(req.url.path), 0, 8), 16);
 
 # Sample 5% of URLs for detailed logging
-set var.should_log = randombool_seeded(0.05, var.log_seed);
+set var.should_log = randombool_seeded(1, 20, var.log_seed);
 
 if (var.should_log) {
   # Enable detailed logging for this URL
@@ -366,19 +369,21 @@ log "Selected variant: " + var.variant;
 
 ## randomint_seeded
 
-Generates a random integer within a specified range, using a seed.
+Generates a random integer within a specified range, using an integer seed.
+The result is fully determined by the arguments, so the same seed always
+yields the same result.
 
 ### Syntax
 
 ```vcl
-INTEGER randomint_seeded(INTEGER from, INTEGER to, STRING seed)
+INTEGER randomint_seeded(INTEGER from, INTEGER to, INTEGER seed)
 ```
 
 ### Parameters
 
 - `from`: The lower bound of the range (inclusive)
 - `to`: The upper bound of the range (inclusive)
-- `seed`: A string used as a seed for the random number generator
+- `seed`: An integer used as a seed for the random number generator
 
 ### Return Value
 
@@ -390,25 +395,24 @@ A random integer between from and to, inclusive (deterministic for the same seed
 
 ```vcl
 declare local var.result1 INTEGER;
-declare local var.seed STRING;
 
-# Use a consistent seed
-set var.seed = "fixed-seed-123";
-
-# Generate a random integer between 1 and 10 using the seed
-set var.result1 = randomint_seeded(1, 10, var.seed);
+# Generate a random integer between 1 and 10 using a fixed seed
+set var.result1 = randomint_seeded(1, 10, 12345);
 
 # Log the result
 # Note: This will always produce the same result for the same seed
-log "Seeded random integer (1-10, seed=" + var.seed + "): " + var.result1;
+log "Seeded random integer (1-10, seed=12345): " + var.result1;
 ```
 
 #### User-specific variant assignment
 
-This example demonstrates how to use randomint_seeded for consistent variant assignment:
+This example demonstrates how to use randomint_seeded for consistent variant
+assignment. As with randombool_seeded, string identifiers have to be hashed
+to an integer first:
 
 ```vcl
 declare local var.user_id STRING;
+declare local var.user_seed INTEGER;
 declare local var.variant INTEGER;
 
 # Get a stable identifier for the user
@@ -421,9 +425,12 @@ if (req.http.Cookie:user_id) {
   set var.user_id = client.ip;
 }
 
+# Derive an integer seed from the user ID
+set var.user_seed = std.strtol(substr(digest.hash_sha256(var.user_id), 0, 8), 16);
+
 # Assign the user to a variant (1-4)
 # Using the user ID as seed ensures the same user always gets the same variant
-set var.variant = randomint_seeded(1, 4, var.user_id);
+set var.variant = randomint_seeded(1, 4, var.user_seed);
 
 # Set the variant in a header
 set req.http.X-Variant = var.variant;
@@ -437,24 +444,27 @@ log "User " + var.user_id + " assigned to variant: " + var.variant;
 This example demonstrates how to use randomint_seeded for consistent sharding:
 
 ```vcl
-declare local var.shard_count INTEGER;
+declare local var.shard_max INTEGER;
 declare local var.shard INTEGER;
-declare local var.shard_key STRING;
+declare local var.shard_seed INTEGER;
 
-# Set the number of shards
-set var.shard_count = 10;
+# Set the highest shard number (10 shards: 0-9)
+# VCL has no infix arithmetic, so compute shard_count - 1 with an
+# assignment operator
+set var.shard_max = 10;
+set var.shard_max -= 1;
 
-# Use the URL path as the shard key
-set var.shard_key = req.url.path;
+# Derive a seed from the URL path
+set var.shard_seed = std.strtol(substr(digest.hash_sha256(req.url.path), 0, 8), 16);
 
 # Assign the request to a shard (0-9)
-set var.shard = randomint_seeded(0, var.shard_count - 1, var.shard_key);
+set var.shard = randomint_seeded(0, var.shard_max, var.shard_seed);
 
 # Set the shard in a header
 set req.http.X-Shard = var.shard;
 
 # Log the assigned shard
-log "URL " + var.shard_key + " assigned to shard: " + var.shard;
+log "URL " + req.url.path + " assigned to shard: " + var.shard;
 ```
 
 #### Weighted random selection
@@ -462,15 +472,12 @@ log "URL " + var.shard_key + " assigned to shard: " + var.shard;
 This example demonstrates how to implement weighted random selection:
 
 ```vcl
-declare local var.experiment_name STRING;
 declare local var.random_value INTEGER;
-declare local var.experiment_seed STRING;
+declare local var.experiment_seed INTEGER;
 
-# Set the experiment name
-set var.experiment_name = "pricing-model";
-
-# Create a seed that combines the user ID and experiment name
-set var.experiment_seed = var.user_id + "-" + var.experiment_name;
+# Derive a seed from the user ID and experiment name combined
+set var.experiment_seed = std.strtol(
+    substr(digest.hash_sha256(var.user_id + "-pricing-model"), 0, 8), 16);
 
 # Generate a random value between 1 and 100
 set var.random_value = randomint_seeded(1, 100, var.experiment_seed);
@@ -495,7 +502,8 @@ declare local var.cache_shard INTEGER;
 declare local var.cache_key STRING;
 
 # Generate a shard number (0-99) based on the URL
-set var.cache_shard = randomint_seeded(0, 99, req.url.path);
+set var.cache_shard = randomint_seeded(0, 99,
+    std.strtol(substr(digest.hash_sha256(req.url.path), 0, 8), 16));
 
 # Create a cache key that includes the shard
 set var.cache_key = "shard-" + var.cache_shard + ":" + req.url;
@@ -511,13 +519,14 @@ Generates a random string of a specified length.
 ### Syntax
 
 ```vcl
-STRING randomstr(INTEGER length [, STRING charset])
+STRING randomstr(INTEGER length [, STRING characters])
 ```
 
 ### Parameters
 
 - `length`: The length of the random string to generate
-- `charset`: Optional character set to use (default: [A-Za-z0-9])
+- `characters`: Optional character set to use. The default is the
+  64-character set `A-Z`, `a-z`, `0-9`, `-` and `_`
 
 ### Return Value
 
@@ -618,16 +627,17 @@ This example demonstrates how multiple random functions can work together to cre
 sub vcl_recv {
   # Step 1: Generate a unique request ID
   declare local var.request_id STRING;
-  
+
   # Generate a random request ID
   set var.request_id = randomstr(16, "0123456789abcdef");
-  
+
   # Set the request ID in a header
   set req.http.X-Request-ID = var.request_id;
-  
+
   # Step 2: Determine user identity for consistent experiences
   declare local var.user_id STRING;
-  
+  declare local var.user_seed INTEGER;
+
   # Get a stable identifier for the user
   if (req.http.Cookie:user_id) {
     set var.user_id = req.http.Cookie:user_id;
@@ -637,63 +647,76 @@ sub vcl_recv {
     # Fallback to IP address if no user ID is available
     set var.user_id = client.ip;
   }
-  
+
   # Step 3: Implement feature flags with consistent user experience
   # Define feature flags with different rollout percentages
   declare local var.feature_new_ui BOOL;
   declare local var.feature_new_checkout BOOL;
   declare local var.feature_new_search BOOL;
-  
-  # Assign users to features consistently
-  set var.feature_new_ui = randombool_seeded(0.2, var.user_id + "-new-ui");
-  set var.feature_new_checkout = randombool_seeded(0.1, var.user_id + "-new-checkout");
-  set var.feature_new_search = randombool_seeded(0.5, var.user_id + "-new-search");
-  
+
+  # Assign users to features consistently, deriving an integer seed
+  # per feature from the user ID and the feature name
+  set var.user_seed = std.strtol(
+      substr(digest.hash_sha256(var.user_id + "-new-ui"), 0, 8), 16);
+  set var.feature_new_ui = randombool_seeded(1, 5, var.user_seed);
+
+  set var.user_seed = std.strtol(
+      substr(digest.hash_sha256(var.user_id + "-new-checkout"), 0, 8), 16);
+  set var.feature_new_checkout = randombool_seeded(1, 10, var.user_seed);
+
+  set var.user_seed = std.strtol(
+      substr(digest.hash_sha256(var.user_id + "-new-search"), 0, 8), 16);
+  set var.feature_new_search = randombool_seeded(1, 2, var.user_seed);
+
   # Set feature flags in headers
   set req.http.X-Feature-New-UI = if(var.feature_new_ui, "enabled", "disabled");
   set req.http.X-Feature-New-Checkout = if(var.feature_new_checkout, "enabled", "disabled");
   set req.http.X-Feature-New-Search = if(var.feature_new_search, "enabled", "disabled");
-  
+
   # Step 4: Implement multi-variant testing
   declare local var.pricing_variant INTEGER;
   declare local var.layout_variant INTEGER;
-  
+
   # Assign users to pricing variants (1-3)
-  set var.pricing_variant = randomint_seeded(1, 3, var.user_id + "-pricing");
-  
+  set var.user_seed = std.strtol(
+      substr(digest.hash_sha256(var.user_id + "-pricing"), 0, 8), 16);
+  set var.pricing_variant = randomint_seeded(1, 3, var.user_seed);
+
   # Assign users to layout variants (1-4)
-  set var.layout_variant = randomint_seeded(1, 4, var.user_id + "-layout");
-  
+  set var.user_seed = std.strtol(
+      substr(digest.hash_sha256(var.user_id + "-layout"), 0, 8), 16);
+  set var.layout_variant = randomint_seeded(1, 4, var.user_seed);
+
   # Set variant assignments in headers
   set req.http.X-Pricing-Variant = var.pricing_variant;
   set req.http.X-Layout-Variant = var.layout_variant;
-  
+
   # Step 5: Implement random sampling for logging
   declare local var.should_log BOOL;
-  
+
   # Sample 1% of requests for detailed logging
-  set var.should_log = randombool(0.01);
-  
+  set var.should_log = randombool(1, 100);
+
   if (var.should_log) {
     # Enable detailed logging for this request
     set req.http.X-Detailed-Logging = "enabled";
-    
+
     # Log detailed information
     log "Detailed logging for request: " + var.request_id;
     log "User ID: " + var.user_id;
-    log "Features: UI=" + req.http.X-Feature-New-UI + 
-        ", Checkout=" + req.http.X-Feature-New-Checkout + 
+    log "Features: UI=" + req.http.X-Feature-New-UI +
+        ", Checkout=" + req.http.X-Feature-New-Checkout +
         ", Search=" + req.http.X-Feature-New-Search;
-    log "Variants: Pricing=" + var.pricing_variant + 
+    log "Variants: Pricing=" + var.pricing_variant +
         ", Layout=" + var.layout_variant;
   }
-  
+
   # Step 6: Implement weighted load balancing
   declare local var.backend_rand INTEGER;
-  
+
   # Generate a random value between 1 and 100
   set var.backend_rand = randomint(1, 100);
-  
+
   # Distribute traffic with weights: Backend1 (70%), Backend2 (20%), Backend3 (10%)
   if (var.backend_rand <= 70) {
     set req.backend = F_backend1;
@@ -705,17 +728,18 @@ sub vcl_recv {
     set req.backend = F_backend3;
     set req.http.X-Selected-Backend = "backend3";
   }
-  
+
   # Step 7: Generate a cache key with shard
   declare local var.cache_shard INTEGER;
   declare local var.cache_key STRING;
-  
+
   # Generate a consistent shard number (0-99) based on the URL
-  set var.cache_shard = randomint_seeded(0, 99, req.url.path);
-  
+  set var.cache_shard = randomint_seeded(0, 99,
+      std.strtol(substr(digest.hash_sha256(req.url.path), 0, 8), 16));
+
   # Create a cache key that includes the shard
   set var.cache_key = "shard-" + var.cache_shard + ":" + req.url;
-  
+
   # Set the cache key in a header
   set req.http.X-Cache-Key = var.cache_key;
 }
@@ -728,12 +752,12 @@ sub vcl_recv {
    - Use non-seeded functions (randombool, randomint, randomstr) when you need true randomness, such as load balancing or sampling
 
 2. Choosing Good Seeds:
-   - Use stable identifiers as seeds (user ID, URL path, etc.)
+   - Seeds are integers; derive them from stable string identifiers (user ID, URL path, etc.) by hashing and converting, for example with std.strtol over a digest
    - Combine multiple values to create unique seeds for different purposes
-   - Include experiment or feature names in seeds to allow independent experiments
+   - Include experiment or feature names in the hashed input to allow independent experiments
 
 3. Probability and Range Selection:
-   - Choose appropriate probability values for randombool based on your use case
+   - randombool probabilities are fractions: randombool(1, 100) is true for 1% of calls
    - For gradual rollouts, start with small probabilities and increase over time
    - Ensure randomint ranges are appropriate for your use case
 

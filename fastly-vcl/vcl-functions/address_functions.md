@@ -55,25 +55,21 @@ if (addr.is_ipv4(client.ip)) {
 
 #### Error handling with string conversion
 
+`addr.is_ipv4` takes an IP value, not a string, so a string must be converted first with `std.ip` (or `std.str2ip`):
+
 ```vcl
-declare local var.ip_to_check STRING;
+declare local var.ip_to_check IP;
 declare local var.is_valid_ipv4 BOOL;
 
-# Get IP from a header (potentially unsafe)
-set var.ip_to_check = req.http.X-Forwarded-For;
+# Get IP from a header (potentially unsafe); fall back to 0.0.0.0 on parse failure
+set var.ip_to_check = std.ip(req.http.X-Forwarded-For, "0.0.0.0");
 
-# Safely check if it's a valid IPv4 address
-if (var.ip_to_check ~ "^[\d\.]+$") {
-  set var.is_valid_ipv4 = addr.is_ipv4(var.ip_to_check);
-  if (var.is_valid_ipv4) {
-    # It's a valid IPv4 address
-    set req.http.X-Valid-IPv4 = "true";
-  } else {
-    # Not a valid IPv4 address
-    set req.http.X-Valid-IPv4 = "false";
-  }
+set var.is_valid_ipv4 = addr.is_ipv4(var.ip_to_check);
+if (var.is_valid_ipv4) {
+  # It parsed as an IPv4 address (or fell back to the IPv4 default)
+  set req.http.X-Valid-IPv4 = "true";
 } else {
-  # Not even a potential IP address
+  # Not an IPv4 address
   set req.http.X-Valid-IPv4 = "false";
 }
 ```
@@ -154,32 +150,18 @@ BOOL addr.is_unix(IP address)
 - TRUE if the address is a Unix domain socket address
 - FALSE otherwise
 
+Note: Fastly services do not currently use Unix domain sockets, so this function always returns FALSE on the Fastly platform. It exists for compatibility.
+
 ### Examples
 
 #### Basic Unix socket detection
 
-Note: This is less common in edge computing but useful in certain scenarios:
-
 ```vcl
 declare local var.is_unix BOOL;
-set var.is_unix = addr.is_unix(client.socket.address);
-```
+set var.is_unix = addr.is_unix(client.ip);
 
-#### Backend connection type detection
-
-This example demonstrates how to detect the type of connection to a backend:
-
-```vcl
-if (addr.is_unix(bereq.backend.socket.address)) {
-  # Connection to backend is via Unix socket
-  set bereq.http.X-Backend-Socket-Type = "unix";
-} else if (addr.is_ipv4(bereq.backend.socket.address)) {
-  # Connection to backend is via IPv4
-  set bereq.http.X-Backend-Socket-Type = "ipv4";
-} else if (addr.is_ipv6(bereq.backend.socket.address)) {
-  # Connection to backend is via IPv6
-  set bereq.http.X-Backend-Socket-Type = "ipv6";
-}
+# Always FALSE on Fastly
+set req.http.X-Is-Unix = if(var.is_unix, "true", "false");
 ```
 
 ## addr.extract_bits
@@ -189,18 +171,18 @@ Extracts a range of bits from an IP address.
 ### Syntax
 
 ```vcl
-INTEGER addr.extract_bits(IP address, INTEGER offset, INTEGER length)
+INTEGER addr.extract_bits(IP address, INTEGER start_bit, INTEGER bit_count)
 ```
 
 ### Parameters
 
 - `address`: The IP address to extract bits from
-- `offset`: The bit offset from which to start extracting (0 = most significant bit)
-- `length`: The number of bits to extract (1-32 for IPv4, 1-128 for IPv6)
+- `start_bit`: The bit offset from which to start extracting. Bit 0 is the least significant (rightmost) bit, so for an IPv4 address the first octet starts at bit 24 and for an IPv6 address the first 16-bit group starts at bit 112. Must be an integer literal
+- `bit_count`: The number of bits to extract (1-32). Must be an integer literal
 
 ### Return Value
 
-An integer containing the extracted bits
+An integer containing the extracted bits. Returns 0 if the arguments are out of range.
 
 ### Examples
 
@@ -209,11 +191,13 @@ An integer containing the extracted bits
 ```vcl
 declare local var.network_bits INTEGER;
 
-# Extract the first 8 bits (network portion) of an IPv4 address
-set var.network_bits = addr.extract_bits(client.ip, 0, 8);
+# Extract the first octet (network portion) of an IPv4 address.
+# Bits are numbered from the least significant end, so the first
+# octet of a 32-bit IPv4 address occupies bits 24-31.
+set var.network_bits = addr.extract_bits(client.ip, 24, 8);
 
 # Log the result
-log "First 8 bits of client IP: " + var.network_bits;
+log "First octet of client IP: " + var.network_bits;
 ```
 
 #### Subnet matching using bit extraction
@@ -224,8 +208,9 @@ This example demonstrates how to check if an IP is in a specific subnet:
 declare local var.subnet_bits INTEGER;
 declare local var.target_subnet INTEGER;
 
-# Extract first 24 bits of client IP (equivalent to a /24 subnet mask)
-set var.subnet_bits = addr.extract_bits(client.ip, 0, 24);
+# Extract the top 24 bits of the client IP (equivalent to a /24 subnet mask).
+# The low 8 bits are skipped, so extraction starts at bit 8.
+set var.subnet_bits = addr.extract_bits(client.ip, 8, 24);
 
 # Define target subnet (192.168.1.0/24)
 # 192 = 11000000, 168 = 10101000, 1 = 00000001
@@ -242,17 +227,19 @@ if (var.subnet_bits == var.target_subnet) {
 
 This example shows how to classify IPv6 addresses by their prefix:
 
+At most 32 bits can be extracted at a time, so classifying an IPv6 address by its /32 prefix looks like this (an IPv6 address is 128 bits wide, so the first 32 bits occupy bits 96-127):
+
 ```vcl
 if (addr.is_ipv6(client.ip)) {
-  # Extract the first 48 bits (typical ISP allocation)
+  # Extract the first 32 bits of the IPv6 address
   declare local var.ipv6_prefix INTEGER;
-  set var.ipv6_prefix = addr.extract_bits(client.ip, 0, 48);
+  set var.ipv6_prefix = addr.extract_bits(client.ip, 96, 32);
   
   # Set a header with the prefix for analytics
   set req.http.X-IPv6-Prefix = var.ipv6_prefix;
   
   # Example classification based on prefix
-  if (var.ipv6_prefix == 42540766412969) {  # 2001:db8::/48 documentation prefix
+  if (var.ipv6_prefix == 536939960) {  # 2001:db8::/32 documentation prefix
     set req.http.X-IPv6-Type = "documentation";
   }
 }
@@ -267,11 +254,12 @@ declare local var.client_segment INTEGER;
 
 if (addr.is_ipv4(client.ip)) {
   # For IPv4, use the third octet for segmentation
-  # Extract bits 16-23 (third octet)
-  set var.client_segment = addr.extract_bits(client.ip, 16, 8);
+  # (bits 8-15, counting from the least significant bit)
+  set var.client_segment = addr.extract_bits(client.ip, 8, 8);
 } else if (addr.is_ipv6(client.ip)) {
-  # For IPv6, use bits 48-55 for segmentation
-  set var.client_segment = addr.extract_bits(client.ip, 48, 8);
+  # For IPv6, use the fourth 16-bit group's high byte
+  # (bits 48-55 from the top of the 128-bit address = bits 72-79 from the bottom)
+  set var.client_segment = addr.extract_bits(client.ip, 72, 8);
 } else {
   set var.client_segment = 0;
 }
@@ -311,9 +299,9 @@ sub vcl_recv {
   declare local var.network_class STRING;
   
   if (var.ip_version == "ipv4") {
-    # Extract first octet for IPv4 classification
+    # Extract first octet for IPv4 classification (bits 24-31)
     declare local var.first_octet INTEGER;
-    set var.first_octet = addr.extract_bits(client.ip, 0, 8);
+    set var.first_octet = addr.extract_bits(client.ip, 24, 8);
     
     # Classify based on IPv4 address classes (simplified)
     if (var.first_octet >= 1 && var.first_octet <= 126) {
@@ -330,26 +318,29 @@ sub vcl_recv {
     
     # Check for private networks
     declare local var.first_16bits INTEGER;
-    set var.first_16bits = addr.extract_bits(client.ip, 0, 16);
+    set var.first_16bits = addr.extract_bits(client.ip, 16, 16);
     
     if (var.first_octet == 10 || 
-        var.first_16bits == 43200 || # 172.16.0.0/12 (first 12 bits)
-        (var.first_octet == 192 && addr.extract_bits(client.ip, 8, 8) == 168)) {
+        (var.first_16bits >= 44048 && var.first_16bits <= 44063) || # 172.16.0.0/12
+        var.first_16bits == 49320) { # 192.168.0.0/16
       set var.network_class = "private";
     }
   } else if (var.ip_version == "ipv6") {
-    # Extract first 16 bits for IPv6 classification
+    # Classify based on the leading prefix bits (VCL has no bitwise
+    # operators, so extract exactly the prefix length needed)
     declare local var.first_16bits INTEGER;
-    set var.first_16bits = addr.extract_bits(client.ip, 0, 16);
+    declare local var.first_10bits INTEGER;
+    declare local var.first_7bits INTEGER;
+    set var.first_16bits = addr.extract_bits(client.ip, 112, 16);
+    set var.first_10bits = addr.extract_bits(client.ip, 118, 10);
+    set var.first_7bits = addr.extract_bits(client.ip, 121, 7);
     
     # Classify based on IPv6 address types (simplified)
     if (var.first_16bits == 0) {
-      set var.network_class = "unspecified"; # ::/128
-    } else if (var.first_16bits == 1) {
-      set var.network_class = "loopback"; # ::1/128
-    } else if ((var.first_16bits & 0xffc0) == 0xfe80) {
+      set var.network_class = "reserved"; # includes :: and ::1
+    } else if (var.first_10bits == 1018) {
       set var.network_class = "link_local"; # fe80::/10
-    } else if ((var.first_16bits & 0xfe00) == 0xfc00) {
+    } else if (var.first_7bits == 126) {
       set var.network_class = "unique_local"; # fc00::/7
     } else {
       set var.network_class = "global";

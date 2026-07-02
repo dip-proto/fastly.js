@@ -73,7 +73,7 @@ SYNTAX: math.roundhalfup(FLOAT x)
 PARAMETERS:
 - x: The floating-point value to round
 
-RETURN VALUE: The nearest integer to x, rounding halfway cases away from zero
+RETURN VALUE: The nearest integer to x, rounding halfway cases up (toward positive infinity)
 
 ### FUNCTION: math.roundhalfdown
 
@@ -83,7 +83,7 @@ SYNTAX: math.roundhalfdown(FLOAT x)
 PARAMETERS:
 - x: The floating-point value to round
 
-RETURN VALUE: The nearest integer to x, rounding halfway cases toward zero
+RETURN VALUE: The nearest integer to x, rounding halfway cases down (toward negative infinity)
 
 ### Examples
 
@@ -162,6 +162,8 @@ log "Round half down: " + var.roundhalfdown_result;
 
 #### Practical application - price rounding
 
+VCL has no infix arithmetic operators, so multi-step calculations use the arithmetic assignment operators (`+=`, `-=`, `*=`, `/=`):
+
 ```vcl
 declare local var.price FLOAT;
 declare local var.rounded_price FLOAT;
@@ -171,7 +173,10 @@ declare local var.floor_price FLOAT;
 set var.price = 19.237;
 
 # Round to 2 decimal places (cents)
-set var.rounded_price = math.round(var.price * 100) / 100;  # 19.24
+set var.rounded_price = var.price;
+set var.rounded_price *= 100;
+set var.rounded_price = math.round(var.rounded_price);
+set var.rounded_price /= 100;  # 19.24
 
 # Ceiling to nearest dollar (always round up)
 set var.ceiling_price = math.ceil(var.price);  # 20.0
@@ -338,7 +343,9 @@ declare local var.tan_result FLOAT;
 
 # Convert degrees to radians (π radians = 180 degrees)
 set var.angle_degrees = 45.0;
-set var.angle_radians = var.angle_degrees * math.pi / 180.0;
+set var.angle_radians = var.angle_degrees;
+set var.angle_radians *= math.PI;
+set var.angle_radians /= 180.0;
 
 # Calculate trigonometric values
 set var.sin_result = math.sin(var.angle_radians);  # ~0.7071
@@ -373,9 +380,17 @@ declare local var.asin_degrees FLOAT;
 declare local var.acos_degrees FLOAT;
 declare local var.atan_degrees FLOAT;
 
-set var.asin_degrees = var.asin_result * 180.0 / math.pi;
-set var.acos_degrees = var.acos_result * 180.0 / math.pi;
-set var.atan_degrees = var.atan_result * 180.0 / math.pi;
+set var.asin_degrees = var.asin_result;
+set var.asin_degrees *= 180.0;
+set var.asin_degrees /= math.PI;
+
+set var.acos_degrees = var.acos_result;
+set var.acos_degrees *= 180.0;
+set var.acos_degrees /= math.PI;
+
+set var.atan_degrees = var.atan_result;
+set var.atan_degrees *= 180.0;
+set var.atan_degrees /= math.PI;
 
 # Log the results
 log "Value: " + var.value;
@@ -397,7 +412,9 @@ set var.y = 4.0;
 
 # Calculate the angle using atan2
 set var.angle = math.atan2(var.y, var.x);  # ~0.9273 radians (~53.13 degrees)
-set var.angle_deg = var.angle * 180.0 / math.pi;
+set var.angle_deg = var.angle;
+set var.angle_deg *= 180.0;
+set var.angle_deg /= math.PI;
 
 # Log the results
 log "Point coordinates: (" + var.x + ", " + var.y + ")";
@@ -453,30 +470,66 @@ declare local var.lat2 FLOAT;
 declare local var.lon2 FLOAT;
 declare local var.distance FLOAT;
 
-# Coordinates in radians (convert from degrees if needed)
-set var.lat1 = 40.7128 * math.pi / 180.0;  # New York
-set var.lon1 = -74.0060 * math.pi / 180.0;
-set var.lat2 = 34.0522 * math.pi / 180.0;  # Los Angeles
-set var.lon2 = -118.2437 * math.pi / 180.0;
+# Coordinates in radians (degrees multiplied by pi/180 ~ 0.0174533)
+set var.lat1 = 40.7128;  # New York
+set var.lat1 *= 0.0174533;
+set var.lon1 = -74.0060;
+set var.lon1 *= 0.0174533;
+set var.lat2 = 34.0522;  # Los Angeles
+set var.lat2 *= 0.0174533;
+set var.lon2 = -118.2437;
+set var.lon2 *= 0.0174533;
 
 # Calculate distance using the Haversine formula
 declare local var.dlat FLOAT;
 declare local var.dlon FLOAT;
+declare local var.sin_dlat FLOAT;
+declare local var.sin_dlon FLOAT;
+declare local var.cos_term FLOAT;
 declare local var.a FLOAT;
+declare local var.one_minus_a FLOAT;
 declare local var.c FLOAT;
-declare local var.r FLOAT;
 
-set var.dlat = var.lat2 - var.lat1;
-set var.dlon = var.lon2 - var.lon1;
-set var.a = math.sin(var.dlat/2) * math.sin(var.dlat/2) + 
-           math.cos(var.lat1) * math.cos(var.lat2) * 
-           math.sin(var.dlon/2) * math.sin(var.dlon/2);
-set var.c = 2 * math.atan2(math.sqrt(var.a), math.sqrt(1-var.a));
-set var.r = 6371.0;  # Earth's radius in kilometers
-set var.distance = var.r * var.c;
+set var.dlat = var.lat2;
+set var.dlat -= var.lat1;
+set var.dlon = var.lon2;
+set var.dlon -= var.lon1;
+
+# sin^2(dlat/2)
+set var.sin_dlat = var.dlat;
+set var.sin_dlat /= 2;
+set var.sin_dlat = math.sin(var.sin_dlat);
+set var.sin_dlat *= var.sin_dlat;
+
+# sin^2(dlon/2)
+set var.sin_dlon = var.dlon;
+set var.sin_dlon /= 2;
+set var.sin_dlon = math.sin(var.sin_dlon);
+set var.sin_dlon *= var.sin_dlon;
+
+# cos(lat1) * cos(lat2) * sin^2(dlon/2)
+set var.cos_term = math.cos(var.lat1);
+set var.cos_term *= math.cos(var.lat2);
+set var.cos_term *= var.sin_dlon;
+
+# a = sin^2(dlat/2) + cos(lat1)*cos(lat2)*sin^2(dlon/2)
+set var.a = var.sin_dlat;
+set var.a += var.cos_term;
+
+# c = 2 * atan2(sqrt(a), sqrt(1-a))
+set var.one_minus_a = 1.0;
+set var.one_minus_a -= var.a;
+set var.c = math.atan2(math.sqrt(var.a), math.sqrt(var.one_minus_a));
+set var.c *= 2;
+
+# distance = earth radius (6371 km) * c
+set var.distance = var.c;
+set var.distance *= 6371.0;
 
 # Log the result
 log "Distance between New York and Los Angeles: " + var.distance + " km";
+```
+
 ## FUNCTION GROUP: EXPONENTIAL AND LOGARITHMIC FUNCTIONS
 
 These functions handle exponential and logarithmic operations:
@@ -484,6 +537,7 @@ These functions handle exponential and logarithmic operations:
 - math.exp2: Calculates 2^x
 - math.log: Calculates the natural logarithm (base e)
 - math.log2: Calculates the logarithm base 2
+- math.log10: Calculates the logarithm base 10
 - math.sqrt: Calculates the square root
 
 ### FUNCTION: math.exp
@@ -525,6 +579,16 @@ PARAMETERS:
 - x: The value whose logarithm is to be calculated (must be > 0)
 
 RETURN VALUE: The logarithm base 2 of x
+
+### FUNCTION: math.log10
+
+PURPOSE: Calculates the logarithm base 10 of a value
+SYNTAX: math.log10(FLOAT x)
+
+PARAMETERS:
+- x: The value whose logarithm is to be calculated (must be > 0)
+
+RETURN VALUE: The logarithm base 10 of x
 
 ### FUNCTION: math.sqrt
 
@@ -597,11 +661,14 @@ set var.rate = 0.05;         # 5% annual interest rate
 set var.time = 10.0;         # 10 years
 
 # Calculate compound interest: P * e^(rt)
-set var.compound_interest = var.principal * math.exp(var.rate * var.time);
+set var.compound_interest = var.rate;
+set var.compound_interest *= var.time;
+set var.compound_interest = math.exp(var.compound_interest);
+set var.compound_interest *= var.principal;
 
 # Log the result
 log "Principal: $" + var.principal;
-log "Annual interest rate: " + (var.rate * 100) + "%";
+log "Annual interest rate: 5%";
 log "Time period: " + var.time + " years";
 log "Final amount with compound interest: $" + var.compound_interest;
 ```
@@ -617,9 +684,12 @@ declare local var.gigabytes FLOAT;
 set var.bytes = 1073741824.0;  # 1 GB in bytes
 
 # Convert to different units
-set var.kilobytes = var.bytes / math.exp2(10);
-set var.megabytes = var.bytes / math.exp2(20);
-set var.gigabytes = var.bytes / math.exp2(30);
+set var.kilobytes = var.bytes;
+set var.kilobytes /= math.exp2(10);
+set var.megabytes = var.bytes;
+set var.megabytes /= math.exp2(20);
+set var.gigabytes = var.bytes;
+set var.gigabytes /= math.exp2(30);
 
 # Log the results
 log "Bytes: " + var.bytes;
@@ -697,8 +767,8 @@ declare local var.infinite_value FLOAT;
 declare local var.nan_value FLOAT;
 
 set var.regular_value = 42.0;
-set var.infinite_value = 1.0 / 0.0;  # Infinity
-set var.nan_value = 0.0 / 0.0;       # NaN
+set var.infinite_value = math.POS_INFINITY;  # Infinity
+set var.nan_value = math.NAN;                # NaN
 
 # Check if values are finite
 log "Is regular value finite? " + math.is_finite(var.regular_value);   # true
@@ -746,7 +816,7 @@ declare local var.result FLOAT;
 declare local var.is_valid BOOL;
 
 # Get input from a request parameter (simulated)
-set var.input = std.atof(header.get(req.http, "X-Value", "0"));
+set var.input = std.atof(req.http.X-Value);
 
 # Perform a calculation that might result in special values
 set var.result = math.log(var.input);
@@ -788,9 +858,12 @@ sub vcl_recv {
   declare local var.is_valid BOOL;
   
   # Get input parameters (simulated)
-  set var.x = std.atof(header.get(req.http, "X-Value-1", "0"));
-  set var.y = std.atof(header.get(req.http, "X-Value-2", "0"));
-  set var.operation = header.get(req.http, "X-Operation", "add");
+  set var.x = std.atof(req.http.X-Value-1);
+  set var.y = std.atof(req.http.X-Value-2);
+  set var.operation = req.http.X-Operation;
+  if (var.operation == "") {
+    set var.operation = "add";
+  }
   
   # Step 2: Validate inputs
   set var.is_valid = math.is_finite(var.x) && math.is_finite(var.y);
@@ -803,12 +876,16 @@ sub vcl_recv {
   }
   
   # Step 3: Perform the requested operation
+  # (VCL has no infix arithmetic; use assignment operators)
   if (var.operation == "add") {
-    set var.result = var.x + var.y;
+    set var.result = var.x;
+    set var.result += var.y;
   } else if (var.operation == "subtract") {
-    set var.result = var.x - var.y;
+    set var.result = var.x;
+    set var.result -= var.y;
   } else if (var.operation == "multiply") {
-    set var.result = var.x * var.y;
+    set var.result = var.x;
+    set var.result *= var.y;
   } else if (var.operation == "divide") {
     # Check for division by zero
     if (var.y == 0) {
@@ -816,7 +893,8 @@ sub vcl_recv {
       set req.http.X-Error = "Division by zero";
       return;
     }
-    set var.result = var.x / var.y;
+    set var.result = var.x;
+    set var.result /= var.y;
   } else if (var.operation == "power") {
     # Calculate x^y using exp and log: x^y = e^(y*ln(x))
     # Check for valid inputs for power operation
@@ -825,7 +903,9 @@ sub vcl_recv {
       set req.http.X-Error = "Base must be positive for power operation";
       return;
     }
-    set var.result = math.exp(var.y * math.log(var.x));
+    set var.result = math.log(var.x);
+    set var.result *= var.y;
+    set var.result = math.exp(var.result);
   } else if (var.operation == "sqrt") {
     # Check for negative input
     if (var.x < 0) {
@@ -842,15 +922,19 @@ sub vcl_recv {
       return;
     }
     set var.result = math.log(var.x);
-  } else if (var.operation == "sin") {
+  } else if (var.operation == "sin" || var.operation == "cos" || var.operation == "tan") {
     # Convert degrees to radians
-    set var.result = math.sin(var.x * math.pi / 180.0);
-  } else if (var.operation == "cos") {
-    # Convert degrees to radians
-    set var.result = math.cos(var.x * math.pi / 180.0);
-  } else if (var.operation == "tan") {
-    # Convert degrees to radians
-    set var.result = math.tan(var.x * math.pi / 180.0);
+    declare local var.radians FLOAT;
+    set var.radians = var.x;
+    set var.radians *= math.PI;
+    set var.radians /= 180.0;
+    if (var.operation == "sin") {
+      set var.result = math.sin(var.radians);
+    } else if (var.operation == "cos") {
+      set var.result = math.cos(var.radians);
+    } else {
+      set var.result = math.tan(var.radians);
+    }
   } else if (var.operation == "round") {
     set var.result = math.round(var.x);
   } else {
@@ -880,8 +964,12 @@ sub vcl_recv {
   
   # Step 6: Add additional information for certain operations
   if (var.operation == "sin" || var.operation == "cos" || var.operation == "tan") {
+    declare local var.input_radians FLOAT;
+    set var.input_radians = var.x;
+    set var.input_radians *= math.PI;
+    set var.input_radians /= 180.0;
     set req.http.X-Input-Degrees = var.x;
-    set req.http.X-Input-Radians = var.x * math.pi / 180.0;
+    set req.http.X-Input-Radians = var.input_radians;
   } else if (var.operation == "round") {
     set req.http.X-Original-Value = var.x;
     set req.http.X-Ceiling = math.ceil(var.x);
@@ -905,7 +993,7 @@ sub vcl_recv {
 3. Performance Optimization:
    - Avoid unnecessary calculations in high-traffic paths
    - Pre-compute constants where possible
-   - Use simpler functions when appropriate (e.g., math.sqrt instead of math.pow)
+   - Use simpler functions when appropriate (e.g., math.sqrt instead of an exp/log-based power computation)
 
 4. Error Handling:
    - Always check for special values in results

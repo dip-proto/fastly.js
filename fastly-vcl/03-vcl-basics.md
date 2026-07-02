@@ -146,9 +146,9 @@ acl internal_ips {
 }
 ```
 
-### REGEX
+### Regular Expressions
 
-Regular expressions are used for pattern matching:
+Regular expressions are not a declarable type, but regex literals are used for pattern matching with the `~` and `!~` operators, and in functions like `regsub`:
 
 ```vcl
 if (req.url ~ "^/api/v[0-9]+/") {
@@ -179,7 +179,8 @@ VCL provides several built-in variables that represent different aspects of the 
 - `beresp.status`: The HTTP status code from the backend
 - `beresp.http.*`: HTTP headers from the backend
 - `beresp.ttl`: The cache TTL for the response
-- `beresp.grace`: The grace period for the response
+- `beresp.stale_while_revalidate`: How long the response may be served stale while revalidating
+- `beresp.stale_if_error`: How long the response may be served stale if the origin fails
 
 ### Client Response Variables
 
@@ -190,7 +191,7 @@ VCL provides several built-in variables that represent different aspects of the 
 ### Cached Object Variables
 
 - `obj.ttl`: The remaining TTL for the cached object
-- `obj.grace`: The remaining grace period for the cached object
+- `obj.stale_if_error`: How long the object may be served stale if the origin fails
 - `obj.hits`: The number of cache hits for the object
 
 ### Client Variables
@@ -338,8 +339,10 @@ set req.http.X-Timestamp = std.time(req.http.Date, now);
 // Random integer
 set req.http.X-Random = randomint(1, 100);
 
-// Random real number
-set req.http.X-Random-Real = randomint(1, 1000) / 1000.0;
+// Random boolean, true 25% of the time
+if (randombool(1, 4)) {
+    set req.http.X-Bucket = "experiment";
+}
 ```
 
 ### Geolocation

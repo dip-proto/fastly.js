@@ -18,6 +18,12 @@ VCL subroutines are executed in a specific order during the request-response lif
 
 Each subroutine can return a specific action that determines the next step in the request-response lifecycle.
 
+In Fastly.JS the pipeline runs `vcl_recv` (repeating it on `restart`, up to
+the restart limit), then `vcl_hash` and the cache lookup, then `vcl_hit`,
+`vcl_miss`, or `vcl_pass`, then `vcl_fetch` for backend responses, and finally
+`vcl_deliver` and `vcl_log`. `vcl_error` runs whenever an `error` statement or
+failure occurs.
+
 ## Subroutine Syntax
 
 ```vcl
@@ -42,24 +48,24 @@ The `vcl_recv` subroutine is called when a request is received, before any conte
 
 - `lookup`: Look up the object in the cache (default)
 - `pass`: Pass the request to the backend, bypassing the cache
-- `pipe`: Switch to pipe mode for the request
+- `pipe`: Accepted for compatibility; treated like `pass`
 - `error`: Return an error response
-- `hash`: Proceed to the `vcl_hash` subroutine
+- `restart`: Restart the request processing (see [restart](./restart.md))
 
 ### Example
 
 ```vcl
 sub vcl_recv {
-  # Set the default backend
-  set req.backend = default;
+  # Set the backend
+  set req.backend = origin;
   
   # Pass non-GET/HEAD requests
   if (req.method != "GET" && req.method != "HEAD") {
     return(pass);
   }
   
-  # Pass requests with cookies
-  if (req.http.Cookie) {
+  # Pass requests with cookies (incoming header names are stored lowercase)
+  if (req.http.cookie) {
     return(pass);
   }
   
@@ -90,8 +96,8 @@ sub vcl_hash {
   hash_data(req.http.host);
   
   # Include the Accept header for content negotiation
-  if (req.http.Accept) {
-    hash_data(req.http.Accept);
+  if (req.http.accept) {
+    hash_data(req.http.accept);
   }
   
   return(hash);
@@ -112,8 +118,10 @@ The `vcl_hit` subroutine is called when a cache hit occurs.
 
 - `deliver`: Deliver the cached object (default)
 - `pass`: Pass the request to the backend, bypassing the cache
-- `restart`: Restart the request processing
 - `error`: Return an error response
+
+In Fastly.JS, any return other than `deliver` causes the object to be
+refetched from the backend.
 
 ### Example
 
@@ -125,7 +133,7 @@ sub vcl_hit {
   }
   
   # Pass requests with specific headers
-  if (req.http.Cache-Control ~ "no-cache") {
+  if (req.http.cache-control ~ "no-cache") {
     return(pass);
   }
   
@@ -148,8 +156,9 @@ The `vcl_miss` subroutine is called when a cache miss occurs.
 
 - `fetch`: Fetch the object from the backend (default)
 - `pass`: Pass the request to the backend, bypassing the cache
-- `restart`: Restart the request processing
 - `error`: Return an error response
+
+The `restart` statement is not allowed in `vcl_miss`.
 
 ### Example
 
@@ -179,8 +188,9 @@ The `vcl_pass` subroutine is called when the request should bypass the cache.
 ### Available Actions
 
 - `pass`: Pass the request to the backend (default)
-- `restart`: Restart the request processing
 - `error`: Return an error response
+
+The `restart` statement is not allowed in `vcl_pass`.
 
 ### Example
 
@@ -213,6 +223,7 @@ The `vcl_fetch` subroutine is called after a request has been sent to the backen
 
 - `deliver`: Cache the response and deliver it (default)
 - `pass`: Pass the response without caching it
+- `deliver_stale`: Deliver a stale object instead of this response
 - `restart`: Restart the request processing
 - `error`: Return an error response
 
@@ -226,7 +237,7 @@ sub vcl_fetch {
   }
   
   # Set the TTL based on the Cache-Control header
-  if (beresp.http.Cache-Control ~ "max-age=(\d+)") {
+  if (beresp.http.cache-control ~ "max-age=(\d+)") {
     set beresp.ttl = std.atoi(re.group.1) + 0s;
   } else {
     set beresp.ttl = 3600s;
@@ -262,16 +273,17 @@ sub vcl_error {
   # Set the response content type
   set obj.http.Content-Type = "text/html; charset=utf-8";
   
-  # Create a custom error page
+  # Create a custom error page. Everything inside {"..."} is literal text,
+  # so variables are concatenated between the long strings.
   synthetic {"
     <!DOCTYPE html>
     <html>
       <head>
-        <title>Error " + obj.status + "</title>
+        <title>Error "} + obj.status + {"</title>
       </head>
       <body>
-        <h1>Error " + obj.status + "</h1>
-        <p>" + obj.response + "</p>
+        <h1>Error "} + obj.status + {"</h1>
+        <p>"} + obj.response + {"</p>
       </body>
     </html>
   "};
@@ -332,7 +344,8 @@ The `vcl_log` subroutine is called after the response has been delivered.
 
 ### Available Actions
 
-- `deliver`: Complete the request processing (default)
+- `deliver`: Complete the request processing (default). The return value of
+  `vcl_log` is ignored.
 
 ### Example
 
@@ -340,7 +353,7 @@ The `vcl_log` subroutine is called after the response has been delivered.
 sub vcl_log {
   # Log request and response information
   std.log("Request: " + req.method + " " + req.url);
-  std.log("Response: " + resp.status + " " + resp.http.Content-Type);
+  std.log("Response: " + resp.status + " " + resp.http.content-type);
   
   # Log cache status
   if (obj.hits > 0) {
@@ -359,7 +372,7 @@ In addition to the standard subroutines, you can define custom subroutines to or
 
 ```vcl
 sub check_auth {
-  if (!req.http.Authorization) {
+  if (!req.http.authorization) {
     error 401 "Unauthorized";
   }
 }
@@ -369,6 +382,23 @@ sub vcl_recv {
   call check_auth;
   
   return(lookup);
+}
+```
+
+If a custom subroutine returns a lifecycle action (`pass`, `error`, and so
+on), the action propagates to the caller, ending it as well.
+
+Custom subroutines may also declare typed parameters and a return type. A
+subroutine with a return type is invoked like a function inside expressions
+and returns a value with `return expression;`:
+
+```vcl
+sub greeting(STRING name) STRING {
+  return "Hello, " + name;
+}
+
+sub vcl_deliver {
+  set resp.http.X-Greeting = greeting("world");
 }
 ```
 

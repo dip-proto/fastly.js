@@ -4,118 +4,171 @@ This file demonstrates comprehensive examples of Rate Limiting Functions in VCL.
 These functions help implement rate limiting, request throttling, and abuse prevention
 at the edge, protecting origin servers from excessive traffic and potential attacks.
 
+The rate limiting functions operate on two kinds of resources that must be
+declared at the top level of the VCL, outside of any subroutine:
+
+```vcl
+# A rate counter tracks how often entries (such as client IPs) are seen
+ratecounter my_counter {}
+
+# A penalty box holds entries that have exceeded a limit, for a period of time
+penaltybox my_pb {}
+```
+
+The counters and penalty boxes are referenced by identifier, not by string, in
+the function calls below.
+
 ## ratelimit.ratecounter_increment
 
-Increments a named rate counter by a specified amount.
+Increments an entry in a rate counter by a specified amount.
 
 ### Syntax
 
 ```vcl
-ratelimit.ratecounter_increment(STRING counter_name, INTEGER increment_by)
+INTEGER ratelimit.ratecounter_increment(RATECOUNTER rc, STRING entry, INTEGER delta)
 ```
 
 ### Parameters
 
-- `counter_name`: The name of the rate counter to increment
-- `increment_by`: The amount to increment the counter by (default: 1)
+- `rc`: The rate counter to increment (declared with a top-level `ratecounter` block)
+- `entry`: The entry to increment within the rate counter (for example a client IP)
+- `delta`: The amount to increment the entry by (must be between 0 and 1000)
 
 ### Return Value
 
-None
+An estimate of the count for the entry over the trailing 60 seconds
 
 ### Examples
 
 #### Basic rate counter increment
 
 ```vcl
-# Increment a rate counter named "requests" by 1
-ratelimit.ratecounter_increment("requests", 1);
+ratecounter requests_rc {}
+
+sub vcl_recv {
+  # Increment the client's entry in the rate counter by 1
+  declare local var.count INTEGER;
+  set var.count = ratelimit.ratecounter_increment(requests_rc, client.ip, 1);
+}
 ```
 
 #### Incrementing different counters based on request type
 
 ```vcl
-# Track different types of requests separately
-if (req.method == "GET") {
-  ratelimit.ratecounter_increment("get_requests", 1);
-} else if (req.method == "POST") {
-  ratelimit.ratecounter_increment("post_requests", 1);
-} else if (req.method == "PUT" || req.method == "PATCH") {
-  ratelimit.ratecounter_increment("update_requests", 1);
-} else if (req.method == "DELETE") {
-  ratelimit.ratecounter_increment("delete_requests", 1);
+ratecounter get_rc {}
+ratecounter post_rc {}
+ratecounter update_rc {}
+ratecounter delete_rc {}
+
+sub vcl_recv {
+  declare local var.count INTEGER;
+
+  # Track different types of requests separately
+  if (req.method == "GET") {
+    set var.count = ratelimit.ratecounter_increment(get_rc, client.ip, 1);
+  } else if (req.method == "POST") {
+    set var.count = ratelimit.ratecounter_increment(post_rc, client.ip, 1);
+  } else if (req.method == "PUT" || req.method == "PATCH") {
+    set var.count = ratelimit.ratecounter_increment(update_rc, client.ip, 1);
+  } else if (req.method == "DELETE") {
+    set var.count = ratelimit.ratecounter_increment(delete_rc, client.ip, 1);
+  }
 }
 ```
 
 #### Incrementing counters with different weights
 
 ```vcl
-# Track API requests with different weights based on resource intensity
-if (req.url ~ "^/api/light/") {
-  # Light API requests count as 1
-  ratelimit.ratecounter_increment("api_requests", 1);
-} else if (req.url ~ "^/api/medium/") {
-  # Medium API requests count as 2
-  ratelimit.ratecounter_increment("api_requests", 2);
-} else if (req.url ~ "^/api/heavy/") {
-  # Heavy API requests count as 5
-  ratelimit.ratecounter_increment("api_requests", 5);
+ratecounter api_rc {}
+
+sub vcl_recv {
+  declare local var.count INTEGER;
+
+  # Track API requests with different weights based on resource intensity
+  if (req.url ~ "^/api/light/") {
+    # Light API requests count as 1
+    set var.count = ratelimit.ratecounter_increment(api_rc, client.ip, 1);
+  } else if (req.url ~ "^/api/medium/") {
+    # Medium API requests count as 2
+    set var.count = ratelimit.ratecounter_increment(api_rc, client.ip, 2);
+  } else if (req.url ~ "^/api/heavy/") {
+    # Heavy API requests count as 5
+    set var.count = ratelimit.ratecounter_increment(api_rc, client.ip, 5);
+  }
 }
 ```
 
-#### User-specific rate counters
+#### User-specific entries
 
 ```vcl
-declare local var.user_id STRING;
+ratecounter user_rc {}
 
-# Get user identifier (from auth token, cookie, or IP)
-if (req.http.Authorization) {
-  # Extract user ID from Authorization header (simplified)
-  set var.user_id = digest.hash_md5(req.http.Authorization);
-} else if (req.http.Cookie:user_id) {
-  # Extract user ID from cookie
-  set var.user_id = req.http.Cookie:user_id;
-} else {
-  # Fall back to client IP
-  set var.user_id = client.ip;
+sub vcl_recv {
+  declare local var.user_id STRING;
+  declare local var.count INTEGER;
+
+  # Get user identifier (from auth token, cookie, or IP)
+  if (req.http.Authorization) {
+    # Derive an identifier from the Authorization header (simplified)
+    set var.user_id = digest.hash_md5(req.http.Authorization);
+  } else if (req.http.Cookie:user_id) {
+    # Extract user ID from cookie
+    set var.user_id = req.http.Cookie:user_id;
+  } else {
+    # Fall back to client IP
+    set var.user_id = client.ip;
+  }
+
+  # Increment the user's entry
+  set var.count = ratelimit.ratecounter_increment(user_rc, var.user_id, 1);
 }
-
-# Increment user-specific counter
-ratelimit.ratecounter_increment("user_" + var.user_id, 1);
 ```
 
-#### Path-specific rate counters
+#### Reading the observed rates
+
+After incrementing a rate counter, estimated rates and counts for the entry
+are exposed through variables named after the rate counter:
 
 ```vcl
-declare local var.path_segment STRING;
+ratecounter requests_rc {}
 
-# Extract the first path segment
-if (req.url.path ~ "^/([^/]+)") {
-  set var.path_segment = re.group.1;
-  
-  # Increment path-specific counter
-  ratelimit.ratecounter_increment("path_" + var.path_segment, 1);
+sub vcl_recv {
+  declare local var.count INTEGER;
+  set var.count = ratelimit.ratecounter_increment(requests_rc, client.ip, 1);
+
+  # Estimated rates over trailing windows
+  set req.http.X-Rate-1s = ratecounter.requests_rc.rate.1s;
+  set req.http.X-Rate-10s = ratecounter.requests_rc.rate.10s;
+  set req.http.X-Rate-60s = ratecounter.requests_rc.rate.60s;
 }
 ```
 
 ## ratelimit.check_rate
 
-Checks if a rate limit has been exceeded.
+Increments an entry in a rate counter and checks whether it has exceeded the
+given rate limit. If the limit is exceeded, the entry is added to the penalty
+box for the given TTL. Returns true if the entry is currently in the penalty
+box or has just exceeded the limit.
 
 ### Syntax
 
 ```vcl
-BOOL ratelimit.check_rate(STRING counter_name, INTEGER rate_per_second)
+BOOL ratelimit.check_rate(STRING entry, RATECOUNTER rc, INTEGER delta, INTEGER window, INTEGER limit, PENALTYBOX pb, RTIME ttl)
 ```
 
 ### Parameters
 
-- `counter_name`: The name of the rate counter to check
-- `rate_per_second`: The maximum allowed rate per second
+- `entry`: The entry to track (for example a client IP or user ID)
+- `rc`: The rate counter to use
+- `delta`: The amount to increment the entry by (must be between 0 and 1000)
+- `window`: The trailing window, in seconds, over which the rate is estimated (must be 1, 10, or 60)
+- `limit`: The maximum allowed rate, in units per second, over the window
+- `pb`: The penalty box the entry is added to when it exceeds the limit
+- `ttl`: How long the entry stays in the penalty box (must be between 1m and 60m, rounded to the nearest minute)
 
 ### Return Value
 
-- TRUE if the rate limit has been exceeded
+- TRUE if the entry is in the penalty box or has exceeded the rate limit
 - FALSE otherwise
 
 ### Examples
@@ -123,38 +176,53 @@ BOOL ratelimit.check_rate(STRING counter_name, INTEGER rate_per_second)
 #### Basic rate limiting
 
 ```vcl
-declare local var.rate_exceeded BOOL;
+ratecounter requests_rc {}
+penaltybox requests_pb {}
 
-# Check if the overall request rate exceeds 100 requests per second
-set var.rate_exceeded = ratelimit.check_rate("requests", 100);
+sub vcl_recv {
+  declare local var.rate_exceeded BOOL;
 
-if (var.rate_exceeded) {
-  # Rate limit exceeded, return 429 Too Many Requests
-  error 429 "Too Many Requests";
+  # Limit each client to 100 requests per second, averaged over 10 seconds.
+  # Offenders are blocked for 5 minutes.
+  set var.rate_exceeded = ratelimit.check_rate(
+      client.ip, requests_rc, 1, 10, 100, requests_pb, 5m);
+
+  if (var.rate_exceeded) {
+    # Rate limit exceeded, return 429 Too Many Requests
+    error 429 "Too Many Requests";
+  }
 }
 ```
 
 #### Different rate limits for different request types
 
 ```vcl
-declare local var.post_rate_exceeded BOOL;
-declare local var.delete_rate_exceeded BOOL;
+ratecounter post_rc {}
+ratecounter delete_rc {}
+penaltybox write_pb {}
 
-# Check if POST requests exceed 10 per second
-if (req.method == "POST") {
-  set var.post_rate_exceeded = ratelimit.check_rate("post_requests", 10);
-  
-  if (var.post_rate_exceeded) {
-    error 429 "Too Many POST Requests";
+sub vcl_recv {
+  declare local var.post_rate_exceeded BOOL;
+  declare local var.delete_rate_exceeded BOOL;
+
+  # Limit POST requests to 10 per second
+  if (req.method == "POST") {
+    set var.post_rate_exceeded = ratelimit.check_rate(
+        client.ip, post_rc, 1, 10, 10, write_pb, 2m);
+
+    if (var.post_rate_exceeded) {
+      error 429 "Too Many POST Requests";
+    }
   }
-}
 
-# Check if DELETE requests exceed 5 per second
-if (req.method == "DELETE") {
-  set var.delete_rate_exceeded = ratelimit.check_rate("delete_requests", 5);
-  
-  if (var.delete_rate_exceeded) {
-    error 429 "Too Many DELETE Requests";
+  # Limit DELETE requests to 5 per second
+  if (req.method == "DELETE") {
+    set var.delete_rate_exceeded = ratelimit.check_rate(
+        client.ip, delete_rc, 1, 10, 5, write_pb, 2m);
+
+    if (var.delete_rate_exceeded) {
+      error 429 "Too Many DELETE Requests";
+    }
   }
 }
 ```
@@ -162,51 +230,28 @@ if (req.method == "DELETE") {
 #### User-specific rate limiting
 
 ```vcl
-declare local var.user_id STRING;
-declare local var.user_rate_exceeded BOOL;
+ratecounter user_rc {}
+penaltybox user_pb {}
 
-# Get user identifier (from auth token, cookie, or IP)
-if (req.http.Authorization) {
-  # Extract user ID from Authorization header (simplified)
-  set var.user_id = digest.hash_md5(req.http.Authorization);
-} else if (req.http.Cookie:user_id) {
-  # Extract user ID from cookie
-  set var.user_id = req.http.Cookie:user_id;
-} else {
-  # Fall back to client IP
-  set var.user_id = client.ip;
-}
+sub vcl_recv {
+  declare local var.user_id STRING;
+  declare local var.user_rate_exceeded BOOL;
 
-# Check if user exceeds 5 requests per second
-set var.user_rate_exceeded = ratelimit.check_rate("user_" + var.user_id, 5);
-
-if (var.user_rate_exceeded) {
-  error 429 "User Rate Limit Exceeded";
-}
-```
-
-#### Path-specific rate limiting
-
-```vcl
-declare local var.path_segment STRING;
-declare local var.path_rate_exceeded BOOL;
-
-# Extract the first path segment
-if (req.url.path ~ "^/([^/]+)") {
-  set var.path_segment = re.group.1;
-  
-  # Check if path-specific rate exceeds the limit
-  # Different paths can have different limits
-  if (var.path_segment == "api") {
-    set var.path_rate_exceeded = ratelimit.check_rate("path_" + var.path_segment, 50);
-  } else if (var.path_segment == "admin") {
-    set var.path_rate_exceeded = ratelimit.check_rate("path_" + var.path_segment, 10);
+  # Get user identifier (from auth token, cookie, or IP)
+  if (req.http.Authorization) {
+    set var.user_id = digest.hash_md5(req.http.Authorization);
+  } else if (req.http.Cookie:user_id) {
+    set var.user_id = req.http.Cookie:user_id;
   } else {
-    set var.path_rate_exceeded = ratelimit.check_rate("path_" + var.path_segment, 100);
+    set var.user_id = client.ip;
   }
-  
-  if (var.path_rate_exceeded) {
-    error 429 "Path Rate Limit Exceeded";
+
+  # Limit each user to 5 requests per second
+  set var.user_rate_exceeded = ratelimit.check_rate(
+      var.user_id, user_rc, 1, 10, 5, user_pb, 5m);
+
+  if (var.user_rate_exceeded) {
+    error 429 "User Rate Limit Exceeded";
   }
 }
 ```
@@ -214,184 +259,175 @@ if (req.url.path ~ "^/([^/]+)") {
 #### Tiered rate limiting with headers
 
 ```vcl
-declare local var.tier STRING;
-declare local var.tier_limit INTEGER;
-declare local var.tier_rate_exceeded BOOL;
+ratecounter tier_rc {}
+penaltybox tier_pb {}
 
-# Determine user tier from a header
-set var.tier = req.http.X-User-Tier;
+sub vcl_recv {
+  declare local var.tier STRING;
+  declare local var.tier_limit INTEGER;
+  declare local var.tier_rate_exceeded BOOL;
 
-# Set rate limit based on tier
-if (var.tier == "premium") {
-  set var.tier_limit = 50;
-} else if (var.tier == "standard") {
-  set var.tier_limit = 20;
-} else {
-  # Default/free tier
-  set var.tier_limit = 5;
-}
+  # Determine user tier from a header
+  set var.tier = req.http.X-User-Tier;
 
-# Check if tier-specific rate is exceeded
-set var.tier_rate_exceeded = ratelimit.check_rate("tier_" + var.tier + "_" + var.user_id, var.tier_limit);
+  # Set rate limit based on tier
+  if (var.tier == "premium") {
+    set var.tier_limit = 50;
+  } else if (var.tier == "standard") {
+    set var.tier_limit = 20;
+  } else {
+    # Default/free tier
+    set var.tier_limit = 5;
+  }
 
-if (var.tier_rate_exceeded) {
-  error 429 "Tier Rate Limit Exceeded";
+  # Check if the tier-specific rate is exceeded
+  set var.tier_rate_exceeded = ratelimit.check_rate(
+      var.tier + "_" + client.ip, tier_rc, 1, 10, var.tier_limit, tier_pb, 5m);
+
+  if (var.tier_rate_exceeded) {
+    error 429 "Tier Rate Limit Exceeded";
+  }
 }
 ```
 
 ## ratelimit.check_rates
 
-Checks if any of multiple rate limits have been exceeded.
+Like `ratelimit.check_rate`, but checks two rate limits at once, typically a
+burst limit over a short window and a sustained limit over a longer window.
+Both rate counters are incremented; if either limit is exceeded, the entry is
+added to the penalty box.
 
 ### Syntax
 
 ```vcl
-BOOL ratelimit.check_rates(STRING counter_name, STRING rates)
+BOOL ratelimit.check_rates(STRING entry, RATECOUNTER rc1, INTEGER delta1, INTEGER window1, INTEGER limit1, RATECOUNTER rc2, INTEGER delta2, INTEGER window2, INTEGER limit2, PENALTYBOX pb, RTIME ttl)
 ```
 
 ### Parameters
 
-- `counter_name`: The name of the rate counter to check
-- `rates`: A comma-separated list of rates in the format "count:seconds"
+- `entry`: The entry to track
+- `rc1`: The first rate counter
+- `delta1`: Increment for the first counter (0 to 1000)
+- `window1`: Window in seconds for the first check (1, 10, or 60)
+- `limit1`: Maximum rate per second over `window1`
+- `rc2`: The second rate counter
+- `delta2`: Increment for the second counter (0 to 1000)
+- `window2`: Window in seconds for the second check (1, 10, or 60)
+- `limit2`: Maximum rate per second over `window2`
+- `pb`: The penalty box the entry is added to when it exceeds either limit
+- `ttl`: How long the entry stays in the penalty box (1m to 60m)
 
 ### Return Value
 
-- TRUE if any rate limit has been exceeded
+- TRUE if the entry is in the penalty box or has exceeded either rate limit
 - FALSE otherwise
 
 ### Examples
 
-#### Multi-window rate limiting
+#### Burst and sustained rate limiting
 
 ```vcl
-declare local var.rates_exceeded BOOL;
+ratecounter burst_rc {}
+ratecounter sustained_rc {}
+penaltybox requests_pb {}
 
-# Check multiple rate limits:
-# - 10 requests per second
-# - 50 requests per minute
-# - 1000 requests per hour
-set var.rates_exceeded = ratelimit.check_rates("requests", "10:1,50:60,1000:3600");
+sub vcl_recv {
+  declare local var.rates_exceeded BOOL;
 
-if (var.rates_exceeded) {
-  error 429 "Rate Limit Exceeded";
-}
-```
+  # Allow bursts of up to 50 requests per second over 1 second,
+  # but no more than 10 requests per second sustained over 60 seconds
+  set var.rates_exceeded = ratelimit.check_rates(
+      client.ip,
+      burst_rc, 1, 1, 50,
+      sustained_rc, 1, 60, 10,
+      requests_pb, 10m);
 
-#### User-specific multi-window rate limiting
-
-```vcl
-declare local var.user_id STRING;
-declare local var.user_rates_exceeded BOOL;
-
-# Get user identifier
-if (req.http.Authorization) {
-  set var.user_id = digest.hash_md5(req.http.Authorization);
-} else if (req.http.Cookie:user_id) {
-  set var.user_id = req.http.Cookie:user_id;
-} else {
-  set var.user_id = client.ip;
-}
-
-# Check user-specific rate limits:
-# - 5 requests per second
-# - 20 requests per minute
-# - 100 requests per hour
-set var.user_rates_exceeded = ratelimit.check_rates("user_" + var.user_id, "5:1,20:60,100:3600");
-
-if (var.user_rates_exceeded) {
-  error 429 "User Rate Limit Exceeded";
-}
-```
-
-#### API endpoint multi-window rate limiting
-
-```vcl
-declare local var.endpoint STRING;
-declare local var.endpoint_rates_exceeded BOOL;
-
-# Extract API endpoint from URL
-if (req.url.path ~ "^/api/([^/]+)") {
-  set var.endpoint = re.group.1;
-  
-  # Check endpoint-specific rate limits
-  if (var.endpoint == "users") {
-    set var.endpoint_rates_exceeded = ratelimit.check_rates("endpoint_" + var.endpoint, "10:1,50:60");
-  } else if (var.endpoint == "orders") {
-    set var.endpoint_rates_exceeded = ratelimit.check_rates("endpoint_" + var.endpoint, "5:1,20:60");
-  } else {
-    set var.endpoint_rates_exceeded = ratelimit.check_rates("endpoint_" + var.endpoint, "20:1,100:60");
+  if (var.rates_exceeded) {
+    error 429 "Rate Limit Exceeded";
   }
-  
+}
+```
+
+#### User-specific burst and sustained limits
+
+```vcl
+ratecounter user_burst_rc {}
+ratecounter user_sustained_rc {}
+penaltybox user_pb {}
+
+sub vcl_recv {
+  declare local var.user_id STRING;
+  declare local var.user_rates_exceeded BOOL;
+
+  # Get user identifier
+  if (req.http.Authorization) {
+    set var.user_id = digest.hash_md5(req.http.Authorization);
+  } else if (req.http.Cookie:user_id) {
+    set var.user_id = req.http.Cookie:user_id;
+  } else {
+    set var.user_id = client.ip;
+  }
+
+  # Allow bursts of 20/s but only 5/s sustained
+  set var.user_rates_exceeded = ratelimit.check_rates(
+      var.user_id,
+      user_burst_rc, 1, 1, 20,
+      user_sustained_rc, 1, 60, 5,
+      user_pb, 5m);
+
+  if (var.user_rates_exceeded) {
+    error 429 "User Rate Limit Exceeded";
+  }
+}
+```
+
+#### Different limits for different endpoints
+
+```vcl
+ratecounter api_burst_rc {}
+ratecounter api_sustained_rc {}
+penaltybox api_pb {}
+
+sub vcl_recv {
+  declare local var.endpoint_rates_exceeded BOOL;
+
+  # Check endpoint-specific rate limits
+  if (req.url.path ~ "^/api/users") {
+    set var.endpoint_rates_exceeded = ratelimit.check_rates(
+        client.ip,
+        api_burst_rc, 1, 1, 10,
+        api_sustained_rc, 1, 60, 2,
+        api_pb, 5m);
+  } else if (req.url.path ~ "^/api/") {
+    set var.endpoint_rates_exceeded = ratelimit.check_rates(
+        client.ip,
+        api_burst_rc, 1, 1, 20,
+        api_sustained_rc, 1, 60, 5,
+        api_pb, 5m);
+  }
+
   if (var.endpoint_rates_exceeded) {
     error 429 "API Endpoint Rate Limit Exceeded";
   }
 }
 ```
 
-#### Tiered multi-window rate limiting
-
-```vcl
-declare local var.tier STRING;
-declare local var.tier_rates STRING;
-declare local var.tier_rates_exceeded BOOL;
-
-# Determine user tier
-set var.tier = req.http.X-User-Tier;
-
-# Set rate limits based on tier
-if (var.tier == "premium") {
-  set var.tier_rates = "50:1,200:60,1000:3600";
-} else if (var.tier == "standard") {
-  set var.tier_rates = "20:1,100:60,500:3600";
-} else {
-  # Default/free tier
-  set var.tier_rates = "5:1,20:60,100:3600";
-}
-
-# Check tier-specific rate limits
-set var.tier_rates_exceeded = ratelimit.check_rates("tier_" + var.tier + "_" + var.user_id, var.tier_rates);
-
-if (var.tier_rates_exceeded) {
-  error 429 "Tier Rate Limit Exceeded";
-}
-```
-
-#### Different rate limits for different HTTP methods
-
-```vcl
-declare local var.method_rates_exceeded BOOL;
-
-# Check method-specific rate limits
-if (req.method == "GET") {
-  set var.method_rates_exceeded = ratelimit.check_rates("method_GET", "100:1,1000:60");
-} else if (req.method == "POST") {
-  set var.method_rates_exceeded = ratelimit.check_rates("method_POST", "10:1,50:60");
-} else if (req.method == "PUT" || req.method == "PATCH") {
-  set var.method_rates_exceeded = ratelimit.check_rates("method_UPDATE", "5:1,20:60");
-} else if (req.method == "DELETE") {
-  set var.method_rates_exceeded = ratelimit.check_rates("method_DELETE", "2:1,10:60");
-}
-
-if (var.method_rates_exceeded) {
-  error 429 "Method Rate Limit Exceeded";
-}
-```
-
 ## ratelimit.penaltybox_add
 
-Adds an identifier to a penalty box for a specified duration.
+Adds an entry to a penalty box for a specified duration.
 
 ### Syntax
 
 ```vcl
-ratelimit.penaltybox_add(STRING penaltybox_name, STRING identifier, INTEGER duration)
+VOID ratelimit.penaltybox_add(PENALTYBOX pb, STRING entry, RTIME ttl)
 ```
 
 ### Parameters
 
-- `penaltybox_name`: The name of the penalty box
-- `identifier`: The identifier to add to the penalty box
-- `duration`: The duration in seconds to keep the identifier in the penalty box
+- `pb`: The penalty box (declared with a top-level `penaltybox` block)
+- `entry`: The entry to add to the penalty box
+- `ttl`: How long the entry stays in the penalty box (must be between 1m and
+  60m, rounded to the nearest minute)
 
 ### Return Value
 
@@ -402,143 +438,134 @@ None
 #### Basic penalty box usage
 
 ```vcl
-declare local var.user_id STRING;
-declare local var.rate_exceeded BOOL;
+ratecounter user_rc {}
+penaltybox user_pb {}
 
-# Get user identifier
-if (req.http.Authorization) {
-  set var.user_id = digest.hash_md5(req.http.Authorization);
-} else if (req.http.Cookie:user_id) {
-  set var.user_id = req.http.Cookie:user_id;
-} else {
-  set var.user_id = client.ip;
-}
+sub vcl_recv {
+  declare local var.user_id STRING;
+  declare local var.count INTEGER;
 
-# Check if user exceeds rate limit
-set var.rate_exceeded = ratelimit.check_rate("user_" + var.user_id, 10);
+  # Get user identifier
+  if (req.http.Authorization) {
+    set var.user_id = digest.hash_md5(req.http.Authorization);
+  } else if (req.http.Cookie:user_id) {
+    set var.user_id = req.http.Cookie:user_id;
+  } else {
+    set var.user_id = client.ip;
+  }
 
-if (var.rate_exceeded) {
-  # Add user to penalty box for 5 minutes (300 seconds)
-  ratelimit.penaltybox_add("user_penalty", var.user_id, 300);
-  
-  error 429 "Rate Limit Exceeded - Please try again later";
+  # Track the user's request count and apply a manual limit
+  set var.count = ratelimit.ratecounter_increment(user_rc, var.user_id, 1);
+
+  if (ratecounter.user_rc.rate.10s > 10) {
+    # Add user to penalty box for 5 minutes
+    ratelimit.penaltybox_add(user_pb, var.user_id, 5m);
+
+    error 429 "Rate Limit Exceeded - Please try again later";
+  }
 }
 ```
 
 #### IP-based penalty box for suspicious activity
 
 ```vcl
-declare local var.is_suspicious BOOL;
+penaltybox suspicious_pb {}
 
-# Determine if request is suspicious (simplified example)
-set var.is_suspicious = (
-  req.http.User-Agent == "" || 
-  req.http.User-Agent ~ "^$" ||
-  req.url ~ "\.(php|asp|aspx|jsp)\.js$" ||
-  req.url ~ "select.*from" ||
-  req.url ~ "union.*select" ||
-  req.url ~ "insert.*into"
-);
+sub vcl_recv {
+  declare local var.is_suspicious BOOL;
 
-if (var.is_suspicious) {
-  # Add IP to penalty box for 1 hour (3600 seconds)
-  ratelimit.penaltybox_add("suspicious_ips", client.ip, 3600);
-  
-  error 403 "Forbidden";
+  # Determine if request is suspicious (simplified example)
+  set var.is_suspicious = (
+    !req.http.User-Agent ||
+    req.url ~ "\.(php|asp|aspx|jsp)\.js$" ||
+    req.url ~ "select.*from" ||
+    req.url ~ "union.*select" ||
+    req.url ~ "insert.*into"
+  );
+
+  if (var.is_suspicious) {
+    # Add IP to penalty box for 1 hour
+    ratelimit.penaltybox_add(suspicious_pb, client.ip, 60m);
+
+    error 403 "Forbidden";
+  }
 }
 ```
 
 #### Graduated penalty box durations
 
 ```vcl
-declare local var.violation_count INTEGER;
-declare local var.penalty_duration INTEGER;
+penaltybox graduated_pb {}
 
-# Get violation count from a header (in a real scenario, this would come from a database or edge dictionary)
-set var.violation_count = std.atoi(req.http.X-Violation-Count);
+sub vcl_recv {
+  declare local var.violation_count INTEGER;
 
-# Set penalty duration based on violation count
-if (var.violation_count == 1) {
-  # First violation: 5 minutes
-  set var.penalty_duration = 300;
-} else if (var.violation_count == 2) {
-  # Second violation: 30 minutes
-  set var.penalty_duration = 1800;
-} else if (var.violation_count == 3) {
-  # Third violation: 2 hours
-  set var.penalty_duration = 7200;
-} else {
-  # Four or more violations: 24 hours
-  set var.penalty_duration = 86400;
-}
+  # Get violation count from a header (in a real scenario, this would come
+  # from a database or edge dictionary)
+  set var.violation_count = std.atoi(req.http.X-Violation-Count);
 
-# Add to penalty box with graduated duration
-if (var.violation_count > 0) {
-  ratelimit.penaltybox_add("graduated_penalty", var.user_id, var.penalty_duration);
-  
-  error 429 "Rate Limit Exceeded - Please try again later";
+  # Set penalty duration based on violation count. Note that penalty box
+  # TTLs are limited to a range of 1 minute to 1 hour.
+  if (var.violation_count == 1) {
+    # First violation: 5 minutes
+    ratelimit.penaltybox_add(graduated_pb, client.ip, 5m);
+  } else if (var.violation_count == 2) {
+    # Second violation: 30 minutes
+    ratelimit.penaltybox_add(graduated_pb, client.ip, 30m);
+  } else if (var.violation_count >= 3) {
+    # Three or more violations: the maximum of 1 hour
+    ratelimit.penaltybox_add(graduated_pb, client.ip, 60m);
+  }
+
+  if (var.violation_count > 0) {
+    error 429 "Rate Limit Exceeded - Please try again later";
+  }
 }
 ```
 
 #### Different penalty boxes for different violations
 
 ```vcl
-# Check for API abuse
-if (ratelimit.check_rate("api_" + var.user_id, 20)) {
-  # Add to API abuse penalty box for 10 minutes
-  ratelimit.penaltybox_add("api_abuse", var.user_id, 600);
-  
-  error 429 "API Rate Limit Exceeded";
-}
+ratecounter api_rc {}
+ratecounter login_rc {}
+penaltybox api_pb {}
+penaltybox login_pb {}
 
-# Check for login attempts
-if (req.url.path == "/login" && req.method == "POST") {
-  if (ratelimit.check_rate("login_" + client.ip, 5)) {
-    # Add to login abuse penalty box for 15 minutes
-    ratelimit.penaltybox_add("login_abuse", client.ip, 900);
-    
-    error 429 "Too Many Login Attempts";
+sub vcl_recv {
+  # Check for API abuse: 20 requests per second, blocked for 10 minutes
+  if (req.url ~ "^/api/") {
+    if (ratelimit.check_rate(client.ip, api_rc, 1, 10, 20, api_pb, 10m)) {
+      error 429 "API Rate Limit Exceeded";
+    }
   }
-}
-```
 
-#### Penalty box with custom response
-
-```vcl
-declare local var.custom_status INTEGER;
-declare local var.custom_response STRING;
-
-# Check for scraping behavior
-if (ratelimit.check_rate("scraping_" + client.ip, 30)) {
-  # Add to scraping penalty box for 1 hour
-  ratelimit.penaltybox_add("scraping", client.ip, 3600);
-  
-  # Set custom response
-  set var.custom_status = 429;
-  set var.custom_response = "{\"error\": \"Rate limit exceeded\", \"retry_after\": 3600}";
-  
-  error var.custom_status var.custom_response;
+  # Check for login abuse: 5 attempts per second, blocked for 15 minutes
+  if (req.url.path == "/login" && req.method == "POST") {
+    if (ratelimit.check_rate(client.ip, login_rc, 1, 1, 5, login_pb, 15m)) {
+      error 429 "Too Many Login Attempts";
+    }
+  }
 }
 ```
 
 ## ratelimit.penaltybox_has
 
-Checks if an identifier is in a penalty box.
+Checks if an entry is in a penalty box.
 
 ### Syntax
 
 ```vcl
-BOOL ratelimit.penaltybox_has(STRING penaltybox_name, STRING identifier)
+BOOL ratelimit.penaltybox_has(PENALTYBOX pb, STRING entry)
 ```
 
 ### Parameters
 
-- `penaltybox_name`: The name of the penalty box
-- `identifier`: The identifier to check
+- `pb`: The penalty box to check
+- `entry`: The entry to check for
 
 ### Return Value
 
-- TRUE if the identifier is in the penalty box
+- TRUE if the entry is in the penalty box
 - FALSE otherwise
 
 ### Examples
@@ -546,193 +573,100 @@ BOOL ratelimit.penaltybox_has(STRING penaltybox_name, STRING identifier)
 #### Basic penalty box check
 
 ```vcl
-declare local var.user_id STRING;
-declare local var.in_penalty_box BOOL;
+penaltybox user_pb {}
 
-# Get user identifier
-if (req.http.Authorization) {
-  set var.user_id = digest.hash_md5(req.http.Authorization);
-} else if (req.http.Cookie:user_id) {
-  set var.user_id = req.http.Cookie:user_id;
-} else {
-  set var.user_id = client.ip;
-}
+sub vcl_recv {
+  declare local var.user_id STRING;
+  declare local var.in_penalty_box BOOL;
 
-# Check if user is in penalty box
-set var.in_penalty_box = ratelimit.penaltybox_has("user_penalty", var.user_id);
+  # Get user identifier
+  if (req.http.Authorization) {
+    set var.user_id = digest.hash_md5(req.http.Authorization);
+  } else if (req.http.Cookie:user_id) {
+    set var.user_id = req.http.Cookie:user_id;
+  } else {
+    set var.user_id = client.ip;
+  }
 
-if (var.in_penalty_box) {
-  error 429 "Too Many Requests - Please try again later";
+  # Check if user is in penalty box
+  set var.in_penalty_box = ratelimit.penaltybox_has(user_pb, var.user_id);
+
+  if (var.in_penalty_box) {
+    error 429 "Too Many Requests - Please try again later";
+  }
 }
 ```
 
 #### IP-based penalty box check for suspicious activity
 
 ```vcl
-declare local var.ip_blocked BOOL;
+penaltybox suspicious_pb {}
 
-# Check if IP is in suspicious IPs penalty box
-set var.ip_blocked = ratelimit.penaltybox_has("suspicious_ips", client.ip);
+sub vcl_recv {
+  declare local var.ip_blocked BOOL;
 
-if (var.ip_blocked) {
-  error 403 "Forbidden";
+  # Check if IP is in suspicious IPs penalty box
+  set var.ip_blocked = ratelimit.penaltybox_has(suspicious_pb, client.ip);
+
+  if (var.ip_blocked) {
+    error 403 "Forbidden";
+  }
 }
 ```
 
 #### Checking multiple penalty boxes
 
 ```vcl
-declare local var.in_any_penalty_box BOOL;
+penaltybox user_pb {}
+penaltybox api_pb {}
+penaltybox login_pb {}
+penaltybox scraping_pb {}
 
-# Check if user is in any penalty box
-set var.in_any_penalty_box = (
-  ratelimit.penaltybox_has("user_penalty", var.user_id) ||
-  ratelimit.penaltybox_has("api_abuse", var.user_id) ||
-  ratelimit.penaltybox_has("login_abuse", client.ip) ||
-  ratelimit.penaltybox_has("scraping", client.ip)
-);
+sub vcl_recv {
+  declare local var.in_any_penalty_box BOOL;
 
-if (var.in_any_penalty_box) {
-  error 429 "Access Temporarily Restricted";
+  # Check if user is in any penalty box
+  set var.in_any_penalty_box = (
+    ratelimit.penaltybox_has(user_pb, req.http.X-User-ID) ||
+    ratelimit.penaltybox_has(api_pb, req.http.X-User-ID) ||
+    ratelimit.penaltybox_has(login_pb, client.ip) ||
+    ratelimit.penaltybox_has(scraping_pb, client.ip)
+  );
+
+  if (var.in_any_penalty_box) {
+    error 429 "Access Temporarily Restricted";
+  }
 }
 ```
 
 #### Different handling based on penalty box type
 
 ```vcl
-declare local var.in_api_penalty BOOL;
-declare local var.in_login_penalty BOOL;
+penaltybox api_pb {}
+penaltybox login_pb {}
 
-# Check specific penalty boxes
-set var.in_api_penalty = ratelimit.penaltybox_has("api_abuse", var.user_id);
-set var.in_login_penalty = ratelimit.penaltybox_has("login_abuse", client.ip);
+sub vcl_recv {
+  declare local var.in_api_penalty BOOL;
+  declare local var.in_login_penalty BOOL;
 
-# Handle differently based on penalty box type
-if (var.in_api_penalty) {
-  # Only block API requests
-  if (req.url ~ "^/api/") {
-    error 429 "API Access Restricted";
+  # Check specific penalty boxes
+  set var.in_api_penalty = ratelimit.penaltybox_has(api_pb, req.http.X-User-ID);
+  set var.in_login_penalty = ratelimit.penaltybox_has(login_pb, client.ip);
+
+  # Handle differently based on penalty box type
+  if (var.in_api_penalty) {
+    # Only block API requests
+    if (req.url ~ "^/api/") {
+      error 429 "API Access Restricted";
+    }
   }
-}
 
-if (var.in_login_penalty) {
-  # Only block login attempts
-  if (req.url.path == "/login") {
-    error 429 "Too Many Login Attempts";
+  if (var.in_login_penalty) {
+    # Only block login attempts
+    if (req.url.path == "/login") {
+      error 429 "Too Many Login Attempts";
+    }
   }
-}
-```
-
-#### Penalty box check with custom response headers
-
-```vcl
-declare local var.in_penalty BOOL;
-
-# Check if in penalty box
-set var.in_penalty = ratelimit.penaltybox_has("graduated_penalty", var.user_id);
-
-if (var.in_penalty) {
-  # Set custom response headers
-  set req.http.X-Rate-Limited = "true";
-  set req.http.Retry-After = "300";
-  
-  error 429 "Rate Limit Exceeded";
-}
-```
-
-## limiter.inc
-
-Increments a named counter by a specified amount.
-
-### Syntax
-
-```vcl
-limiter.inc(STRING counter_name, INTEGER increment_by)
-```
-
-### Parameters
-
-- `counter_name`: The name of the counter to increment
-- `increment_by`: The amount to increment the counter by (default: 1)
-
-### Return Value
-
-None
-
-### Examples
-
-#### Basic counter increment
-
-```vcl
-# Increment a counter named "total_requests" by 1
-limiter.inc("total_requests", 1);
-```
-
-#### Incrementing different counters based on request type
-
-```vcl
-# Track different types of requests separately
-if (req.method == "GET") {
-  limiter.inc("get_requests", 1);
-} else if (req.method == "POST") {
-  limiter.inc("post_requests", 1);
-} else if (req.method == "PUT" || req.method == "PATCH") {
-  limiter.inc("update_requests", 1);
-} else if (req.method == "DELETE") {
-  limiter.inc("delete_requests", 1);
-}
-```
-
-#### Incrementing counters with different weights
-
-```vcl
-# Track API requests with different weights based on resource intensity
-if (req.url ~ "^/api/light/") {
-  # Light API requests count as 1
-  limiter.inc("api_requests", 1);
-} else if (req.url ~ "^/api/medium/") {
-  # Medium API requests count as 2
-  limiter.inc("api_requests", 2);
-} else if (req.url ~ "^/api/heavy/") {
-  # Heavy API requests count as 5
-  limiter.inc("api_requests", 5);
-}
-```
-
-#### User-specific counters
-
-```vcl
-declare local var.user_id STRING;
-
-# Get user identifier
-if (req.http.Authorization) {
-  set var.user_id = digest.hash_md5(req.http.Authorization);
-} else if (req.http.Cookie:user_id) {
-  set var.user_id = req.http.Cookie:user_id;
-} else {
-  set var.user_id = client.ip;
-}
-
-# Increment user-specific counter
-limiter.inc("user_" + var.user_id, 1);
-```
-
-#### Conditional increments
-
-```vcl
-declare local var.is_bot BOOL;
-
-# Determine if request is from a bot (simplified)
-set var.is_bot = (
-  req.http.User-Agent ~ "(?i)bot|crawler|spider|slurp|baiduspider" ||
-  req.http.User-Agent ~ "(?i)googlebot|bingbot|yandex|ahrefsbot|mj12bot"
-);
-
-# Increment bot counter if applicable
-if (var.is_bot) {
-  limiter.inc("bot_requests", 1);
-} else {
-  limiter.inc("human_requests", 1);
 }
 ```
 
@@ -741,13 +675,21 @@ if (var.is_bot) {
 This example demonstrates how multiple rate limiting functions can work together to create a comprehensive rate limiting system.
 
 ```vcl
+ratecounter global_burst_rc {}
+ratecounter global_sustained_rc {}
+ratecounter api_rc {}
+ratecounter login_rc {}
+penaltybox global_pb {}
+penaltybox api_pb {}
+penaltybox login_pb {}
+
 sub vcl_recv {
   # Step 1: Define user identifier
   declare local var.user_id STRING;
-  
+
   # Get user identifier (from auth token, cookie, or IP)
   if (req.http.Authorization) {
-    # Extract user ID from Authorization header (simplified)
+    # Derive an identifier from the Authorization header (simplified)
     set var.user_id = digest.hash_md5(req.http.Authorization);
   } else if (req.http.Cookie:user_id) {
     # Extract user ID from cookie
@@ -756,92 +698,71 @@ sub vcl_recv {
     # Fall back to client IP
     set var.user_id = client.ip;
   }
-  
-  # Step 2: Check if user is in any penalty box
+
+  # Step 2: Check if user is in any penalty box before doing more work
   declare local var.in_penalty_box BOOL;
-  
-  # Check multiple penalty boxes
+
   set var.in_penalty_box = (
-    ratelimit.penaltybox_has("global_penalty", var.user_id) ||
-    ratelimit.penaltybox_has("api_penalty", var.user_id) ||
-    ratelimit.penaltybox_has("login_penalty", var.user_id)
+    ratelimit.penaltybox_has(global_pb, var.user_id) ||
+    ratelimit.penaltybox_has(api_pb, var.user_id) ||
+    ratelimit.penaltybox_has(login_pb, var.user_id)
   );
-  
+
   if (var.in_penalty_box) {
     # User is in a penalty box, return 429 response
     error 429 "Too Many Requests - Please try again later";
   }
-  
-  # Step 3: Determine request type and corresponding rate limits
+
+  # Step 3: Determine request type
   declare local var.is_api_request BOOL;
   declare local var.is_login_request BOOL;
-  declare local var.is_static_request BOOL;
-  
+
   set var.is_api_request = (req.url ~ "^/api/");
   set var.is_login_request = (req.url.path == "/login" && req.method == "POST");
-  set var.is_static_request = (req.url ~ "\.(jpg|jpeg|png|gif|css|js)$");
-  
-  # Step 4: Increment appropriate rate counters
-  
-  # Increment global request counter
-  ratelimit.ratecounter_increment("global_" + var.user_id, 1);
-  
-  # Increment request type specific counters
-  if (var.is_api_request) {
-    ratelimit.ratecounter_increment("api_" + var.user_id, 1);
-  } else if (var.is_login_request) {
-    ratelimit.ratecounter_increment("login_" + var.user_id, 1);
-  } else if (var.is_static_request) {
-    ratelimit.ratecounter_increment("static_" + var.user_id, 1);
-  } else {
-    ratelimit.ratecounter_increment("other_" + var.user_id, 1);
-  }
-  
-  # Step 5: Check rate limits and apply penalties if exceeded
-  
-  # Check global rate limits (multi-window)
+
+  # Step 4: Check global rate limits (burst and sustained)
   declare local var.global_limit_exceeded BOOL;
-  set var.global_limit_exceeded = ratelimit.check_rates("global_" + var.user_id, "30:1,300:60,3000:3600");
-  
+  set var.global_limit_exceeded = ratelimit.check_rates(
+      var.user_id,
+      global_burst_rc, 1, 1, 30,
+      global_sustained_rc, 1, 60, 5,
+      global_pb, 5m);
+
   if (var.global_limit_exceeded) {
-    # Add to global penalty box for 5 minutes
-    ratelimit.penaltybox_add("global_penalty", var.user_id, 300);
     error 429 "Global Rate Limit Exceeded";
   }
-  
-  # Check API rate limits
+
+  # Step 5: Check request type specific limits
+
+  # API requests: 10 per second averaged over 10 seconds, 2 minute penalty
   if (var.is_api_request) {
     declare local var.api_limit_exceeded BOOL;
-    set var.api_limit_exceeded = ratelimit.check_rates("api_" + var.user_id, "10:1,100:60,1000:3600");
-    
+    set var.api_limit_exceeded = ratelimit.check_rate(
+        var.user_id, api_rc, 1, 10, 10, api_pb, 2m);
+
     if (var.api_limit_exceeded) {
-      # Add to API penalty box for 2 minutes
-      ratelimit.penaltybox_add("api_penalty", var.user_id, 120);
       error 429 "API Rate Limit Exceeded";
     }
   }
-  
-  # Check login rate limits
+
+  # Login attempts: 1 per second averaged over 60 seconds, 15 minute penalty
   if (var.is_login_request) {
     declare local var.login_limit_exceeded BOOL;
-    set var.login_limit_exceeded = ratelimit.check_rates("login_" + var.user_id, "3:60,5:300,10:3600");
-    
+    set var.login_limit_exceeded = ratelimit.check_rate(
+        var.user_id, login_rc, 1, 60, 1, login_pb, 15m);
+
     if (var.login_limit_exceeded) {
-      # Add to login penalty box for 15 minutes
-      ratelimit.penaltybox_add("login_penalty", var.user_id, 900);
       error 429 "Login Rate Limit Exceeded";
     }
   }
-  
+
   # Step 6: Set rate limit headers for client information
-  
-  # Set headers with rate limit information
-  set req.http.X-Rate-Limit-Global = "30 per second, 300 per minute, 3000 per hour";
-  
+  set req.http.X-Rate-Limit-Global = "30 per second burst, 5 per second sustained";
+
   if (var.is_api_request) {
-    set req.http.X-Rate-Limit-API = "10 per second, 100 per minute, 1000 per hour";
+    set req.http.X-Rate-Limit-API = "10 per second";
   } else if (var.is_login_request) {
-    set req.http.X-Rate-Limit-Login = "3 per minute, 5 per 5 minutes, 10 per hour";
+    set req.http.X-Rate-Limit-Login = "1 per second";
   }
 }
 ```
@@ -854,13 +775,16 @@ sub vcl_recv {
    - Hash sensitive identifiers for privacy
 
 2. Rate Limit Design:
-   - Implement multi-window rate limits for comprehensive protection
+   - Use ratelimit.check_rates to combine a burst limit (1 second window)
+     with a sustained limit (60 second window)
+   - Remember that windows are limited to 1, 10, or 60 seconds, and limits
+     are expressed in units per second over that window
    - Set different limits for different endpoints based on resource intensity
    - Consider tiered rate limits for different user types
 
 3. Penalty Box Usage:
    - Use penalty boxes for temporary blocking after rate limit violations
-   - Implement graduated penalty durations for repeat offenders
+   - Penalty box TTLs must be between 1 minute and 1 hour
    - Check penalty boxes early in the request flow for efficiency
 
 4. Response Handling:
@@ -868,14 +792,15 @@ sub vcl_recv {
    - Include helpful headers (Retry-After, X-Rate-Limit-*)
    - Provide clear error messages to help clients understand limits
 
-5. Counter Naming:
-   - Use consistent naming conventions for counters
-   - Include user identifiers in counter names for user-specific limits
-   - Consider namespace prefixes for different types of rate limits
+5. Resource Naming:
+   - Declare rate counters and penalty boxes at the top level with
+     descriptive names
+   - Use separate rate counters and penalty boxes for different types of
+     limits so they can be tuned independently
 
 6. Performance Considerations:
+   - Rate counters are probabilistic: counts and rates are estimates
    - Check penalty boxes before incrementing counters
-   - Use the most specific rate limit checks first
    - Be mindful of the performance impact of complex rate limiting logic
 
 7. Monitoring and Tuning:

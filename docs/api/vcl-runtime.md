@@ -2,7 +2,7 @@
 
 The VCL runtime is what actually runs your VCL code once it has been parsed and compiled. It owns the execution context, the standard library, and the small piece of glue that dispatches into individual subroutines like `vcl_recv` or `vcl_fetch`.
 
-In Fastly.JS the runtime entry points all live in [`src/vcl.ts`](../../src/vcl.ts) — there is no separate `vcl-runtime.ts` module. The HTTP request pipeline that ties everything together is implemented in [`src/runtime/pipeline.ts`](../../src/runtime/pipeline.ts) (exported as `runPipeline`); [`index.ts`](../../index.ts) is the CLI that drives it, and is the best place to look for a working example.
+In Fastly.JS the runtime entry points all live in [`src/vcl.ts`](../../src/vcl.ts) — there is no separate `vcl-runtime.ts` module. The HTTP request pipeline that ties everything together is implemented in [`src/runtime/pipeline.ts`](../../src/runtime/pipeline.ts) (exported as `runPipeline`); [`index.ts`](../../index.ts) is the CLI that drives it, and is the best place to look for a working example. For browser bundles, [`src/browser.ts`](../../src/browser.ts) re-exports the same API on top of the browser platform (noble-backed crypto, Web Crypto randomness), and [`src/runtime/browser.ts`](../../src/runtime/browser.ts) exposes `runBrowserSimulation`, which drives `runPipeline` against a synthetic backend.
 
 ## Importing the runtime
 
@@ -57,9 +57,9 @@ Exported from `src/node-loader`. Reads a VCL file from disk, lexes, parses, and 
 
 Same as `loadVCL`, but operates on a string already in memory. Useful when you want to concatenate several VCL files yourself before compilation, which is exactly what `index.ts` does when invoked with multiple paths on the command line.
 
-### `createVCLContext(): VCLContext`
+### `createVCLContext(platform?: VCLPlatform): VCLContext`
 
-Creates a fresh execution context with empty `req`, `bereq`, `beresp`, `resp`, `obj`, an empty cache, and a fully wired-up standard library (`context.std`, `context.fastly`, `context.waf`, `context.ratelimit`, …). One context corresponds to one in-flight request.
+Creates a fresh execution context with empty `req`, `bereq`, `beresp`, `resp`, `obj`, an empty cache, and a fully wired-up standard library (`context.std`, `context.fastly`, `context.waf`, `context.ratelimit`, …). One context corresponds to one in-flight request. The optional `platform` argument (defaulting to `getPlatform()` from `src/platform.ts`) supplies crypto, time, and logging primitives — this is how the same runtime works under both Bun/Node (`src/platform-node.ts`) and the browser (`src/platform-browser.ts`).
 
 A small default backend named `"default"` pointing at `perdu.com:443` is registered so contexts always have something to fall back to. Replace or extend `context.backends` before calling `executeVCL` if you need different defaults.
 
@@ -73,11 +73,11 @@ function executeVCL(
 ): string;
 ```
 
-Runs a single named subroutine (`"vcl_recv"`, `"vcl_fetch"`, …) and returns the action string it produced. If the subroutine throws, the error is logged and `"error"` is returned so callers can route into `vcl_error`.
+Runs a single named subroutine (`"vcl_recv"`, `"vcl_fetch"`, …) and returns the action string it produced. If the subroutine throws, the error is logged and `"error"` is returned so callers can route into `vcl_error`. Two exception types are re-thrown instead of being swallowed: `UnsupportedFeatureError` and `VCLLimitExceededError`.
 
 ### `executeVCLByName(subroutines, name, context): string`
 
-Lower-level variant of `executeVCL` that accepts an arbitrary subroutine name (including user-defined `sub` blocks) and additionally takes care of running ESI processing on the response body when `vcl_deliver` finishes with `beresp.do_esi` set. Use this when calling subroutines whose names are not part of the built-in `vcl_*` set.
+Variant of `executeVCL` with two behavioural differences: it returns `""` (rather than `"error"`) when the subroutine is missing or throws, and after `vcl_deliver` it runs ESI processing on `context.obj.response` when `beresp.do_esi` is set and the response `Content-Type` includes `text/html`.
 
 ## VCLContext
 
@@ -85,32 +85,35 @@ Everything VCL code touches lives on the context. The shape is defined in `src/v
 
 ```typescript
 interface VCLContext {
-  req:    { url: string; method: string; http: Record<string, string>; backend: string; restarts: number; ... };
-  bereq:  { url: string; method: string; http: Record<string, string>; ... };
-  beresp: { status: number; statusText: string; http: Record<string, string>; ttl: number; grace: number; stale_while_revalidate: number; do_esi: boolean; ... };
+  req:    { url: string; method: string; http: Record<string, string>; backend?: string; restarts?: number };
+  bereq:  { url: string; method: string; http: Record<string, string> };
+  beresp: { status: number; statusText: string; http: Record<string, string>; ttl: number; grace?: number; stale_while_revalidate?: number; do_esi?: boolean };
   resp:   { status: number; statusText: string; http: Record<string, string> };
-  obj:    { status: number; response: string; http: Record<string, string>; hits: number };
+  obj:    { status: number; response?: string; http: Record<string, string>; hits: number };
 
-  client: { ip: string; geo?: { country_code: string; continent_code: string; ... } };
-  server: { ip: string };
+  client?: { ip: string };
+  platform: VCLPlatform;
 
   cache: Map<string, unknown>;
-  hashData: string[];
+  hashData?: string[];
   locals: Record<string, unknown>;
   backends: Record<string, VCLBackend>;
   directors: Record<string, VCLDirector>;
   acls: Record<string, VCLACL>;
   tables: Record<string, VCLTable>;
   current_backend?: VCLBackend;
+  re?: { groups?: Record<number, string> };   // last regex match, read as re.group.N
 
   std: { /* standard library — see below */ };
   fastly: { error: string; state: string };
-  waf: { allowed: boolean; blocked: boolean; blockStatus: number; blockMessage: string };
+  waf: { allow, block, log, rate_limit, rate_limit_tokens, detect_attack };
   ratelimit: { counters: Record<string, unknown>; penaltyboxes: Record<string, unknown> };
 }
 ```
 
-Note that the synthetic body produced by `synthetic { ... }` ends up on `context.obj.response`, not on `resp.body`. The actual backend response body in Fastly.JS is streamed by the host pipeline (e.g. `index.ts`), not stored on the context.
+There is no `server` object on the typed context — VCL's `server.*` variables resolve to built-in defaults (`server.ip` reads `127.0.0.1`, `server.port` reads `3124`, `server.datacenter` reads `local`, …) unless you attach your own `context.server` record with overrides. `client` carries only the IP — geolocation data is not populated (see the [standard library reference](./standard-library.md) for the fallback values `client.geo.*` reads as). Besides `std`, whole modules are also mounted directly on the context: `context.time`, `context.math`, `context.table`, `context.header`, `context.querystring`, `context.accept`, `context.addr`, `context.bin`, `context.utf8`, `context.uuid`, `context.strftime`, and `context.parse_time_delta`.
+
+Note that the synthetic body produced by `synthetic { ... }` ends up on `context.obj.response`, not on `resp.body`. The actual backend response body in Fastly.JS is carried by the host pipeline as a `Uint8Array` (see `runPipeline` in `src/runtime/pipeline.ts`), not stored on the context.
 
 ## Execution flow
 
@@ -132,12 +135,12 @@ The action string a subroutine returns is one of: `lookup`, `pass`, `pipe`, `err
 `context.std` exposes a large surface, all of which is covered in the [standard library reference](./standard-library.md) and the per-module pages under [`fastly-vcl/vcl-functions/`](../../fastly-vcl/vcl-functions/). A few highlights:
 
 - String handling: `std.strlen`, `std.toupper`, `std.tolower`, `std.substr`, `std.strstr`, `std.regsub`, `std.regsuball`, `std.replace`, `std.replaceall`, `std.prefixof`, `std.suffixof`.
-- Math: `std.math.round/floor/ceil/pow/log/min/max/abs`.
-- Time: `std.time.now/add/sub/is_after/hex_to_time`, `std.strftime`.
-- Random: `std.random.randombool`, `std.random.randombool_seeded`, `std.random.randomint`, `std.random.randomint_seeded`, `std.random.randomstr`, `std.random.randomstr_seeded`.
+- Math: `std.math.round/floor/ceil/pow/log/min/max/abs`, plus the full Fastly math surface on `context.math`.
+- Time: `context.time.now/add/sub/is_after/hex_to_time/units/runits`, `std.time` (string-to-TIME parsing), `std.integer2time`, `context.strftime`.
+- Random: `std.random.randombool`, `std.random.randombool_seeded`, `std.random.randomint`, `std.random.randomint_seeded`, `std.random.randomstr`.
 - Digest and crypto: `std.digest.hash_*`, `std.digest.hmac_*`, `std.digest.base64*`, `std.digest.rsa_verify`, `std.digest.ecdsa_verify`, `std.digest.awsv4_hmac`, `std.crypto.encrypt_*`/`decrypt_*`.
 - Headers: `std.header.get/set/remove/filter/filter_except`.
-- Logging: `std.log`, `std.syslog`.
+- Logging: `std.log`.
 
 ## Error handling
 

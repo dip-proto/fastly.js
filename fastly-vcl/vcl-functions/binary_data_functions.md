@@ -171,93 +171,7 @@ set var.data_url = "data:image/png;base64," + var.image_base64;
 set req.http.X-Image-Data-URL = var.data_url;
 ```
 
-## bin.data_convert
-
-Converts binary data between different encodings.
-
-### Syntax
-
-```vcl
-STRING bin.data_convert(STRING input, STRING input_encoding, STRING output_encoding)
-```
-
-### Parameters
-
-- `input`: The input data to convert
-- `input_encoding`: The encoding of the input data (base64, hex, utf8, ascii)
-- `output_encoding`: The desired output encoding (base64, hex, utf8, ascii)
-
-### Return Value
-
-- The converted data in the specified output encoding
-- Empty string if conversion fails
-
-### Examples
-
-#### Basic data conversion
-
-```vcl
-declare local var.input_data STRING;
-declare local var.converted_data STRING;
-
-# Set input data (UTF-8 text)
-set var.input_data = "Hello World";
-
-# Convert from UTF-8 to base64
-set var.converted_data = bin.data_convert(var.input_data, "utf8", "base64");
-
-# var.converted_data is now "SGVsbG8gV29ybGQ="
-set req.http.X-Converted-Data = var.converted_data;
-```
-
-#### Multiple conversion steps
-
-```vcl
-declare local var.original_text STRING;
-declare local var.hex_encoded STRING;
-declare local var.base64_encoded STRING;
-declare local var.back_to_text STRING;
-
-# Start with original text
-set var.original_text = "Fastly VCL";
-
-# Convert to hex
-set var.hex_encoded = bin.data_convert(var.original_text, "utf8", "hex");
-
-# Convert hex to base64
-set var.base64_encoded = bin.data_convert(var.hex_encoded, "hex", "base64");
-
-# Convert back to text
-set var.back_to_text = bin.data_convert(var.base64_encoded, "base64", "utf8");
-
-# Verify the round-trip conversion
-if (var.back_to_text == var.original_text) {
-  set req.http.X-Conversion-Success = "true";
-} else {
-  set req.http.X-Conversion-Success = "false";
-}
-```
-
-#### Error handling with different encodings
-
-```vcl
-declare local var.binary_data STRING;
-declare local var.ascii_result STRING;
-
-# Binary data that may not be valid in all encodings
-set var.binary_data = bin.data_convert("\xFF\x00\xAB", "ascii", "hex");
-
-# Try to convert hex to ASCII (may fail for non-ASCII characters)
-set var.ascii_result = bin.data_convert(var.binary_data, "hex", "ascii");
-
-if (var.ascii_result == "") {
-  # Conversion failed, handle the error
-  set req.http.X-Conversion-Error = "Cannot represent data in ASCII";
-  
-  # Use a different encoding that can represent all binary data
-  set req.http.X-Safe-Representation = bin.data_convert(var.binary_data, "hex", "base64");
-}
-```
+Note: The `bin` namespace only provides these two conversion functions. To base64-encode or decode arbitrary strings, use the `digest.base64*` family documented with the digest functions.
 
 #### Working with binary protocols
 
@@ -271,8 +185,8 @@ declare local var.message_type INTEGER;
 # Simulated binary protocol message (in hex format)
 set var.hex_message = "0103000A48656C6C6F";
 
-# Convert to a more readable format for logging
-set var.protocol_message = bin.data_convert(var.hex_message, "hex", "base64");
+# Convert to a more compact format for transport
+set var.protocol_message = bin.hex_to_base64(var.hex_message);
 set req.http.X-Protocol-Message-B64 = var.protocol_message;
 
 # Extract message type from the binary data (first byte)
@@ -300,16 +214,11 @@ sub vcl_recv {
   declare local var.encoding STRING;
   
   # Determine the source and encoding of the data
+  set var.raw_data = req.http.X-Binary-Data;
   if (req.http.Content-Type == "application/base64") {
-    set var.raw_data = req.http.X-Binary-Data;
     set var.encoding = "base64";
-  } else if (req.http.Content-Type == "application/hex") {
-    set var.raw_data = req.http.X-Binary-Data;
-    set var.encoding = "hex";
   } else {
-    # Default to UTF-8 text
-    set var.raw_data = req.http.X-Binary-Data;
-    set var.encoding = "utf8";
+    set var.encoding = "hex";
   }
   
   # Step 2: Normalize to a common format (hex) for processing
@@ -317,11 +226,8 @@ sub vcl_recv {
   
   if (var.encoding == "base64") {
     set var.normalized_hex = bin.base64_to_hex(var.raw_data);
-  } else if (var.encoding == "hex") {
-    set var.normalized_hex = var.raw_data;
   } else {
-    # Convert from UTF-8 to hex
-    set var.normalized_hex = bin.data_convert(var.raw_data, "utf8", "hex");
+    set var.normalized_hex = var.raw_data;
   }
   
   # Step 3: Process the data in hex format
@@ -332,6 +238,8 @@ sub vcl_recv {
   
   # Example: Extract header information from a simple binary format
   # Format: [1 byte type][2 bytes length][variable data]
+  declare local var.expected_hex_length INTEGER;
+  
   if (std.strlen(var.normalized_hex) >= 6) {
     # Extract type (first byte)
     set var.data_type = substr(var.normalized_hex, 0, 2);
@@ -339,8 +247,13 @@ sub vcl_recv {
     # Extract length (next 2 bytes)
     set var.data_length = std.strtol(substr(var.normalized_hex, 2, 4), 16);
     
-    # Validate the data
-    if (std.strlen(var.normalized_hex) >= (6 + var.data_length * 2)) {
+    # Validate the data: 6 hex digits of header plus 2 per payload byte
+    # (VCL has no infix arithmetic; use assignment operators)
+    set var.expected_hex_length = var.data_length;
+    set var.expected_hex_length *= 2;
+    set var.expected_hex_length += 6;
+    
+    if (std.strlen(var.normalized_hex) >= var.expected_hex_length) {
       set var.data_valid = true;
     } else {
       set var.data_valid = false;
@@ -351,11 +264,16 @@ sub vcl_recv {
   
   # Step 4: Take action based on the processed data
   if (var.data_valid) {
+    # Payload length in hex digits (2 per byte)
+    declare local var.payload_hex_length INTEGER;
+    set var.payload_hex_length = var.data_length;
+    set var.payload_hex_length *= 2;
+    
     if (var.data_type == "01") {
       # Type 0x01: Authentication token
       # Extract the token data
       declare local var.token_hex STRING;
-      set var.token_hex = substr(var.normalized_hex, 6, var.data_length * 2);
+      set var.token_hex = substr(var.normalized_hex, 6, var.payload_hex_length);
       
       # Convert to base64 for use in Authorization header
       declare local var.token_base64 STRING;
@@ -368,7 +286,7 @@ sub vcl_recv {
       # Type 0x02: Encrypted payload
       # Extract the encrypted data
       declare local var.encrypted_hex STRING;
-      set var.encrypted_hex = substr(var.normalized_hex, 6, var.data_length * 2);
+      set var.encrypted_hex = substr(var.normalized_hex, 6, var.payload_hex_length);
       
       # In a real scenario, you might decrypt this data
       # For this example, we'll just pass it along
@@ -384,20 +302,14 @@ sub vcl_recv {
   }
   
   # Step 5: Prepare data for the backend in the required format
-  declare local var.backend_format STRING;
   declare local var.backend_data STRING;
   
-  # Determine the format required by the backend
-  if (req.backend == F_json_backend) {
-    set var.backend_format = "utf8";  # JSON backend expects UTF-8
-  } else if (req.backend == F_binary_backend) {
-    set var.backend_format = "base64";  # Binary backend expects base64
+  # Binary backends expect base64; others get the hex form
+  if (req.backend == F_binary_backend) {
+    set var.backend_data = bin.hex_to_base64(var.normalized_hex);
   } else {
-    set var.backend_format = "hex";  # Default to hex
+    set var.backend_data = var.normalized_hex;
   }
-  
-  # Convert the normalized hex data to the required format
-  set var.backend_data = bin.data_convert(var.normalized_hex, "hex", var.backend_format);
   
   # Set the appropriate header for the backend
   set req.http.X-Processed-Data = var.backend_data;
@@ -413,7 +325,7 @@ sub vcl_recv {
    - hex for human-readable debugging and logging
    - utf8/ascii for text data
 4. Be aware of encoding limitations (e.g., ASCII can't represent all binary values)
-5. Use bin.data_convert for flexible conversions between multiple formats
+5. Use the digest.base64* functions to encode or decode arbitrary strings
 6. Consider performance implications for large data conversions
 7. Normalize binary data to a common format (like hex) for consistent processing
 8. Document binary data formats and protocols clearly

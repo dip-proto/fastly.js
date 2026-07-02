@@ -32,6 +32,8 @@ backend default {
 - **between_bytes_timeout**: How long to wait between bytes of the response
 - **max_connections**: The maximum number of connections to the backend
 
+Fastly.JS parses all of these properties, but only `host`, `port`, and `ssl` affect how requests are sent. The timeout and connection-limit values are stored on the backend object and are not currently enforced by the proxy.
+
 ## Defining Multiple Backends
 
 You can define multiple backends in your VCL configuration:
@@ -57,7 +59,7 @@ backend static {
   .max_connections = 200;
 }
 
-backend default {
+backend origin {
   .host = "www.example.com";
   .port = "443";
   .ssl = true;
@@ -68,9 +70,11 @@ backend default {
 }
 ```
 
+Note that the catch-all backend here is named `origin` rather than `default`: `default` is a reserved keyword in expressions (it is used by switch statements), so a backend with that name cannot be assigned with `set req.backend = default;`.
+
 ## Routing Requests to Backends
 
-You can route requests to different backends based on various criteria:
+You can route requests to different backends based on various criteria. (Note: the bundled proxy in `index.ts` configures its own demo backends and selects among them in JavaScript, ignoring `req.backend`; the examples below apply when your own code lets the VCL drive backend selection.)
 
 ### Routing Based on URL Path
 
@@ -84,9 +88,9 @@ sub vcl_recv {
   else if (req.url ~ "^/static/" || req.url ~ "\.(jpg|jpeg|png|gif|ico|css|js)$") {
     set req.backend = static;
   }
-  # Route all other requests to the default backend
+  # Route all other requests to the catch-all backend
   else {
-    set req.backend = default;
+    set req.backend = origin;
   }
 }
 ```
@@ -96,14 +100,14 @@ sub vcl_recv {
 ```vcl
 sub vcl_recv {
   # Route requests based on the Host header
-  if (req.http.Host == "api.example.com") {
+  if (req.http.host == "api.example.com") {
     set req.backend = api;
   }
-  else if (req.http.Host == "static.example.com") {
+  else if (req.http.host == "static.example.com") {
     set req.backend = static;
   }
   else {
-    set req.backend = default;
+    set req.backend = origin;
   }
 }
 ```
@@ -113,21 +117,21 @@ sub vcl_recv {
 ```vcl
 sub vcl_recv {
   # Route requests based on a cookie
-  if (req.http.Cookie ~ "backend=api") {
+  if (req.http.cookie ~ "backend=api") {
     set req.backend = api;
   }
-  else if (req.http.Cookie ~ "backend=static") {
+  else if (req.http.cookie ~ "backend=static") {
     set req.backend = static;
   }
   else {
-    set req.backend = default;
+    set req.backend = origin;
   }
 }
 ```
 
 ## Health Checks
 
-Health checks allow Fastly.JS to monitor the health of backend servers and avoid sending requests to unhealthy backends.
+Health checks describe how the health of a backend server should be probed, so that requests can avoid unhealthy backends.
 
 ### Defining Health Checks
 
@@ -156,22 +160,26 @@ backend api {
 - **window**: The number of health checks to consider
 - **threshold**: The number of successful health checks required to mark the backend as healthy
 
+Probe definitions are parsed and stored on the backend, but Fastly.JS does not currently run active health checks. Every backend reports as healthy unless it is marked unhealthy programmatically through the JavaScript API.
+
 ### Checking Backend Health
 
-You can check if a backend is healthy using the `std.backend.is_healthy` function:
+You can check if a backend is healthy using the `backend.{name}.healthy` variable:
 
 ```vcl
 sub vcl_recv {
   # Check if the API backend is healthy
-  if (std.backend.is_healthy(api)) {
+  if (backend.api.healthy) {
     set req.backend = api;
   }
-  # Fall back to the default backend if the API backend is unhealthy
+  # Fall back to the catch-all backend if the API backend is unhealthy
   else {
-    set req.backend = default;
+    set req.backend = origin;
   }
 }
 ```
+
+There is also a `std.backend.is_healthy()` function, but it expects the backend name as a string (for example `std.backend.is_healthy(req.backend)`); passing a bare backend identifier does not work.
 
 ## Load Balancing with Directors
 
@@ -195,9 +203,18 @@ director api_director random {
 Fastly.JS supports the following director types:
 
 - **random**: Randomly selects a backend based on weights
-- **hash**: Selects a backend based on a hash of a request attribute
-- **client**: Selects a backend based on the client IP address
+- **hash**: Selects a backend based on the cache hash key
+- **client**: Selects a backend based on the client identity
 - **fallback**: Tries backends in order until a healthy one is found
+- **chash**: Consistent hashing (currently behaves like `hash`)
+
+Regardless of type, a director is used by assigning it to `req.backend`; there is no `.backend()` method syntax:
+
+```vcl
+sub vcl_recv {
+  set req.backend = api_director;
+}
+```
 
 ### Random Director
 
@@ -210,11 +227,15 @@ director api_director random {
   { .backend = api2; .weight = 2; }  # 2/6 = 33% of requests
   { .backend = api3; .weight = 1; }  # 1/6 = 17% of requests
 }
+
+sub vcl_recv {
+  set req.backend = api_director;
+}
 ```
 
 ### Hash Director
 
-A hash director selects a backend based on a hash of a request attribute:
+A hash director selects a backend based on the cache hash key (the data collected with `hash_data()` in `vcl_hash`):
 
 ```vcl
 director api_director hash {
@@ -224,14 +245,13 @@ director api_director hash {
 }
 
 sub vcl_recv {
-  # Use the URL as the hash key
-  set req.backend = api_director.backend(req.url);
+  set req.backend = api_director;
 }
 ```
 
 ### Client Director
 
-A client director selects a backend based on the client IP address:
+A client director selects a backend based on the client identity. Fastly.JS derives the identity from the `X-Client-Identity` request header, falling back to the `Cookie` header:
 
 ```vcl
 director api_director client {
@@ -241,8 +261,7 @@ director api_director client {
 }
 
 sub vcl_recv {
-  # Use the client IP as the hash key
-  set req.backend = api_director.backend();
+  set req.backend = api_director;
 }
 ```
 
@@ -258,8 +277,7 @@ director api_director fallback {
 }
 
 sub vcl_recv {
-  # Use the fallback director
-  set req.backend = api_director.backend();
+  set req.backend = api_director;
 }
 ```
 
@@ -280,9 +298,11 @@ backend api {
 }
 ```
 
+Only `.ssl` changes behavior (it selects `https` for backend requests, and a port of 443 implies it). The certificate-related properties are accepted for compatibility with Fastly VCL but are ignored.
+
 ### Connection Pooling
 
-You can configure connection pooling for a backend:
+You can declare connection pool settings for a backend:
 
 ```vcl
 backend api {
@@ -296,19 +316,11 @@ backend api {
 }
 ```
 
+As noted above, these values are parsed and stored but not currently enforced; connections are managed by the underlying `fetch` implementation.
+
 ### Request Retries
 
-You can configure request retries for a backend:
-
-```vcl
-backend api {
-  .host = "api.example.com";
-  .port = "443";
-  .ssl = true;
-  .max_retries = 3;
-  .retry_interval = 1s;
-}
-```
+Per-backend retry settings are not supported. The bundled proxy retries a request against the `fallback_director` when a backend returns a 5xx response, but this is configured in JavaScript (`index.ts`), not in VCL.
 
 ## Next Steps
 

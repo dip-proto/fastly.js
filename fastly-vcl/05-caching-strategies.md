@@ -17,40 +17,24 @@ sub vcl_fetch {
 }
 ```
 
-### Grace Period
-
-The grace period allows Fastly to serve stale content while fetching a fresh copy from the origin. This prevents users from experiencing delays when content expires:
-
-```vcl
-sub vcl_fetch {
-    # Cache for 1 hour
-    set beresp.ttl = 1h;
-    
-    # Allow serving stale content for up to 24 hours
-    set beresp.grace = 24h;
-}
-```
-
 ### Stale-While-Revalidate
 
-Stale-while-revalidate is a technique that allows Fastly to serve stale content while asynchronously revalidating it in the background:
+Stale-while-revalidate allows Fastly to serve stale content while asynchronously revalidating it in the background:
 
 ```vcl
 sub vcl_fetch {
     # Cache for 1 hour
     set beresp.ttl = 1h;
     
-    # Allow serving stale content for up to 24 hours
-    set beresp.grace = 24h;
-    
-    # Set stale-while-revalidate
+    # Serve stale content for up to 60 seconds past expiry
+    # while a fresh copy is fetched in the background
     set beresp.stale_while_revalidate = 60s;
 }
 ```
 
 ### Stale-If-Error
 
-Stale-if-error allows Fastly to serve stale content when the origin returns an error:
+Stale-if-error allows Fastly to serve stale content when the origin returns an error or is unreachable:
 
 ```vcl
 sub vcl_fetch {
@@ -62,6 +46,10 @@ sub vcl_fetch {
 }
 ```
 
+### A Note on Grace
+
+You may encounter `beresp.grace` in older Fastly VCL. It is deprecated and does not mean what it means in modern open-source Varnish: on Fastly, setting `beresp.grace` is equivalent to setting `beresp.stale_if_error`. It only permits serving stale content when the origin is failing, not background revalidation. Use `beresp.stale_while_revalidate` and `beresp.stale_if_error` instead.
+
 ## Cache Keys
 
 The cache key determines how objects are stored and retrieved from the cache. By default, Fastly uses the URL and host as the cache key, but you can customize this in `vcl_hash`:
@@ -69,17 +57,17 @@ The cache key determines how objects are stored and retrieved from the cache. By
 ```vcl
 sub vcl_hash {
     # Default hash
-    hash_data(req.url);
+    set req.hash += req.url;
     
     if (req.http.host) {
-        hash_data(req.http.host);
+        set req.hash += req.http.host;
     } else {
-        hash_data(server.ip);
+        set req.hash += server.ip;
     }
     
     # Add custom components to the cache key
     if (req.http.X-Device-Type) {
-        hash_data(req.http.X-Device-Type);
+        set req.hash += req.http.X-Device-Type;
     }
     
     return(hash);
@@ -332,14 +320,14 @@ Cache sharding involves distributing cache across multiple servers based on some
 ```vcl
 sub vcl_hash {
     # Default hash
-    hash_data(req.url);
-    hash_data(req.http.host);
+    set req.hash += req.url;
+    set req.hash += req.http.host;
     
     # Shard cache based on user ID
     if (req.http.Cookie ~ "user_id=([^;]+)") {
         declare local var.user_id STRING;
         set var.user_id = re.group.1;
-        hash_data(var.user_id);
+        set req.hash += var.user_id;
     }
     
     return(hash);
@@ -350,33 +338,26 @@ sub vcl_hash {
 
 ### Purging by URL
 
-You can purge content by URL using Fastly's API or through VCL:
+You can purge content by URL using Fastly's API, or by sending an HTTP `PURGE` request directly to the URL:
+
+```
+curl -X PURGE "https://www.example.com/path"
+```
+
+Unlike open-source Varnish, there is no `purge` statement in Fastly VCL: the platform performs the purge itself after `vcl_recv` and `vcl_hash` have computed the cache key. Inside VCL, a purge request is visible in `vcl_recv` with `req.method` set to `FASTLYPURGE` (or via the `req.is_purge` variable), so you can restrict who is allowed to purge:
 
 ```vcl
 sub vcl_recv {
-    # Allow purging from specific IPs
-    if (req.method == "PURGE") {
+    if (req.method == "FASTLYPURGE") {
+        # Only allow purging from specific IPs
         if (client.ip !~ purge_acl) {
             error 403 "Forbidden";
         }
-        return(lookup);
-    }
-}
-
-sub vcl_hit {
-    if (req.method == "PURGE") {
-        purge;
-        error 200 "Purged";
-    }
-}
-
-sub vcl_miss {
-    if (req.method == "PURGE") {
-        purge;
-        error 200 "Purged";
     }
 }
 ```
+
+Alternatively, instead of an IP allowlist, you can set `req.http.Fastly-Purge-Requires-Auth = "1";` in that block to require a valid Fastly API token on purge requests.
 
 ### Purging by Surrogate Key
 
@@ -396,7 +377,7 @@ Soft purging marks content as stale but allows it to be served while fresh conte
 
 ```vcl
 # To soft purge a URL:
-# curl -X POST -H "Fastly-Key: YOUR_API_KEY" -H "Fastly-Soft-Purge: 1" "https://api.fastly.com/purge/https://www.example.com/path"
+# curl -X POST -H "Fastly-Key: YOUR_API_KEY" -H "Fastly-Soft-Purge: 1" "https://api.fastly.com/purge/www.example.com/path"
 ```
 
 ## Real-World Caching Strategies
@@ -425,19 +406,19 @@ sub vcl_recv {
 
 sub vcl_hash {
     # Default hash
-    hash_data(req.url);
-    hash_data(req.http.host);
+    set req.hash += req.url;
+    set req.hash += req.http.host;
     
     # Vary cache by currency
     if (req.http.X-Currency) {
-        hash_data(req.http.X-Currency);
+        set req.hash += req.http.X-Currency;
     }
     
     # Vary cache by device type
     if (req.http.User-Agent ~ "Mobile|Android|iPhone") {
-        hash_data("mobile");
+        set req.hash += "mobile";
     } else {
-        hash_data("desktop");
+        set req.hash += "desktop";
     }
     
     return(hash);
@@ -448,7 +429,7 @@ sub vcl_fetch {
     if (req.url ~ "^/products/") {
         # Product pages: cache for 2 hours
         set beresp.ttl = 2h;
-        set beresp.grace = 24h;
+        set beresp.stale_if_error = 24h;
         
         # Add surrogate key for purging
         set beresp.http.Surrogate-Key = "products";
@@ -458,7 +439,7 @@ sub vcl_fetch {
     } else if (req.url ~ "^/categories/") {
         # Category pages: cache for 4 hours
         set beresp.ttl = 4h;
-        set beresp.grace = 24h;
+        set beresp.stale_if_error = 24h;
         
         # Add surrogate key for purging
         set beresp.http.Surrogate-Key = "categories";
@@ -468,15 +449,15 @@ sub vcl_fetch {
     } else if (req.url ~ "\.(jpg|jpeg|png|gif)$") {
         # Images: cache for 7 days
         set beresp.ttl = 7d;
-        set beresp.grace = 7d;
+        set beresp.stale_if_error = 7d;
     } else if (req.url ~ "\.(css|js)$") {
         # Static assets: cache for 1 day
         set beresp.ttl = 1d;
-        set beresp.grace = 7d;
+        set beresp.stale_if_error = 7d;
     } else {
         # Default: cache for 1 hour
         set beresp.ttl = 1h;
-        set beresp.grace = 24h;
+        set beresp.stale_if_error = 24h;
     }
     
     # Enable gzip compression
@@ -521,14 +502,14 @@ sub vcl_recv {
 
 sub vcl_hash {
     # Default hash
-    hash_data(req.url);
-    hash_data(req.http.host);
+    set req.hash += req.url;
+    set req.hash += req.http.host;
     
     # Vary cache by device type
     if (req.http.User-Agent ~ "Mobile|Android|iPhone") {
-        hash_data("mobile");
+        set req.hash += "mobile";
     } else {
-        hash_data("desktop");
+        set req.hash += "desktop";
     }
     
     return(hash);
@@ -539,7 +520,7 @@ sub vcl_fetch {
     if (req.url ~ "^/news/") {
         # News articles: cache for 15 minutes
         set beresp.ttl = 15m;
-        set beresp.grace = 4h;
+        set beresp.stale_if_error = 4h;
         
         # Add surrogate key for purging
         set beresp.http.Surrogate-Key = "news";
@@ -549,7 +530,7 @@ sub vcl_fetch {
     } else if (req.url ~ "^/topics/") {
         # Topic pages: cache for 30 minutes
         set beresp.ttl = 30m;
-        set beresp.grace = 4h;
+        set beresp.stale_if_error = 4h;
         
         # Add surrogate key for purging
         set beresp.http.Surrogate-Key = "topics";
@@ -559,15 +540,15 @@ sub vcl_fetch {
     } else if (req.url ~ "\.(jpg|jpeg|png|gif)$") {
         # Images: cache for 1 day
         set beresp.ttl = 1d;
-        set beresp.grace = 7d;
+        set beresp.stale_if_error = 7d;
     } else if (req.url ~ "\.(css|js)$") {
         # Static assets: cache for 1 day
         set beresp.ttl = 1d;
-        set beresp.grace = 7d;
+        set beresp.stale_if_error = 7d;
     } else {
         # Default: cache for 5 minutes
         set beresp.ttl = 5m;
-        set beresp.grace = 1h;
+        set beresp.stale_if_error = 1h;
     }
     
     # Enable gzip compression
@@ -597,7 +578,7 @@ sub vcl_deliver {
 
 1. **Set Appropriate TTLs**: Choose TTL values based on how frequently your content changes.
 
-2. **Use Grace Periods**: Implement grace periods to prevent users from experiencing delays when content expires.
+2. **Serve Stale When It Helps**: Use `stale_while_revalidate` to hide revalidation latency from users and `stale_if_error` to keep serving content when the origin fails.
 
 3. **Normalize URLs**: Normalize URLs to improve cache hit ratios.
 

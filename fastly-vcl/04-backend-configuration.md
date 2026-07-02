@@ -23,21 +23,23 @@ backend F_my_origin {
 | Parameter | Description | Default |
 |-----------|-------------|---------|
 | `.host` | The hostname or IP address of the backend | Required |
-| `.port` | The port to connect to | 80 |
-| `.ssl` | Whether to use SSL/TLS for the connection | false |
+| `.port` | The port to connect to | 80 (443 if `.ssl` is true) |
+| `.ssl` | Whether to use SSL/TLS for the connection | false (true if `.port` is 443) |
 | `.ssl_cert_hostname` | The hostname to use for SSL certificate validation | Value of `.host` |
 | `.ssl_sni_hostname` | The hostname to use for SSL SNI | Value of `.host` |
-| `.ssl_check_cert` | Whether to validate the SSL certificate | true |
-| `.min_tls_version` | Minimum TLS version to use | TLSv1.2 |
-| `.max_tls_version` | Maximum TLS version to use | TLSv1.3 |
+| `.ssl_check_cert` | Whether to validate the SSL certificate (`always` or `never`) | Platform default |
+| `.min_tls_version` | Minimum TLS version to use | Platform default |
+| `.max_tls_version` | Maximum TLS version to use | Platform default |
 | `.connect_timeout` | Timeout for establishing a connection | 1s |
 | `.first_byte_timeout` | Timeout for receiving the first byte of the response | 15s |
 | `.between_bytes_timeout` | Timeout between bytes of the response | 10s |
-| `.max_connections` | Maximum number of connections to the backend | 200 |
-| `.weight` | Weight for load balancing | 100 |
-| `.override_host` | Override the Host header sent to the backend | None |
-| `.auto_loadbalance` | Whether to automatically load balance | false |
-| `.shield` | POP to use as a shield | None |
+| `.max_connections` | Maximum number of connections to the backend | 200 (UI/API-created); 1000 for backends declared in custom VCL |
+| `.host_header` | Override the Host header sent to the backend | None |
+| `.dynamic` | Re-resolve DNS for the hostname regularly | false |
+
+The timeout and connection defaults shown above are the values Fastly applies to backends created through the web interface or API; backends declared directly in custom VCL without explicit values fall back to platform defaults.
+
+Note that per-backend load balancing weights, automatic load balancing, and shielding are not backend declaration parameters. Weights are set on director members (see [Directors](#directors) below), while auto load balancing and shielding are service settings configured through the Fastly web interface or API rather than in VCL.
 
 ### Example: Basic HTTPS Backend
 
@@ -48,9 +50,9 @@ backend F_my_origin {
     .ssl = true;
     .ssl_cert_hostname = "www.example.com";
     .ssl_sni_hostname = "www.example.com";
-    .ssl_check_cert = true;
-    .min_tls_version = "TLSv1.2";
-    .max_tls_version = "TLSv1.3";
+    .ssl_check_cert = always;
+    .min_tls_version = "1.2";
+    .max_tls_version = "1.3";
     .connect_timeout = 1s;
     .first_byte_timeout = 15s;
     .between_bytes_timeout = 10s;
@@ -235,6 +237,8 @@ director F_chash_director chash {
 ```
 
 Consistent hashing minimizes the redistribution of requests when backends are added or removed, which can improve cache efficiency.
+
+Fastly also has a `shield` director type, which shows up in generated VCL when shielding is enabled for a service. It is managed by the platform and is not something you normally declare yourself.
 
 ## Director Parameters
 

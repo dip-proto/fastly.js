@@ -111,8 +111,8 @@ backend server2 {
   }
 }
 
-# A director over the health-checked backends. Unhealthy backends are
-# skipped automatically when the director picks a target.
+# A director over the health-checked backends. Backends marked
+# unhealthy are skipped when the director picks a target.
 director health_director random {
   { .backend = server1; .weight = 1; }
   { .backend = server2; .weight = 1; }
@@ -125,6 +125,8 @@ sub vcl_recv {
   return(lookup);
 }
 ```
+
+> **Note:** Probe blocks are parsed and stored, but Fastly.JS does not actively run health checks yet — backends stay healthy unless something marks them otherwise (for example through the `std.backend` API). Directors do honor the health flag when selecting a backend.
 
 ## Content-Based Routing
 
@@ -151,7 +153,7 @@ sub vcl_recv {
 
 ## Geo-Based Routing
 
-> **Note:** Geo-location features (`client.geo.*`) are not yet implemented in Fastly.JS. The example below shows the standard Fastly VCL syntax for reference.
+> **Note:** The `client.geo.*` variables exist in Fastly.JS but there is no geolocation database behind them: string fields read `"unknown"`, so every request would fall through to the final `else` branch below. The example shows the standard Fastly VCL syntax for reference.
 
 Geo-based routing directs requests to different backends based on the client's geographic location:
 
@@ -176,24 +178,21 @@ sub vcl_recv {
 
 ## Fallback Backends
 
-You can implement fallback backends to handle cases where the primary backend is unavailable:
+Fastly VCL retries a failing origin by restarting the request, but Fastly.JS does not yet support retrying the backend fetch from `vcl_fetch` — there is no `return(retry)`, and a `restart` issued after the fetch is not acted on. What you get instead is built into the bundled proxy: when a backend answers with a 5xx, `index.ts` automatically retries the request once through its fallback director.
+
+A `fallback` director is the declarative way to express the same idea — it always picks the first healthy backend in its list:
 
 ```vcl
-sub vcl_fetch {
-  # If the backend returns a 5xx error, try a different backend
-  if (beresp.status >= 500 && beresp.status < 600) {
-    # Retry the request with a different backend
-    if (req.backend == server1) {
-      set req.backend = server2;
-      return(retry);
-    }
-    else if (req.backend == server2) {
-      set req.backend = server3;
-      return(retry);
-    }
-  }
+# Prefer server1; use server2 only if server1 is marked unhealthy
+director failover_director fallback {
+  { .backend = server1; .weight = 1; }
+  { .backend = server2; .weight = 1; }
+}
+
+sub vcl_recv {
+  set req.backend = failover_director;
   
-  return(deliver);
+  return(lookup);
 }
 ```
 
@@ -258,17 +257,11 @@ sub vcl_recv {
 }
 
 sub vcl_fetch {
-  # If the backend returns a 5xx error, try a different backend
+  # Tag 5xx responses so the failure is visible downstream. Retrying
+  # from vcl_fetch is not supported; the bundled proxy already retries
+  # 5xx responses once through its fallback director.
   if (beresp.status >= 500 && beresp.status < 600) {
-    # Retry the request with a different backend based on the current backend type
-    if (req.http.X-Backend-Type == "API") {
-      set req.backend = server3;  # Fallback to the default backend
-      return(retry);
-    }
-    else if (req.http.X-Backend-Type == "Static") {
-      set req.backend = server3;  # Fallback to the default backend
-      return(retry);
-    }
+    set beresp.http.X-Backend-Failed = req.http.X-Backend-Type;
   }
   
   return(deliver);
@@ -278,10 +271,6 @@ sub vcl_deliver {
   # Add backend information to the response
   set resp.http.X-Backend = req.http.X-Selected-Backend;
   set resp.http.X-Backend-Type = req.http.X-Backend-Type;
-  
-  # Remove internal headers
-  unset resp.http.X-Selected-Backend;
-  unset resp.http.X-Backend-Type;
   
   return(deliver);
 }
@@ -295,7 +284,7 @@ Save the above VCL to a file named `load-balancing.vcl` and run it with Fastly.J
 bun run index.ts load-balancing.vcl
 ```
 
-This will start a local HTTP proxy server that applies the load balancing rules to all requests.
+This will start a local HTTP proxy server. One caveat: the bundled proxy in `index.ts` currently performs its own origin selection with a built-in set of backends and directors, so while the VCL routing logic above executes (and its headers show up), the origin actually contacted is chosen by `index.ts`, not by `set req.backend`. The VCL-level backend and director declarations are fully exercised by the test framework and the browser simulator.
 
 ## Conclusion
 

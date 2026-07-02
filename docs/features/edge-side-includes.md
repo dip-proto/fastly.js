@@ -1,6 +1,6 @@
 # Edge Side Includes (ESI)
 
-Edge Side Includes (ESI) is a markup language that allows you to include dynamic content in otherwise static pages. Fastly.JS fully supports ESI processing, enabling you to assemble dynamic content at the edge.
+Edge Side Includes (ESI) is a markup language that allows you to include dynamic content in otherwise static pages. Fastly.JS supports a practical subset of ESI for local testing: it processes `<esi:include>`, `<esi:remove>`, `<esi:comment>`, and `<esi:choose>`/`<esi:when>`/`<esi:otherwise>` tags in HTML responses.
 
 ## What is ESI?
 
@@ -19,13 +19,16 @@ To enable ESI processing, set the `beresp.do_esi` variable to `true` in your VCL
 
 ```vcl
 sub vcl_fetch {
-  # Enable ESI processing for HTML content
-  if (beresp.http.Content-Type ~ "text/html") {
+  # Enable ESI processing for HTML content (origin response header
+  # names are stored lowercase, and header lookups are case-sensitive)
+  if (beresp.http.content-type ~ "text/html") {
     set beresp.do_esi = true;
   }
   return(deliver);
 }
 ```
+
+ESI tags are processed when `vcl_deliver` runs, and only if the response's `Content-Type` includes `text/html`. Responses with any other content type are passed through untouched even when `beresp.do_esi` is set.
 
 ## ESI Tags
 
@@ -33,19 +36,15 @@ Fastly.JS supports the following ESI tags:
 
 ### Include Tag
 
-The `<esi:include>` tag allows you to include content from another URL:
+The `<esi:include>` tag marks a spot where content from another URL should be inserted:
 
 ```html
 <esi:include src="/header" />
 ```
 
-This will fetch the content from the `/header` URL and include it in the response.
+Note that Fastly.JS does not issue a real subrequest to the backend for includes. Include resolution is simulated locally: the `/header` and `/footer` URLs resolve to small built-in HTML fragments (used by the test suite), and any other URL is replaced with an HTML comment placeholder of the form `<!-- ESI include for /url -->`. This lets you verify that your VCL enables ESI and that include tags are found and substituted, but the included content itself will not come from your origin.
 
-You can also include content with variables:
-
-```html
-<esi:include src="/user/$(HTTP_COOKIE{user_id})" />
-```
+The tag must be self-closing (`<esi:include src="..." />`), and ESI variables inside the `src` attribute are not expanded.
 
 ### Remove Tag
 
@@ -92,38 +91,37 @@ This will include different content based on the value of the `user_type` cookie
 
 ## ESI Variables
 
-ESI supports variables that can be used in tag attributes. The following variables are supported:
-
-- `$(HTTP_COOKIE{name})`: The value of the cookie with the specified name
-- `$(HTTP_HEADER{name})`: The value of the HTTP header with the specified name
-- `$(QUERY_STRING{name})`: The value of the query parameter with the specified name
-
-## Nested ESI Tags
-
-ESI tags can be nested, allowing for complex content assembly:
+Variable support is limited to `test` conditions on `<esi:when>` tags, and to a single form: comparing a request cookie against a literal value.
 
 ```html
-<esi:include src="/layout">
-  <esi:remove>
-    <div class="debug">Debug info</div>
-  </esi:remove>
-  <esi:choose>
-    <esi:when test="$(HTTP_COOKIE{user_type}) == 'premium'">
-      <esi:include src="/premium-content" />
-    </esi:when>
-    <esi:otherwise>
-      <esi:include src="/standard-content" />
-    </esi:otherwise>
-  </esi:choose>
-</esi:include>
+<esi:when test="$(HTTP_COOKIE{user_type}) == 'premium'">
 ```
+
+The condition is true when the named cookie in the request's `Cookie` header equals the quoted value. Any other expression — including `$(HTTP_HEADER{...})`, `$(QUERY_STRING{...})`, negation, or comparisons other than `==` — evaluates to false, so the `<esi:otherwise>` branch is taken.
+
+## Combining ESI Tags
+
+A page can freely mix the supported tags — for example, an `<esi:choose>` block whose branches contain `<esi:include>` tags:
+
+```html
+<esi:choose>
+  <esi:when test="$(HTTP_COOKIE{user_type}) == 'premium'">
+    <esi:include src="/premium-content" />
+  </esi:when>
+  <esi:otherwise>
+    <esi:include src="/standard-content" />
+  </esi:otherwise>
+</esi:choose>
+```
+
+Comments and remove blocks are stripped first, then choose blocks are resolved, then includes are substituted, so includes inside a chosen branch are processed. Deeper nesting — such as a `<esi:choose>` inside another `<esi:choose>`, or an `<esi:include>` written as a paired tag with children — is not supported.
 
 ## Performance Considerations
 
-ESI processing can impact performance, especially if you include content from multiple URLs. Here are some tips to optimize ESI performance:
+On the real Fastly platform, ESI processing can impact performance, especially if you include content from multiple URLs. Here are some tips to keep in mind for production:
 
 1. **Cache included content**: Make sure that the included content is cacheable
-2. **Limit the number of includes**: Each include requires a separate request
+2. **Limit the number of includes**: On Fastly, each include requires a separate request (in Fastly.JS includes are resolved locally, so this cost only shows up in production)
 3. **Use conditional includes**: Only include content that is actually needed
 4. **Consider using stale-while-revalidate**: This allows you to serve stale content while fetching fresh content
 
@@ -133,18 +131,15 @@ Here's a complete example that demonstrates how to use ESI for dynamic page asse
 
 ```vcl
 sub vcl_recv {
-  # Set the default backend
-  set req.backend = default;
-  
   return(lookup);
 }
 
 sub vcl_fetch {
   # Enable ESI processing for HTML responses
-  if (beresp.http.Content-Type ~ "text/html") {
+  if (beresp.http.content-type ~ "text/html") {
     set beresp.do_esi = true;
   }
-  
+
   return(deliver);
 }
 ```
@@ -183,6 +178,6 @@ With this VCL, you can create HTML pages that use ESI tags:
 
 ## Conclusion
 
-ESI is a powerful feature that allows you to assemble dynamic content at the edge. With Fastly.JS, you can test and develop ESI-enabled pages locally before deploying them to your production Fastly service.
+ESI is a powerful feature that allows you to assemble dynamic content at the edge. With Fastly.JS, you can verify locally that your VCL enables ESI and that your pages' ESI tags are recognized and processed, before deploying them to your production Fastly service where includes are resolved against your real origins.
 
 For more information on ESI, see the [ESI Language Specification](https://www.w3.org/TR/esi-lang).

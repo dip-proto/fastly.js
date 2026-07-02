@@ -35,6 +35,10 @@ Request handling primarily occurs in the `vcl_recv` subroutine, which is execute
 You can access various properties of the client request using the `req` object:
 
 ```vcl
+acl internal {
+  "192.168.0.0"/24;
+}
+
 sub vcl_recv {
   # Access request method
   if (req.method == "POST") {
@@ -47,20 +51,22 @@ sub vcl_recv {
   }
   
   # Access request headers
-  if (req.http.User-Agent ~ "Mobile") {
+  if (req.http.user-agent ~ "Mobile") {
     # Handle mobile requests
   }
   
-  # Access client IP
-  if (client.ip ~ "192.168.0.0/24") {
+  # Access client IP, matched against a named ACL
+  if (client.ip ~ internal) {
     # Handle internal requests
   }
 }
 ```
 
+Note that `client.ip` must be matched against a named ACL. A quoted string on the right-hand side of `~` is treated as a regular expression, not a CIDR range, so `client.ip ~ "192.168.0.0/24"` does not do what it looks like.
+
 ### Manipulating Request Headers
 
-You can add, modify, or remove request headers:
+You can add, modify, or remove request headers. Remember that lookups are case-sensitive and incoming header names are stored in lowercase, which is why the examples read `req.http.user-agent` rather than `req.http.User-Agent`:
 
 ```vcl
 sub vcl_recv {
@@ -68,15 +74,15 @@ sub vcl_recv {
   set req.http.X-Custom-Header = "value";
   
   # Modify a header
-  if (req.http.User-Agent) {
-    set req.http.User-Agent = req.http.User-Agent + " via Fastly.JS";
+  if (req.http.user-agent) {
+    set req.http.user-agent = req.http.user-agent + " via Fastly.JS";
   }
   
   # Remove a header
-  unset req.http.Cookie;
+  unset req.http.cookie;
   
   # Normalize a header
-  set req.http.Host = std.tolower(req.http.Host);
+  set req.http.host = std.tolower(req.http.host);
 }
 ```
 
@@ -87,21 +93,21 @@ You can access and manipulate cookies in the request:
 ```vcl
 sub vcl_recv {
   # Check if a cookie exists
-  if (req.http.Cookie ~ "session=") {
+  if (req.http.cookie ~ "session=") {
     # Extract the session cookie
-    set req.http.X-Session = regsub(req.http.Cookie, ".*session=([^;]+).*", "\1");
+    set req.http.X-Session = regsub(req.http.cookie, ".*session=([^;]+).*", "\1");
   }
   
   # Remove all cookies except the session cookie
-  if (req.http.Cookie) {
-    set req.http.Cookie = ";" + req.http.Cookie;
-    set req.http.Cookie = regsuball(req.http.Cookie, "; +", ";");
-    set req.http.Cookie = regsuball(req.http.Cookie, ";(session)=", "; \1=");
-    set req.http.Cookie = regsuball(req.http.Cookie, ";[^ ][^;]*", "");
-    set req.http.Cookie = regsuball(req.http.Cookie, "^[; ]+|[; ]+$", "");
+  if (req.http.cookie) {
+    set req.http.cookie = ";" + req.http.cookie;
+    set req.http.cookie = regsuball(req.http.cookie, "; +", ";");
+    set req.http.cookie = regsuball(req.http.cookie, ";(session)=", "; \1=");
+    set req.http.cookie = regsuball(req.http.cookie, ";[^ ][^;]*", "");
+    set req.http.cookie = regsuball(req.http.cookie, "^[; ]+|[; ]+$", "");
     
-    if (req.http.Cookie == "") {
-      unset req.http.Cookie;
+    if (req.http.cookie == "") {
+      unset req.http.cookie;
     }
   }
 }
@@ -169,7 +175,7 @@ sub vcl_fetch {
   }
   
   # Access response headers
-  if (beresp.http.Content-Type ~ "text/html") {
+  if (beresp.http.content-type ~ "text/html") {
     # Handle HTML responses
   }
   
@@ -190,12 +196,12 @@ sub vcl_fetch {
   set beresp.http.X-Custom-Header = "value";
   
   # Modify a header
-  if (beresp.http.Server) {
-    set beresp.http.Server = beresp.http.Server + " via Fastly.JS";
+  if (beresp.http.server) {
+    set beresp.http.server = beresp.http.server + " via Fastly.JS";
   }
   
   # Remove a header
-  unset beresp.http.X-Powered-By;
+  unset beresp.http.x-powered-by;
 }
 ```
 
@@ -209,12 +215,12 @@ sub vcl_deliver {
   set resp.http.X-Custom-Header = "value";
   
   # Modify a header
-  if (resp.http.Server) {
-    set resp.http.Server = resp.http.Server + " via Fastly.JS";
+  if (resp.http.server) {
+    set resp.http.server = resp.http.server + " via Fastly.JS";
   }
   
   # Remove a header
-  unset resp.http.X-Powered-By;
+  unset resp.http.x-powered-by;
   
   # Add cache status header
   if (obj.hits > 0) {
@@ -233,9 +239,11 @@ You can modify the response status:
 sub vcl_deliver {
   # Set response status
   set resp.status = 200;
-  set resp.reason = "OK";
+  set resp.response = "OK";
 }
 ```
+
+The reason phrase variable is `resp.response`, as in Fastly VCL. (`resp.reason` is Varnish syntax and is not supported.)
 
 ### Creating Synthetic Responses
 

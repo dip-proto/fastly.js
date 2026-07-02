@@ -13,17 +13,27 @@ In VCL, errors can occur in several ways:
 
 ## The Error Flow
 
-When an error occurs, Fastly.JS executes the `vcl_error` subroutine, which allows you to customize the error response. The default behavior is to return a generic error page with the appropriate status code.
+Fastly.JS executes the `vcl_error` subroutine when the `error` statement is used in VCL, or when the backend request itself fails (connection error or timeout). This is where you can customize the error response; the default behavior is to return a generic error page with the appropriate status code.
+
+Note that a 5xx status returned by the backend does not trigger `vcl_error` on its own: such responses flow through `vcl_fetch` and `vcl_deliver` like any other.
 
 ## Triggering Errors
 
 You can trigger an error using the `error` statement:
 
 ```vcl
+acl internal {
+  "192.168.0.0"/24;
+}
+
 sub vcl_recv {
-  # Block access to admin area
-  if (req.url ~ "^/admin/" && client.ip !~ "192.168.0.0/24") {
-    error 403 "Forbidden";
+  # Block access to admin area for clients outside the internal ACL
+  if (req.url ~ "^/admin/") {
+    if (client.ip ~ internal) {
+      # Allowed
+    } else {
+      error 403 "Forbidden";
+    }
   }
   
   # Return a custom 404 for missing files
@@ -32,6 +42,8 @@ sub vcl_recv {
   }
 }
 ```
+
+(Client IPs are matched against a named ACL. The ACL match must be the whole `if` condition: combining it with `&&` or negating it with `!` is not currently supported, so use an `if`/`else` as shown.)
 
 The `error` statement takes two parameters:
 1. The HTTP status code
@@ -148,17 +160,17 @@ sub vcl_error {
 
 ## Handling Backend Failures
 
-You can handle backend failures in `vcl_fetch`:
+There is no retry action in `vcl_fetch` (and `restart` only takes effect from `vcl_recv`), so a failed backend response cannot be re-sent to a different backend from VCL. The bundled proxy (`index.ts`) handles this itself: when a backend returns a 5xx response, it automatically retries the request against the fallback director.
+
+What you can do in `vcl_fetch` is reshape a failed response before it reaches the client:
 
 ```vcl
 sub vcl_fetch {
-  # If the backend returns a 5xx status, try a different backend
+  # Present backend failures as a consistent 503, and don't cache them
   if (beresp.status >= 500 && beresp.status < 600) {
-    # If we have a fallback backend, try it
-    if (req.backend != fallback_backend) {
-      set req.backend = fallback_backend;
-      return(retry);
-    }
+    set beresp.status = 503;
+    set beresp.http.Retry-After = "30";
+    return(pass);
   }
 }
 ```
@@ -169,39 +181,27 @@ Graceful degradation allows you to serve a degraded but functional version of yo
 
 ### Serving Stale Content
 
-You can serve stale content when the backend is unavailable:
+You can keep serving stale content after the TTL expires by setting a long grace period:
 
 ```vcl
 sub vcl_fetch {
   # Set a long grace period
   set beresp.grace = 24h;
 }
-
-sub vcl_hit {
-  # If the object is stale, try to revalidate it
-  if (obj.ttl <= 0s) {
-    # If the backend is healthy, fetch a fresh copy
-    if (std.backend.is_healthy(req.backend)) {
-      return(fetch);
-    }
-    # Otherwise, serve the stale copy
-    else {
-      return(deliver);
-    }
-  }
-}
 ```
+
+Stale serving is built into the pipeline: within the grace window an expired object is delivered automatically with `X-Cache: HIT-STALE`, and the following request fetches a fresh copy from the backend. No `vcl_hit` logic is needed. (Note that `obj.ttl` is not populated from the cache entry in `vcl_hit`, so Varnish-style revalidation checks against it will not behave as expected.)
 
 ### Serving a Static Fallback
 
-You can serve a static fallback page when the backend is unavailable:
+The `synthetic` statement is only valid inside `vcl_error`, so a response body cannot be replaced from `vcl_fetch`. You can, however, serve a static fallback page when the backend cannot be reached at all: connection failures and timeouts run `vcl_error`, with `obj.status` set to 502 for connection errors and 504 for timeouts:
 
 ```vcl
-sub vcl_fetch {
-  # If the backend returns a 5xx status, serve a static fallback
-  if (beresp.status >= 500 && beresp.status < 600) {
+sub vcl_error {
+  # Serve a static fallback page when the backend is unreachable
+  if (obj.status == 502 || obj.status == 503 || obj.status == 504) {
     # Set the content type
-    set beresp.http.Content-Type = "text/html; charset=utf-8";
+    set obj.http.Content-Type = "text/html; charset=utf-8";
     
     # Create a static fallback page
     synthetic {"
@@ -217,9 +217,6 @@ sub vcl_fetch {
       </html>
     "};
     
-    # Set the status to 503 Service Unavailable
-    set beresp.status = 503;
-    
     return(deliver);
   }
 }
@@ -227,15 +224,20 @@ sub vcl_fetch {
 
 ## Redirects
 
-You can use redirects to handle certain error conditions:
+You can use the error mechanism to issue redirects. Trigger a 301 with the `error` statement, then attach the `Location` header in `vcl_error`:
 
 ```vcl
+sub vcl_recv {
+  # Redirect plain HTTP to HTTPS
+  if (req.http.x-forwarded-proto == "http") {
+    error 301 "Moved Permanently";
+  }
+}
+
 sub vcl_error {
   # Redirect to HTTPS
-  if (obj.status == 301 && obj.response == "Redirect to HTTPS") {
+  if (obj.status == 301) {
     set obj.http.Location = "https://" + req.http.host + req.url;
-    set obj.status = 301;
-    set obj.response = "Moved Permanently";
     set obj.http.Content-Type = "text/html; charset=utf-8";
     synthetic {"
       <!DOCTYPE html>
@@ -270,12 +272,21 @@ sub vcl_error {
 
 ## Rate Limiting
 
-You can use error handling to implement rate limiting:
+You can use error handling to implement rate limiting with the `ratelimit` functions. Declare a rate counter and a penalty box, then check the rate in `vcl_recv`:
 
 ```vcl
+penaltybox rl_pb {}
+ratecounter rl_counter {}
+
 sub vcl_recv {
-  # Check if the client has exceeded the rate limit
-  if (std.rate_limit(client.ip, 100, 60s)) {
+  # Reject clients that are already in the penalty box
+  if (ratelimit.penaltybox_has(rl_pb, client.ip)) {
+    error 429 "Too Many Requests";
+  }
+
+  # Allow up to 100 requests per 60-second window, each request counting for 1;
+  # offenders go into the penalty box for 60 seconds
+  if (ratelimit.check_rate(client.ip, rl_counter, 100, 60, 1, rl_pb, 60s)) {
     error 429 "Too Many Requests";
   }
 }

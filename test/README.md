@@ -4,22 +4,28 @@ This directory contains a comprehensive test suite for the VCL implementation. T
 
 ## Test Structure
 
-The test suite is organized into several files:
+The test suite is organized into many files. The main ones are:
 
 - `test-framework.ts`: Contains the test framework code for running tests and reporting results.
-- `run-tests.ts`: The main entry point for running all tests.
+- `run-tests.ts`: The entry point for the standard suites. It runs the files below plus the function-family suites (random, accept, address, binary, digest, query-string, UUID, WAF, rate limiting, HTTP, time, ESI, CSRF), security features, multi-file loading, goto, and the real-world configurations.
 - `basic-vcl-tests.ts`: Tests for basic VCL functionality (subroutines, variables, conditionals, etc.).
 - `stdlib-tests.ts`: Tests for VCL standard library functions (string manipulation, time functions, etc.).
 - `caching-tests.ts`: Tests for caching functionality (TTL, grace periods, etc.).
 - `backend-error-tests.ts`: Tests for backend configuration and error handling.
+
+Beyond the standard runner there are separate entry points for the root-level scenarios (`run-root-tests.ts`, in `root-tests/`), the integration tests (`run-integration-tests.ts`, in `integration/`), and a handful of `bun test` suites (tables, crypto compatibility, limits, browser simulation, browser bundle).
 
 ## Running Tests
 
 You can run the tests using the following commands:
 
 ```bash
-# Run all tests
+# Run the standard test suites
 bun run test
+
+# Run everything, including root, integration, tables, crypto compat,
+# limits, and the browser suites
+bun run test:all
 
 # Run specific test suites
 bun run test:basic
@@ -27,6 +33,8 @@ bun run test:stdlib
 bun run test:caching
 bun run test:backend
 ```
+
+See the `test:*` scripts in `package.json` for the full list of individual suites.
 
 ## Adding New Tests
 
@@ -79,7 +87,7 @@ The test framework provides the following functions:
 
 ## Test Results
 
-Test results are displayed in the console. Each test is marked as passed (✅) or failed (❌), with error messages for failed tests. A summary of the results is displayed at the end of each test suite and at the end of all tests.
+Test results are displayed in the console. Each test is marked as `PASS` or `FAIL` (with its duration), and failed tests include an error message. A summary of the results is displayed at the end of each test suite and at the end of all tests. The process exits non-zero if any test failed.
 
 ## Troubleshooting
 

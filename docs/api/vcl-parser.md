@@ -17,7 +17,7 @@ For most callers the only entry point you need is `parseVCL`.
 import { parseVCL, VCLLexer, type VCLProgram } from "../src/vcl-parser";
 ```
 
-If you simply want to load and run a VCL file, use `loadVCL` / `loadVCLContent` from `src/vcl` instead — they handle parsing and compilation in one call.
+If you simply want to load and run a VCL file, use `loadVCLContent` from `src/vcl` (or `loadVCL` from `src/node-loader` for files on disk) instead — they handle parsing and compilation in one call.
 
 ## Basic usage
 
@@ -51,7 +51,7 @@ const lexer = new VCLLexer(`set req.http.X = "hi";`);
 const tokens = lexer.tokenize();
 ```
 
-There is no separate "loadVCL" or "mergeAST" helper exported from this module; loading a file goes through `src/vcl.ts`. To combine multiple VCL files, concatenate them as text before passing them to `parseVCL` or `loadVCLContent` — that is the approach `index.ts` takes when you pass several files on the command line.
+There is no "loadVCL" or "mergeAST" helper exported from this module; loading a file goes through `loadVCL` in `src/node-loader.ts` (which calls `loadVCLContent` from `src/vcl.ts`). To combine multiple VCL files, concatenate them as text before passing them to `parseVCL` or `loadVCLContent` — that is the approach `index.ts` takes when you pass several files on the command line.
 
 ## AST node types
 
@@ -126,16 +126,18 @@ interface VCLIfStatement {
 Expression nodes share the same `VCLNode` base and discriminate on `type`:
 
 - `VCLBinaryExpression` — `{ type: "BinaryExpression", operator, left, right }`
-- `VCLUnaryExpression` — `{ type: "UnaryExpression", operator, argument }`
-- `VCLTernaryExpression` — `{ type: "TernaryExpression", test, consequent, alternate }`
+- `VCLUnaryExpression` — `{ type: "UnaryExpression", operator, operand }`
+- `VCLTernaryExpression` — `{ type: "TernaryExpression", condition, trueExpr, falseExpr }`
 - `VCLFunctionCall` — `{ type: "FunctionCall", name, arguments }`
 - `VCLIdentifier` — `{ type: "Identifier", name }`
 - `VCLStringLiteral` — `{ type: "StringLiteral", value }`
-- `VCLNumberLiteral` — `{ type: "NumberLiteral", value }`
+- `VCLNumberLiteral` — `{ type: "NumberLiteral", value, isFloat? }`
+- `VCLBoolLiteral` — `{ type: "BoolLiteral", value }`
+- `VCLRTimeLiteral` — `{ type: "RTimeLiteral", seconds, raw }` (for duration literals like `10s`, `1.5h`)
 - `VCLRegexLiteral` — `{ type: "RegexLiteral", pattern, flags }`
 - `VCLMemberAccess` — `{ type: "MemberAccess", object, property }`
 
-A complete list of statement node types lives in the `VCLStatementType` union: `Assignment`, `IfStatement`, `ReturnStatement`, `ErrorStatement`, `SetStatement`, `UnsetStatement`, `AddStatement`, `RemoveStatement`, `CallStatement`, `LogStatement`, `SyntheticStatement`, `SyntheticBase64Statement`, `EsiStatement`, `SwitchStatement`, `HashDataStatement`, `GotoStatement`, `LabelStatement`, `RestartStatement`, `DeclareStatement`.
+A complete list of statement node types lives in the `VCLStatementType` union: `Statement` (empty), `Assignment`, `IfStatement`, `ReturnStatement`, `ErrorStatement`, `SetStatement`, `UnsetStatement`, `AddStatement`, `RemoveStatement`, `CallStatement`, `LogStatement`, `SyntheticStatement`, `SyntheticBase64Statement`, `EsiStatement`, `SwitchStatement`, `HashDataStatement`, `GotoStatement`, `LabelStatement`, `RestartStatement`, `DeclareStatement`, `ExpressionStatement`, `BlockStatement`.
 
 ## Error handling
 
@@ -151,11 +153,11 @@ try {
   `);
 } catch (error) {
   console.error((error as Error).message);
-  // Unterminated string literal at line 3
+  // Expected ';' after set statement at line 6, column 4
 }
 ```
 
-`loadVCLContent` (in `src/vcl.ts`) wraps this and prints the error before re-throwing, which is what you see when the proxy fails to start.
+`loadVCLContent` (in `src/vcl.ts`) wraps this: it logs the message together with a source frame pointing at the offending line, then throws a `VCLDiagnosticError` (from `src/diagnostics.ts`) carrying the same information. That is what you see when the proxy fails to start.
 
 ## Working with multiple files
 

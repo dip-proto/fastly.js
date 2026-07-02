@@ -4,27 +4,33 @@ This document describes the implementation and usage of `goto` statements in VCL
 
 ## Overview
 
-The `goto` statement allows you to jump to a labeled section of code within the same subroutine. This can be useful for implementing complex flow control logic that would be difficult to express using only `if` statements.
+The `goto` statement allows you to jump forward to a labeled section of code within the same subroutine. This can be useful for implementing complex flow control logic that would be difficult to express using only `if` statements. Jumps are forward-only: the label must appear after the `goto` that targets it.
 
 ## Syntax
 
 ```vcl
-# Define a label
-label_name:
-  # Code to execute when jumping to this label
-  set req.http.X-Label = "label_name";
-
-# Jump to a label
+# Jump forward to a label
 goto label_name;
+
+# Code between the goto and the label is skipped
+set req.http.X-Skipped = "true";
+
+# Define the label; execution continues here
+label_name:
+  set req.http.X-Label = "label_name";
 ```
 
 ## Usage Examples
 
 ### Basic Usage
 
+Note that header lookups are case-sensitive and incoming request header names
+are stored in lowercase, so client headers such as `host` and `cookie` are
+read with lowercase names in these examples.
+
 ```vcl
 sub vcl_recv {
-  if (req.http.Host == "admin.example.com") {
+  if (req.http.host == "admin.example.com") {
     # Jump to the admin processing section
     goto admin_processing;
   }
@@ -52,7 +58,7 @@ sub vcl_recv {
 
 ```vcl
 sub vcl_recv {
-  if (req.http.Cookie ~ "logged_in=true") {
+  if (req.http.cookie ~ "logged_in=true") {
     # Jump to logged-in user processing
     goto logged_in_user;
   } else {
@@ -64,7 +70,7 @@ sub vcl_recv {
   logged_in_user:
     set req.http.X-User-Type = "logged_in";
     
-    if (req.http.Cookie ~ "user_role=admin") {
+    if (req.http.cookie ~ "user_role=admin") {
       # Jump to admin user processing
       goto admin_user;
     } else {
@@ -100,26 +106,24 @@ sub vcl_recv {
 
 2. **Clear Labels**: Use descriptive label names that clearly indicate the purpose of the labeled section.
 
-3. **Forward Jumps**: Prefer forward jumps (jumping to labels that appear later in the code) over backward jumps to avoid creating infinite loops.
+3. **Structured Flow**: Try to structure your code so that the flow is clear, even with `goto` statements. Use comments to explain the purpose of each jump.
 
-4. **Structured Flow**: Try to structure your code so that the flow is clear, even with `goto` statements. Use comments to explain the purpose of each jump.
-
-5. **Avoid Nested Labels**: Don't define labels inside conditional blocks or other control structures, as this can make the code harder to follow.
+4. **Keep Labels at the Top Level**: Labels inside conditional blocks or other control structures are not valid jump destinations; define them at the top level of the subroutine.
 
 ## Implementation Details
 
 The `goto` statement is implemented in the VCL compiler as follows:
 
 1. The parser recognizes `goto` statements and label declarations in the VCL code.
-2. During execution, when a `goto` statement is encountered, the compiler looks up the target label in a map of label names to statement indices.
-3. If the label is found, execution jumps to the statement immediately after the label.
-4. If the label is not found, an error is logged, and execution continues with the next statement.
+2. When the VCL is loaded, every `goto` is validated: its label must exist in the same subroutine, at the top level, and after the `goto`. A missing label or a backward jump is a load-time error.
+3. During execution, when a `goto` statement is encountered, execution jumps to the statement immediately after the label, skipping everything in between.
 
 ## Limitations
 
 1. Labels are only visible within the same subroutine. You cannot jump from one subroutine to another.
-2. Labels must be unique within a subroutine.
-3. The `goto` statement cannot be used to jump into or out of a conditional block or other control structure.
+2. Jumps are forward-only. A `goto` targeting an earlier label is rejected when the VCL is loaded, so loops cannot be built with `goto`.
+3. Only labels at the top level of a subroutine are valid destinations. A `goto` inside an `if`, `switch`, or nested block may jump out to a later top-level label, but it is not possible to jump into a block.
+4. Label names should be unique within a subroutine; Fastly.JS does not currently reject duplicates, and a duplicated label makes the jump destination ambiguous.
 
 ## Testing
 

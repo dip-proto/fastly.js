@@ -6,18 +6,18 @@ This document provides guidance on testing the VCL implementation.
 
 The VCL implementation can be tested in two ways:
 
-1. **Direct JavaScript API**: Using the JavaScript API directly to create VCL subroutines and execute them.
-2. **VCL Parser**: Using the VCL parser to parse VCL code and execute the resulting subroutines.
+1. **VCL Parser**: Using the VCL parser to parse real VCL code and execute the resulting subroutines. This is how the test suites work: each test provides a VCL snippet that is parsed, compiled, and run.
+2. **Direct JavaScript API**: Creating VCL subroutines directly in JavaScript and executing them, which is useful when a test needs full control over the runtime context.
 
 ## Direct JavaScript API
 
-The direct JavaScript API is the most reliable way to test the VCL implementation. It allows you to create VCL subroutines directly in JavaScript and execute them.
+The direct JavaScript API lets you create VCL subroutines directly in JavaScript and execute them, bypassing the parser entirely.
 
 ### Example
 
 ```typescript
 import { createVCLContext, executeVCL } from './src/vcl';
-import { VCLContext, VCLSubroutines } from './src/vcl-compiler';
+import type { VCLContext, VCLSubroutines } from './src/vcl-compiler';
 
 // Create a context
 const context = createVCLContext();
@@ -48,7 +48,7 @@ console.log(context.req.http);
 
 ## VCL Parser
 
-The VCL parser is still under development and may not correctly parse all VCL code. It's recommended to use the direct JavaScript API for testing until the parser is more stable.
+The VCL parser handles the full language as exercised by the test suites, so the usual way to test is to write VCL and load it with `loadVCL` (from a file) or `loadVCLContent` (from a string).
 
 ### Example
 
@@ -81,7 +81,7 @@ console.log(context.req.http);
 
 The test suites live under `test/`. Some of the entry points are:
 
-- `test/run-tests.ts`: The default runner that drives the core suites (basic VCL, stdlib, caching, backend errors).
+- `test/run-tests.ts`: The default runner. It drives the standard suites: basic VCL, stdlib, caching, backend errors, the function-family suites (random, accept, address, binary, digest, query-string, UUID, WAF, rate limiting, HTTP, time, ESI, CSRF), security features, multi-file loading, goto, and the real-world configurations.
 - `test/run-integration-tests.ts`: End-to-end integration tests under `test/integration/`.
 - `test/run-root-tests.ts`: The root-level scenarios under `test/root-tests/`.
 - `test/parser-tests.ts`: Tests for the VCL parser.
@@ -92,10 +92,11 @@ The test suites live under `test/`. Some of the entry points are:
 The test entry points are wired up as `package.json` scripts, so you run them through `bun run`:
 
 ```bash
-# Run the core test suites
+# Run the standard test suites
 bun run test
 
-# Run everything (core suites, integration, tables, crypto compat, browser)
+# Run everything (standard suites, root, integration, tables, crypto compat,
+# limits, browser simulation, browser bundle)
 bun run test:all
 
 # Run an individual suite
@@ -103,23 +104,12 @@ bun run test:integration
 bun run test:caching
 ```
 
-## Known Issues
-
-The VCL parser has the following known issues:
-
-1. The parser may not correctly handle identifiers with hyphens (e.g., `req.http.X-Test`).
-2. The parser may not correctly handle binary expressions in if statements.
-3. The parser may not correctly handle regex literals.
-
-These issues are being addressed in ongoing development.
-
 ## Best Practices
 
-1. Use the direct JavaScript API for testing until the parser is more stable.
-2. Write small, focused tests that test one feature at a time.
-3. Use descriptive test names that clearly indicate what is being tested.
-4. Verify the results of each test to ensure that the VCL implementation is working correctly.
-5. When testing with the parser, start with simple VCL code and gradually add more complex features.
+1. Write small, focused tests that test one feature at a time.
+2. Use descriptive test names that clearly indicate what is being tested.
+3. Verify the results of each test to ensure that the VCL implementation is working correctly.
+4. Prefer real VCL snippets over hand-built JavaScript subroutines, since they also exercise the parser and compiler.
 
 ## Conclusion
 

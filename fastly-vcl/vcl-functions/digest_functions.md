@@ -6,13 +6,39 @@ and message authentication.
 
 ## FUNCTION GROUP: BASIC HASH FUNCTIONS
 
-The following functions generate cryptographic hashes from input strings:
+The following functions generate hashes from input strings, returned as lowercase hexadecimal strings:
+- digest.hash_crc32: Generates a CRC32 checksum of the input string
+- digest.hash_crc32b: Generates a CRC32b checksum of the input string
 - digest.hash_md5: Generates an MD5 hash of the input string
 - digest.hash_sha1: Generates a SHA-1 hash of the input string
+- digest.hash_sha224: Generates a SHA-224 hash of the input string
 - digest.hash_sha256: Generates a SHA-256 hash of the input string
+- digest.hash_sha384: Generates a SHA-384 hash of the input string
 - digest.hash_sha512: Generates a SHA-512 hash of the input string
 - digest.hash_xxh32: Generates a 32-bit xxHash of the input string
 - digest.hash_xxh64: Generates a 64-bit xxHash of the input string
+
+Each of digest.hash_sha1, digest.hash_sha256, digest.hash_sha512, digest.hash_xxh32 and digest.hash_xxh64 also has a `_from_base64` variant (e.g. digest.hash_sha256_from_base64) that base64-decodes its input before hashing, so binary data can be hashed.
+
+### FUNCTION: digest.hash_crc32
+
+PURPOSE: Generates a CRC32 checksum of the input string
+SYNTAX: digest.hash_crc32(STRING input)
+
+PARAMETERS:
+- input: The string to checksum
+
+RETURN VALUE: The CRC32 checksum of the input string
+
+### FUNCTION: digest.hash_crc32b
+
+PURPOSE: Generates a CRC32b checksum of the input string
+SYNTAX: digest.hash_crc32b(STRING input)
+
+PARAMETERS:
+- input: The string to checksum
+
+RETURN VALUE: The CRC32b checksum of the input string
 
 ### FUNCTION: digest.hash_md5
 
@@ -34,6 +60,16 @@ PARAMETERS:
 
 RETURN VALUE: The SHA-1 hash of the input string
 
+### FUNCTION: digest.hash_sha224
+
+PURPOSE: Generates a SHA-224 hash of the input string
+SYNTAX: digest.hash_sha224(STRING input)
+
+PARAMETERS:
+- input: The string to hash
+
+RETURN VALUE: The SHA-224 hash of the input string
+
 ### FUNCTION: digest.hash_sha256
 
 PURPOSE: Generates a SHA-256 hash of the input string
@@ -43,6 +79,16 @@ PARAMETERS:
 - input: The string to hash
 
 RETURN VALUE: The SHA-256 hash of the input string
+
+### FUNCTION: digest.hash_sha384
+
+PURPOSE: Generates a SHA-384 hash of the input string
+SYNTAX: digest.hash_sha384(STRING input)
+
+PARAMETERS:
+- input: The string to hash
+
+RETURN VALUE: The SHA-384 hash of the input string
 
 ### FUNCTION: digest.hash_sha512
 
@@ -145,6 +191,8 @@ set var.xxh64_hash = digest.hash_xxh64(var.data);
 
 # Use for load balancing or consistent hashing
 set req.http.X-Shard-Key = var.xxh64_hash;
+```
+
 ## FUNCTION GROUP: HMAC FUNCTIONS
 
 The following functions provide a way to verify both the data integrity and the authenticity of a message:
@@ -156,6 +204,8 @@ The following functions provide a way to verify both the data integrity and the 
 - digest.hmac_sha1_base64: Generates a base64-encoded HMAC using SHA-1
 - digest.hmac_sha256_base64: Generates a base64-encoded HMAC using SHA-256
 - digest.hmac_sha512_base64: Generates a base64-encoded HMAC using SHA-512
+
+The non-base64 variants return the HMAC as a hexadecimal string prefixed with `0x`. The `_base64` variants return the HMAC encoded with standard base64.
 
 ### FUNCTION: digest.hmac_md5
 
@@ -547,26 +597,29 @@ The following functions help verify digital signatures using RSA or ECDSA:
 ### FUNCTION: digest.rsa_verify
 
 PURPOSE: Verifies an RSA signature
-SYNTAX: digest.rsa_verify(STRING digest_algorithm, STRING message, STRING signature_base64, STRING public_key)
+SYNTAX: digest.rsa_verify(ID hash_method, STRING public_key, STRING payload, STRING digest, [ID base64_variant])
 
 PARAMETERS:
-- digest_algorithm: The digest algorithm used (e.g., "sha256")
-- message: The message that was signed
-- signature_base64: The base64-encoded signature
+- hash_method: The hash algorithm used, as a bare identifier (not a quoted string): one of `default`, `sha1`, `sha256`, `sha384`, `sha512`. `default` is equivalent to `sha256`
 - public_key: The RSA public key in PEM format
+- payload: The message that was signed
+- digest: The base64-encoded signature to verify
+- base64_variant: Optional; the base64 encoding of the digest, as a bare identifier: one of `default`, `standard`, `url`, `url_nopad`. Defaults to url_nopad
 
 RETURN VALUE: TRUE if the signature is valid, FALSE otherwise
 
 ### FUNCTION: digest.ecdsa_verify
 
 PURPOSE: Verifies an ECDSA signature
-SYNTAX: digest.ecdsa_verify(STRING curve, STRING message, STRING signature_base64, STRING public_key)
+SYNTAX: digest.ecdsa_verify(ID hash_method, STRING public_key, STRING payload, STRING digest, ID digest_format, [ID base64_variant])
 
 PARAMETERS:
-- curve: The elliptic curve used (e.g., "prime256v1")
-- message: The message that was signed
-- signature_base64: The base64-encoded signature
+- hash_method: The hash algorithm used, as a bare identifier: one of `default`, `sha1`, `sha256`, `sha384`, `sha512`. `default` is equivalent to `sha256` (`sha1` cannot be combined with the `jwt` digest format)
 - public_key: The ECDSA public key in PEM format
+- payload: The message that was signed
+- digest: The base64-encoded signature to verify
+- digest_format: The signature encoding, as a bare identifier: `der` or `jwt`
+- base64_variant: Optional; the base64 encoding of the digest, as a bare identifier: one of `default`, `standard`, `url`, `url_nopad`. Defaults to url_nopad
 
 RETURN VALUE: TRUE if the signature is valid, FALSE otherwise
 
@@ -580,21 +633,20 @@ This example demonstrates how to verify an RSA signature:
 declare local var.message STRING;
 declare local var.signature_base64 STRING;
 declare local var.public_key STRING;
-declare local var.digest_algorithm STRING;
 declare local var.is_valid BOOL;
 
 # Set the message, signature, and public key
 set var.message = req.http.X-Message;
 set var.signature_base64 = req.http.X-Signature;
 set var.public_key = table.lookup(public_keys, req.http.X-Key-ID);
-set var.digest_algorithm = "sha256";  # Can be sha1, sha256, etc.
 
-# Verify the RSA signature
+# Verify the RSA signature (hash method is a bare identifier)
 set var.is_valid = digest.rsa_verify(
-  var.digest_algorithm,
+  sha256,
+  var.public_key,
   var.message,
   var.signature_base64,
-  var.public_key
+  standard
 );
 
 if (var.is_valid) {
@@ -613,21 +665,21 @@ This example demonstrates how to verify an ECDSA signature:
 declare local var.ecdsa_message STRING;
 declare local var.ecdsa_signature_base64 STRING;
 declare local var.ecdsa_public_key STRING;
-declare local var.ecdsa_curve STRING;
 declare local var.ecdsa_is_valid BOOL;
 
 # Set the message, signature, and public key
 set var.ecdsa_message = req.http.X-ECDSA-Message;
 set var.ecdsa_signature_base64 = req.http.X-ECDSA-Signature;
 set var.ecdsa_public_key = table.lookup(ecdsa_public_keys, req.http.X-ECDSA-Key-ID);
-set var.ecdsa_curve = "prime256v1";  # Common ECDSA curve
 
-# Verify the ECDSA signature
+# Verify the ECDSA signature (DER-encoded, standard base64)
 set var.ecdsa_is_valid = digest.ecdsa_verify(
-  var.ecdsa_curve,
+  sha256,
+  var.ecdsa_public_key,
   var.ecdsa_message,
   var.ecdsa_signature_base64,
-  var.ecdsa_public_key
+  der,
+  standard
 );
 
 if (var.ecdsa_is_valid) {
@@ -639,76 +691,72 @@ if (var.ecdsa_is_valid) {
 ```
 ## FUNCTION GROUP: TIME-BASED HMAC FUNCTIONS
 
-The following functions generate time-based HMACs, which are useful for creating time-limited tokens or signatures:
+The following functions generate time-based HMACs, which are useful for creating time-limited tokens:
+- digest.time_hmac_md5: Generates a time-based HMAC using MD5
 - digest.time_hmac_sha1: Generates a time-based HMAC using SHA-1
 - digest.time_hmac_sha256: Generates a time-based HMAC using SHA-256
 - digest.time_hmac_sha512: Generates a time-based HMAC using SHA-512
-- digest.time_hmac_sha1_debug: Provides debug information for time-based HMAC using SHA-1
+
+These functions do not take a message. The value being authenticated is the current time bucket: the current time divided by `interval`, plus `offset`. Tokens generated within the same interval are identical, and a token for an adjacent interval can be reproduced by passing a non-zero offset.
+
+### FUNCTION: digest.time_hmac_md5
+
+PURPOSE: Generates a time-based HMAC using MD5
+SYNTAX: digest.time_hmac_md5(STRING key, INTEGER interval, INTEGER offset)
+
+PARAMETERS:
+- key: The base64-encoded secret key
+- interval: The duration of each time bucket, in seconds (must be an integer literal)
+- offset: Number of intervals to add to the current time bucket (must be an integer literal)
+
+RETURN VALUE: The base64-encoded time-based HMAC-MD5
 
 ### FUNCTION: digest.time_hmac_sha1
 
 PURPOSE: Generates a time-based HMAC using SHA-1
-SYNTAX: digest.time_hmac_sha1(STRING key, STRING input, INTEGER window)
+SYNTAX: digest.time_hmac_sha1(STRING key, INTEGER interval, INTEGER offset)
 
 PARAMETERS:
-- key: The secret key
-- input: The message to authenticate
-- window: The time window in seconds
+- key: The base64-encoded secret key
+- interval: The duration of each time bucket, in seconds (must be an integer literal)
+- offset: Number of intervals to add to the current time bucket (must be an integer literal)
 
-RETURN VALUE: The time-based HMAC-SHA1 of the input message
+RETURN VALUE: The base64-encoded time-based HMAC-SHA1
 
 ### FUNCTION: digest.time_hmac_sha256
 
 PURPOSE: Generates a time-based HMAC using SHA-256
-SYNTAX: digest.time_hmac_sha256(STRING key, STRING input, INTEGER window)
+SYNTAX: digest.time_hmac_sha256(STRING key, INTEGER interval, INTEGER offset)
 
 PARAMETERS:
-- key: The secret key
-- input: The message to authenticate
-- window: The time window in seconds
+- key: The base64-encoded secret key
+- interval: The duration of each time bucket, in seconds (must be an integer literal)
+- offset: Number of intervals to add to the current time bucket (must be an integer literal)
 
-RETURN VALUE: The time-based HMAC-SHA256 of the input message
+RETURN VALUE: The base64-encoded time-based HMAC-SHA256
 
 ### FUNCTION: digest.time_hmac_sha512
 
 PURPOSE: Generates a time-based HMAC using SHA-512
-SYNTAX: digest.time_hmac_sha512(STRING key, STRING input, INTEGER window)
+SYNTAX: digest.time_hmac_sha512(STRING key, INTEGER interval, INTEGER offset)
 
 PARAMETERS:
-- key: The secret key
-- input: The message to authenticate
-- window: The time window in seconds
+- key: The base64-encoded secret key
+- interval: The duration of each time bucket, in seconds (must be an integer literal)
+- offset: Number of intervals to add to the current time bucket (must be an integer literal)
 
-RETURN VALUE: The time-based HMAC-SHA512 of the input message
-
-### FUNCTION: digest.time_hmac_sha1_debug
-
-PURPOSE: Provides debug information for time-based HMAC using SHA-1
-SYNTAX: digest.time_hmac_sha1_debug(STRING key, STRING input, INTEGER window)
-
-PARAMETERS:
-- key: The secret key
-- input: The message to authenticate
-- window: The time window in seconds
-
-RETURN VALUE: Debug information about the time-based HMAC-SHA1
+RETURN VALUE: The base64-encoded time-based HMAC-SHA512
 
 ### Examples
 
 #### Basic time-based HMAC
 
 ```vcl
-declare local var.message STRING;
-declare local var.key STRING;
-declare local var.time_window INTEGER;
 declare local var.time_hmac STRING;
 
-set var.message = req.url.path;
-set var.key = "TimeBasedSecretKey";
-set var.time_window = 300;  # 5 minutes in seconds
-
-# Generate a time-based HMAC valid for the specified window
-set var.time_hmac = digest.time_hmac_sha256(var.key, var.message, var.time_window);
+# Generate a token for the current 5-minute bucket.
+# The key is base64 ("TimeBasedSecretKey" encoded).
+set var.time_hmac = digest.time_hmac_sha256("VGltZUJhc2VkU2VjcmV0S2V5", 300, 0);
 
 # Set the token in a header or cookie
 set req.http.X-Time-Token = var.time_hmac;
@@ -716,24 +764,21 @@ set req.http.X-Time-Token = var.time_hmac;
 
 #### Validating a time-based token
 
-This example demonstrates how to validate a time-based token:
+Because tokens change at every interval boundary, validation typically accepts both the current and the previous bucket:
 
 ```vcl
 declare local var.token STRING;
-declare local var.validation_key STRING;
-declare local var.validation_message STRING;
 declare local var.token_valid BOOL;
 
 set var.token = req.http.X-Auth-Token;
-set var.validation_key = "TimeBasedSecretKey";
-set var.validation_message = req.url.path;
 
-# Check if the token is valid for the current time
-# This implicitly checks if the token is within the time window
-set var.token_valid = digest.secure_is_equal(
-  var.token,
-  digest.time_hmac_sha256(var.validation_key, var.validation_message, 300)
-);
+# Accept a token generated in the current or the previous 5-minute bucket
+if (digest.secure_is_equal(var.token, digest.time_hmac_sha256("VGltZUJhc2VkU2VjcmV0S2V5", 300, 0)) ||
+    digest.secure_is_equal(var.token, digest.time_hmac_sha256("VGltZUJhc2VkU2VjcmV0S2V5", 300, -1))) {
+  set var.token_valid = true;
+} else {
+  set var.token_valid = false;
+}
 
 if (var.token_valid) {
   set req.http.X-Token-Valid = "true";
@@ -741,31 +786,6 @@ if (var.token_valid) {
   set req.http.X-Token-Valid = "false";
   error 401 "Expired or invalid token";
 }
-```
-
-#### Debugging time-based HMACs
-
-This example demonstrates how to debug time-based HMACs:
-
-```vcl
-declare local var.debug_key STRING;
-declare local var.debug_message STRING;
-declare local var.debug_window INTEGER;
-declare local var.debug_info STRING;
-
-set var.debug_key = "DebugKey";
-set var.debug_message = "TestMessage";
-set var.debug_window = 60;  # 1 minute
-
-# Get debug information about the time-based HMAC
-set var.debug_info = digest.time_hmac_sha1_debug(
-  var.debug_key,
-  var.debug_message,
-  var.debug_window
-);
-
-# The debug info includes the current time bucket, expiration, etc.
-set req.http.X-HMAC-Debug = var.debug_info;
 ```
 
 ## FUNCTION GROUP: SECURE COMPARISON
@@ -878,7 +898,7 @@ sub vcl_recv {
     declare local var.exp_time INTEGER;
     set var.exp_time = std.atoi(re.group.1);
     
-    if (var.exp_time < time.start) {
+    if (std.integer2time(var.exp_time) < now) {
       error 401 "JWT has expired";
     }
   }

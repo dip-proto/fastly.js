@@ -11,18 +11,19 @@ Retrieves the value of an HTTP header.
 ### Syntax
 
 ```vcl
-STRING header.get(HEADER header_name, STRING field_name [, STRING separator])
+STRING header.get(ID where, STRING header_name)
 ```
 
 ### Parameters
 
-- `header_name`: The header object to get from (req.http, resp.http, bereq.http, beresp.http, obj.http)
-- `field_name`: The name of the header field to get
-- `separator`: Optional separator for extracting specific parts of multi-value headers
+- `where`: The variable collection to read from, as a bare identifier: `req`, `bereq`, `resp` or `beresp`
+- `header_name`: The name of the header field to get
+
+The main benefit over reading `req.http.name` directly is that `header_name` can be a runtime expression, and can include a `:` suffix to address a field inside a comma-separated header (such as a cookie).
 
 ### Return Value
 
-The value of the specified header, or an empty string if the header doesn't exist
+The value of the specified header, or a not set value if the header doesn't exist
 
 ### Examples
 
@@ -34,13 +35,13 @@ declare local var.content_type STRING;
 declare local var.accept_encoding STRING;
 
 # Get the User-Agent header
-set var.user_agent = header.get(req.http, "User-Agent");
+set var.user_agent = header.get(req, "User-Agent");
 
 # Get the Content-Type header
-set var.content_type = header.get(req.http, "Content-Type");
+set var.content_type = header.get(req, "Content-Type");
 
 # Get the Accept-Encoding header
-set var.accept_encoding = header.get(req.http, "Accept-Encoding");
+set var.accept_encoding = header.get(req, "Accept-Encoding");
 
 # Log the headers for debugging
 log "User-Agent: " + var.user_agent;
@@ -48,21 +49,15 @@ log "Content-Type: " + var.content_type;
 log "Accept-Encoding: " + var.accept_encoding;
 ```
 
-#### Extracting specific values from multi-value headers
+#### Dynamic header names
 
 ```vcl
-declare local var.accept_language STRING;
-declare local var.primary_language STRING;
+declare local var.tenant STRING;
+declare local var.tenant_config STRING;
 
-# Get the Accept-Language header
-set var.accept_language = header.get(req.http, "Accept-Language");
-
-# Extract the primary language (before the first comma)
-set var.primary_language = header.get(req.http, "Accept-Language", ",");
-
-# Log the result
-log "Full Accept-Language: " + var.accept_language;
-log "Primary Language: " + var.primary_language;
+# The header name can be computed at runtime
+set var.tenant = req.http.X-Tenant;
+set var.tenant_config = header.get(req, "X-Config-" + var.tenant);
 ```
 
 #### Extracting specific cookie values
@@ -72,10 +67,10 @@ declare local var.all_cookies STRING;
 declare local var.session_cookie STRING;
 
 # Get all cookies
-set var.all_cookies = header.get(req.http, "Cookie");
+set var.all_cookies = header.get(req, "Cookie");
 
 # Extract a specific cookie value
-set var.session_cookie = header.get(req.http, "Cookie:session_id");
+set var.session_cookie = header.get(req, "Cookie:session_id");
 
 # Log the result
 log "All Cookies: " + var.all_cookies;
@@ -85,7 +80,7 @@ log "Session Cookie: " + var.session_cookie;
 #### Conditional logic based on header presence
 
 ```vcl
-if (header.get(req.http, "X-Requested-With") == "XMLHttpRequest") {
+if (header.get(req, "X-Requested-With") == "XMLHttpRequest") {
   # This is an AJAX request
   set req.http.X-Request-Type = "AJAX";
 } else {
@@ -100,7 +95,7 @@ if (header.get(req.http, "X-Requested-With") == "XMLHttpRequest") {
 declare local var.authorization STRING;
 
 # Get the Authorization header
-set var.authorization = header.get(req.http, "Authorization");
+set var.authorization = header.get(req, "Authorization");
 
 # Check if the header exists
 if (var.authorization == "") {
@@ -121,14 +116,14 @@ Sets the value of an HTTP header.
 ### Syntax
 
 ```vcl
-header.set(HEADER header_name, STRING field_name, STRING field_value)
+header.set(ID where, STRING header_name, STRING value)
 ```
 
 ### Parameters
 
-- `header_name`: The header object to set (req.http, resp.http, bereq.http, beresp.http)
-- `field_name`: The name of the header field to set
-- `field_value`: The value to set for the header field
+- `where`: The variable collection to modify, as a bare identifier: `req`, `bereq`, `resp` or `beresp`
+- `header_name`: The name of the header field to set
+- `value`: The value to set for the header field
 
 ### Return Value
 
@@ -140,10 +135,10 @@ None
 
 ```vcl
 # Set a custom header
-header.set(req.http, "X-Custom-Header", "Custom Value");
+header.set(req, "X-Custom-Header", "Custom Value");
 
 # Set the Host header
-header.set(req.http, "Host", "example.com");
+header.set(req, "Host", "example.com");
 ```
 
 #### Setting headers based on conditions
@@ -151,11 +146,11 @@ header.set(req.http, "Host", "example.com");
 ```vcl
 if (req.url ~ "^/api/") {
   # Set API-specific headers
-  header.set(req.http, "X-API-Version", "1.0");
-  header.set(req.http, "Accept", "application/json");
+  header.set(req, "X-API-Version", "1.0");
+  header.set(req, "Accept", "application/json");
 } else if (req.url ~ "^/admin/") {
   # Set admin-specific headers
-  header.set(req.http, "X-Admin-Access", "true");
+  header.set(req, "X-Admin-Access", "true");
 }
 ```
 
@@ -165,17 +160,17 @@ This example demonstrates how to set security-related headers:
 
 ```vcl
 # Set Content-Security-Policy
-header.set(resp.http, "Content-Security-Policy", 
+header.set(resp, "Content-Security-Policy", 
   "default-src 'self'; script-src 'self' https://trusted-cdn.com; style-src 'self' https://trusted-cdn.com; img-src 'self' data:;");
 
 # Set X-XSS-Protection
-header.set(resp.http, "X-XSS-Protection", "1; mode=block");
+header.set(resp, "X-XSS-Protection", "1; mode=block");
 
 # Set X-Content-Type-Options
-header.set(resp.http, "X-Content-Type-Options", "nosniff");
+header.set(resp, "X-Content-Type-Options", "nosniff");
 
 # Set X-Frame-Options
-header.set(resp.http, "X-Frame-Options", "SAMEORIGIN");
+header.set(resp, "X-Frame-Options", "SAMEORIGIN");
 ```
 
 #### Setting cache control headers
@@ -184,28 +179,28 @@ This example demonstrates how to set cache control headers:
 
 ```vcl
 # Set Cache-Control header
-header.set(resp.http, "Cache-Control", "public, max-age=86400");
+header.set(resp, "Cache-Control", "public, max-age=86400");
 
 # Set Expires header
-header.set(resp.http, "Expires", time.add(now, 86400s));
+header.set(resp, "Expires", time.add(now, 86400s));
 
-# Set ETag header
-header.set(resp.http, "ETag", digest.hash_md5(resp.body));
+# Set an ETag derived from the URL
+header.set(resp, "ETag", digest.hash_md5(req.url));
 ```
 
 #### Setting headers for backend requests
 
-This example demonstrates how to set headers for backend requests:
+This example demonstrates how to set headers for backend requests (in `vcl_miss` or `vcl_pass`):
 
 ```vcl
 # Set a custom header for the backend
-header.set(bereq.http, "X-Forwarded-For", client.ip);
+header.set(bereq, "X-Forwarded-For", client.ip);
 
 # Set the Host header for the backend
-header.set(bereq.http, "Host", "backend.example.com");
+header.set(bereq, "Host", "backend.example.com");
 
 # Set a custom header with the original client information
-header.set(bereq.http, "X-Original-User-Agent", header.get(req.http, "User-Agent"));
+header.set(bereq, "X-Original-User-Agent", header.get(req, "User-Agent"));
 ```
 
 ## header.unset
@@ -215,13 +210,13 @@ Removes an HTTP header.
 ### Syntax
 
 ```vcl
-header.unset(HEADER header_name, STRING field_name)
+header.unset(ID where, STRING header_name)
 ```
 
 ### Parameters
 
-- `header_name`: The header object to modify (req.http, resp.http, bereq.http, beresp.http)
-- `field_name`: The name of the header field to remove
+- `where`: The variable collection to modify, as a bare identifier: `req`, `bereq`, `resp` or `beresp`
+- `header_name`: The name of the header field to remove
 
 ### Return Value
 
@@ -233,10 +228,10 @@ None
 
 ```vcl
 # Remove the Cookie header
-header.unset(req.http, "Cookie");
+header.unset(req, "Cookie");
 
 # Remove the User-Agent header
-header.unset(req.http, "User-Agent");
+header.unset(req, "User-Agent");
 ```
 
 #### Conditional header removal
@@ -246,12 +241,12 @@ This example demonstrates how to conditionally remove headers:
 ```vcl
 # Remove the Referer header for privacy-sensitive paths
 if (req.url ~ "^/private/") {
-  header.unset(req.http, "Referer");
+  header.unset(req, "Referer");
 }
 
 # Remove the Authorization header when proxying to certain backends
 if (req.backend == F_public_backend) {
-  header.unset(bereq.http, "Authorization");
+  header.unset(bereq, "Authorization");
 }
 ```
 
@@ -261,10 +256,10 @@ This example demonstrates how to remove potentially sensitive headers:
 
 ```vcl
 # Remove headers that might reveal server information
-header.unset(resp.http, "Server");
-header.unset(resp.http, "X-Powered-By");
-header.unset(resp.http, "X-AspNet-Version");
-header.unset(resp.http, "X-Runtime");
+header.unset(resp, "Server");
+header.unset(resp, "X-Powered-By");
+header.unset(resp, "X-AspNet-Version");
+header.unset(resp, "X-Runtime");
 ```
 
 #### Cache optimization by removing unnecessary headers
@@ -273,8 +268,8 @@ This example demonstrates how to remove headers that might affect caching:
 
 ```vcl
 # Remove headers that might prevent proper caching
-header.unset(beresp.http, "Set-Cookie");
-header.unset(beresp.http, "Pragma");
+header.unset(beresp, "Set-Cookie");
+header.unset(beresp, "Pragma");
 ```
 
 #### Cleaning up internal headers before sending response
@@ -283,25 +278,25 @@ This example demonstrates how to remove internal headers before sending the resp
 
 ```vcl
 # Remove internal headers
-header.unset(resp.http, "X-Internal-Debug");
-header.unset(resp.http, "X-Cache-Status");
-header.unset(resp.http, "X-Backend-Name");
+header.unset(resp, "X-Internal-Debug");
+header.unset(resp, "X-Cache-Status");
+header.unset(resp, "X-Backend-Name");
 ```
 
 ## header.filter
 
-Removes all HTTP headers that match a pattern.
+Removes all HTTP headers with the given names. The function is variadic: several header names can be passed in a single call.
 
 ### Syntax
 
 ```vcl
-header.filter(HEADER header_name, STRING pattern)
+header.filter(ID where, STRING header_name, ...)
 ```
 
 ### Parameters
 
-- `header_name`: The header object to filter (req.http, resp.http, bereq.http, beresp.http)
-- `pattern`: A regular expression pattern to match header names against
+- `where`: The variable collection to filter, as a bare identifier: `req`, `bereq`, `resp` or `beresp`
+- `header_name`: One or more header names to remove (must be literal strings, matched by name, not by regular expression)
 
 ### Return Value
 
@@ -312,11 +307,8 @@ None
 #### Basic header filtering
 
 ```vcl
-# Remove all X-Debug headers
-header.filter(req.http, "^X-Debug");
-
-# Remove all temporary headers
-header.filter(req.http, "^X-Temp-");
+# Remove debugging and temporary headers in one call
+header.filter(req, "X-Debug", "X-Temp");
 ```
 
 #### Security-related header filtering
@@ -324,22 +316,17 @@ header.filter(req.http, "^X-Temp-");
 This example demonstrates how to filter potentially sensitive headers:
 
 ```vcl
-# Remove all headers that might contain sensitive information
-header.filter(req.http, "^X-Auth-");
-header.filter(req.http, "^X-Token-");
-header.filter(req.http, "^X-API-Key");
+# Remove headers that might contain sensitive information
+header.filter(req, "X-Auth-Token", "X-API-Key");
 ```
 
 #### Backend request optimization
 
-This example demonstrates how to filter unnecessary headers for backend requests:
+This example demonstrates how to filter unnecessary headers for backend requests (in `vcl_miss` or `vcl_pass`):
 
 ```vcl
-# Remove all tracking-related headers when forwarding to the backend
-header.filter(bereq.http, "^X-Track-");
-
-# Remove all analytics-related headers
-header.filter(bereq.http, "^X-Analytics-");
+# Remove tracking and analytics headers when forwarding to the backend
+header.filter(bereq, "X-Track-ID", "X-Analytics-Session");
 ```
 
 #### Response header cleanup
@@ -347,11 +334,8 @@ header.filter(bereq.http, "^X-Analytics-");
 This example demonstrates how to clean up response headers:
 
 ```vcl
-# Remove all internal headers from the response
-header.filter(resp.http, "^X-Internal-");
-
-# Remove all debug headers from the response
-header.filter(resp.http, "^X-Debug-");
+# Remove internal and debug headers from the response
+header.filter(resp, "X-Internal-Route", "X-Debug-Info");
 ```
 
 #### Compliance and privacy
@@ -359,26 +343,24 @@ header.filter(resp.http, "^X-Debug-");
 This example demonstrates how to filter headers for compliance reasons:
 
 ```vcl
-# Remove all headers that might contain PII (Personally Identifiable Information)
-header.filter(req.http, "^X-User-");
-header.filter(req.http, "^X-Account-");
-header.filter(req.http, "^X-Email");
+# Remove headers that might contain PII (Personally Identifiable Information)
+header.filter(req, "X-User-ID", "X-Account-ID", "X-Email");
 ```
 
 ## header.filter_except
 
-Removes all HTTP headers except those that match a pattern.
+Removes all HTTP headers except those with the given names. The function is variadic: several header names can be passed in a single call.
 
 ### Syntax
 
 ```vcl
-header.filter_except(HEADER header_name, STRING pattern)
+header.filter_except(ID where, STRING header_name, ...)
 ```
 
 ### Parameters
 
-- `header_name`: The header object to filter (req.http, resp.http, bereq.http, beresp.http)
-- `pattern`: A regular expression pattern to match header names against
+- `where`: The variable collection to filter, as a bare identifier: `req`, `bereq`, `resp` or `beresp`
+- `header_name`: One or more header names to keep (must be literal strings, matched by name, not by regular expression)
 
 ### Return Value
 
@@ -390,7 +372,7 @@ None
 
 ```vcl
 # Keep only essential headers, remove everything else
-header.filter_except(req.http, "^(Host|User-Agent|Accept|Accept-Encoding|Authorization)$");
+header.filter_except(req, "Host", "User-Agent", "Accept", "Accept-Encoding", "Authorization");
 ```
 
 #### API request optimization
@@ -400,7 +382,7 @@ This example demonstrates how to keep only API-relevant headers:
 ```vcl
 if (req.url ~ "^/api/") {
   # Keep only API-relevant headers
-  header.filter_except(req.http, "^(Authorization|Content-Type|Accept|X-API-Version)$");
+  header.filter_except(req, "Host", "Authorization", "Content-Type", "Accept", "X-API-Version");
 }
 ```
 
@@ -411,17 +393,17 @@ This example demonstrates how to keep only necessary headers for security reason
 ```vcl
 if (req.url ~ "^/admin/") {
   # Keep only essential headers for admin requests
-  header.filter_except(req.http, "^(Host|Authorization|X-CSRF-Token)$");
+  header.filter_except(req, "Host", "Authorization", "X-CSRF-Token");
 }
 ```
 
 #### Backend request optimization
 
-This example demonstrates how to optimize backend requests:
+This example demonstrates how to optimize backend requests (in `vcl_miss` or `vcl_pass`):
 
 ```vcl
 # Keep only necessary headers for the backend
-header.filter_except(bereq.http, "^(Host|X-Forwarded-For|Authorization|Content-Type|Accept)$");
+header.filter_except(bereq, "Host", "X-Forwarded-For", "Authorization", "Content-Type", "Accept");
 ```
 
 #### Response header optimization
@@ -430,27 +412,27 @@ This example demonstrates how to optimize response headers:
 
 ```vcl
 # Keep only necessary response headers
-header.filter_except(resp.http, "^(Content-Type|Content-Length|Cache-Control|ETag|Expires|Vary)$");
+header.filter_except(resp, "Content-Type", "Content-Length", "Cache-Control", "ETag", "Expires", "Vary");
 ```
 
-## http.status_matches
+## http_status_matches
 
-Checks if an HTTP status code matches a pattern.
+Checks if an HTTP status code matches a list of status codes.
 
 ### Syntax
 
 ```vcl
-BOOL http.status_matches(INTEGER status, STRING pattern)
+BOOL http_status_matches(INTEGER status, STRING fmt)
 ```
 
 ### Parameters
 
 - `status`: The HTTP status code to check
-- `pattern`: A pattern to match against (e.g., "2xx", "404", "4xx", "client_error")
+- `fmt`: A comma-separated list of 3-digit status codes, optionally prefixed with `!` to negate the match (e.g. `"200,304"`, `"!404,410"`). Must be a literal string
 
 ### Return Value
 
-- TRUE if the status code matches the pattern
+- TRUE if the status code is in the list (or not in the list, when the list starts with `!`)
 - FALSE otherwise
 
 ### Examples
@@ -458,15 +440,11 @@ BOOL http.status_matches(INTEGER status, STRING pattern)
 #### Basic status code checking
 
 ```vcl
-# Check if the response is successful
-if (http.status_matches(resp.status, "2xx")) {
+# Check for cacheable success responses
+if (http_status_matches(resp.status, "200,203,204,206")) {
   set resp.http.X-Status-Category = "Success";
-} else if (http.status_matches(resp.status, "3xx")) {
+} else if (http_status_matches(resp.status, "301,302,303,307,308")) {
   set resp.http.X-Status-Category = "Redirect";
-} else if (http.status_matches(resp.status, "4xx")) {
-  set resp.http.X-Status-Category = "Client Error";
-} else if (http.status_matches(resp.status, "5xx")) {
-  set resp.http.X-Status-Category = "Server Error";
 }
 ```
 
@@ -476,43 +454,27 @@ This example demonstrates how to handle specific error codes:
 
 ```vcl
 # Check for specific error codes
-if (http.status_matches(resp.status, "404")) {
+if (http_status_matches(resp.status, "404")) {
   # Handle 404 errors
   set resp.http.X-Error-Type = "Not Found";
   # Potentially modify the response or log the error
-} else if (http.status_matches(resp.status, "403")) {
+} else if (http_status_matches(resp.status, "403")) {
   # Handle 403 errors
   set resp.http.X-Error-Type = "Forbidden";
-} else if (http.status_matches(resp.status, "500")) {
+} else if (http_status_matches(resp.status, "500")) {
   # Handle 500 errors
   set resp.http.X-Error-Type = "Internal Server Error";
 }
 ```
 
-#### Logging based on status categories
+#### Negated matching
 
-This example demonstrates how to log based on status categories:
-
-```vcl
-# Log client errors
-if (http.status_matches(resp.status, "client_error")) {
-  log "Client Error: " + resp.status + " for " + req.url;
-}
-
-# Log server errors
-if (http.status_matches(resp.status, "server_error")) {
-  log "Server Error: " + resp.status + " for " + req.url;
-}
-```
-
-#### Conditional response modification
-
-This example demonstrates how to modify responses based on status:
+The list can be negated with a leading `!`:
 
 ```vcl
-# Add debugging information for error responses
-if (http.status_matches(resp.status, "error")) {
-  set resp.http.X-Error-Debug = "Request ID: " + req.id + ", Backend: " + req.backend;
+# Log everything that is not a plain success
+if (http_status_matches(resp.status, "!200,204,304")) {
+  log "Unusual status: " + resp.status + " for " + req.url;
 }
 ```
 
@@ -522,12 +484,12 @@ This example demonstrates how to adjust cache settings based on status:
 
 ```vcl
 # Don't cache error responses
-if (http.status_matches(resp.status, "error")) {
+if (http_status_matches(resp.status, "500,502,503,504")) {
   set resp.http.Cache-Control = "no-store, no-cache, must-revalidate, max-age=0";
 }
 
 # Cache successful responses
-if (http.status_matches(resp.status, "success")) {
+if (http_status_matches(resp.status, "200,203,204,206")) {
   set resp.http.Cache-Control = "public, max-age=3600";
 }
 ```
@@ -541,115 +503,115 @@ sub vcl_recv {
   # Step 1: Clean up incoming request headers
   
   # Remove unnecessary headers
-  header.filter_except(req.http, "^(Host|User-Agent|Accept|Accept-Encoding|Accept-Language|Authorization|Content-Type|Cookie|X-Forwarded-For)$");
+  header.filter_except(req, "Host", "User-Agent", "Accept", "Accept-Encoding",
+      "Accept-Language", "Authorization", "Content-Type", "Cookie", "X-Forwarded-For");
   
   # Step 2: Extract important information from headers
   declare local var.user_agent STRING;
   declare local var.auth_token STRING;
   declare local var.content_type STRING;
   
-  set var.user_agent = header.get(req.http, "User-Agent");
-  set var.auth_token = header.get(req.http, "Authorization");
-  set var.content_type = header.get(req.http, "Content-Type");
+  set var.user_agent = header.get(req, "User-Agent");
+  set var.auth_token = header.get(req, "Authorization");
+  set var.content_type = header.get(req, "Content-Type");
   
   # Step 3: Set custom headers based on the request
   
   # Set a request ID for tracking
-  header.set(req.http, "X-Request-ID", digest.hash_md5(now + req.url + client.ip));
+  header.set(req, "X-Request-ID", digest.hash_md5(now + req.url + client.ip));
   
   # Set device type based on User-Agent
   if (var.user_agent ~ "(?i)mobile|android|iphone|ipod|blackberry") {
-    header.set(req.http, "X-Device-Type", "mobile");
+    header.set(req, "X-Device-Type", "mobile");
   } else if (var.user_agent ~ "(?i)ipad|tablet") {
-    header.set(req.http, "X-Device-Type", "tablet");
+    header.set(req, "X-Device-Type", "tablet");
   } else {
-    header.set(req.http, "X-Device-Type", "desktop");
+    header.set(req, "X-Device-Type", "desktop");
   }
   
   # Step 4: Handle authentication
   if (var.auth_token == "") {
     # No authentication provided
-    header.set(req.http, "X-Auth-Status", "none");
+    header.set(req, "X-Auth-Status", "none");
   } else if (var.auth_token ~ "^Bearer ") {
     # JWT token authentication
-    header.set(req.http, "X-Auth-Status", "jwt");
-    header.set(req.http, "X-Auth-Type", "bearer");
+    header.set(req, "X-Auth-Status", "jwt");
+    header.set(req, "X-Auth-Type", "bearer");
   } else if (var.auth_token ~ "^Basic ") {
     # Basic authentication
-    header.set(req.http, "X-Auth-Status", "basic");
-    header.set(req.http, "X-Auth-Type", "basic");
+    header.set(req, "X-Auth-Status", "basic");
+    header.set(req, "X-Auth-Type", "basic");
   } else {
     # Unknown authentication type
-    header.set(req.http, "X-Auth-Status", "unknown");
+    header.set(req, "X-Auth-Status", "unknown");
   }
-  
+}
+
+sub vcl_miss {
   # Step 5: Prepare backend request headers
+  # (bereq only exists in backend-facing subroutines such as vcl_miss/vcl_pass)
   
   # Set headers for the backend
-  header.set(bereq.http, "X-Forwarded-For", client.ip);
-  header.set(bereq.http, "X-Original-URL", req.url);
-  header.set(bereq.http, "X-Device-Type", header.get(req.http, "X-Device-Type"));
+  header.set(bereq, "X-Forwarded-For", client.ip);
+  header.set(bereq, "X-Original-URL", req.url);
+  header.set(bereq, "X-Device-Type", header.get(req, "X-Device-Type"));
   
   # Remove sensitive headers from backend request
-  header.filter(bereq.http, "^Cookie");
-  header.filter(bereq.http, "^X-Auth-");
+  header.filter(bereq, "Cookie", "X-Auth-Status", "X-Auth-Type");
 }
 
 sub vcl_deliver {
   # Step 6: Process response headers
   
   # Check response status
-  if (http.status_matches(resp.status, "success")) {
+  if (http_status_matches(resp.status, "200,203,204,206")) {
     # Successful response
-    header.set(resp.http, "X-Status-Category", "Success");
+    header.set(resp, "X-Status-Category", "Success");
     
     # Set cache control headers for successful responses
-    header.set(resp.http, "Cache-Control", "public, max-age=3600");
-    header.set(resp.http, "Expires", time.add(now, 3600s));
+    header.set(resp, "Cache-Control", "public, max-age=3600");
+    header.set(resp, "Expires", time.add(now, 3600s));
     
-  } else if (http.status_matches(resp.status, "redirect")) {
+  } else if (http_status_matches(resp.status, "301,302,303,307,308")) {
     # Redirect response
-    header.set(resp.http, "X-Status-Category", "Redirect");
+    header.set(resp, "X-Status-Category", "Redirect");
     
     # Set cache control headers for redirects
-    header.set(resp.http, "Cache-Control", "public, max-age=300");
-    header.set(resp.http, "Expires", time.add(now, 300s));
+    header.set(resp, "Cache-Control", "public, max-age=300");
+    header.set(resp, "Expires", time.add(now, 300s));
     
-  } else if (http.status_matches(resp.status, "client_error")) {
+  } else if (http_status_matches(resp.status, "400,401,403,404,405,410,429")) {
     # Client error response
-    header.set(resp.http, "X-Status-Category", "Client Error");
+    header.set(resp, "X-Status-Category", "Client Error");
     
     # Don't cache client errors
-    header.set(resp.http, "Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
-    header.unset(resp.http, "Expires");
+    header.set(resp, "Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
+    header.unset(resp, "Expires");
     
     # Add debugging information
-    header.set(resp.http, "X-Error-Debug", "Request ID: " + header.get(req.http, "X-Request-ID"));
+    header.set(resp, "X-Error-Debug", "Request ID: " + header.get(req, "X-Request-ID"));
     
-  } else if (http.status_matches(resp.status, "server_error")) {
+  } else if (http_status_matches(resp.status, "500,501,502,503,504")) {
     # Server error response
-    header.set(resp.http, "X-Status-Category", "Server Error");
+    header.set(resp, "X-Status-Category", "Server Error");
     
     # Don't cache server errors
-    header.set(resp.http, "Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
-    header.unset(resp.http, "Expires");
+    header.set(resp, "Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
+    header.unset(resp, "Expires");
     
     # Add debugging information
-    header.set(resp.http, "X-Error-Debug", "Request ID: " + header.get(req.http, "X-Request-ID") + ", Backend: " + req.backend);
+    header.set(resp, "X-Error-Debug", "Request ID: " + header.get(req, "X-Request-ID") + ", Backend: " + req.backend);
   }
   
   # Step 7: Set security headers
-  header.set(resp.http, "X-Content-Type-Options", "nosniff");
-  header.set(resp.http, "X-XSS-Protection", "1; mode=block");
-  header.set(resp.http, "X-Frame-Options", "SAMEORIGIN");
+  header.set(resp, "X-Content-Type-Options", "nosniff");
+  header.set(resp, "X-XSS-Protection", "1; mode=block");
+  header.set(resp, "X-Frame-Options", "SAMEORIGIN");
   
-  # Step 8: Clean up internal headers
-  header.filter(resp.http, "^X-Auth-");
-  header.filter(resp.http, "^X-Internal-");
-  header.filter(resp.http, "^X-Debug-");
-  
-  # Keep only necessary response headers
-  header.filter_except(resp.http, "^(Content-Type|Content-Length|Cache-Control|ETag|Expires|Vary|X-Content-Type-Options|X-XSS-Protection|X-Frame-Options|X-Status-Category)$");
+  # Step 8: Clean up internal headers, keeping only what clients need
+  header.filter_except(resp, "Content-Type", "Content-Length", "Cache-Control",
+      "ETag", "Expires", "Vary", "X-Content-Type-Options", "X-XSS-Protection",
+      "X-Frame-Options", "X-Status-Category", "X-Error-Debug");
 }
 ```
 
@@ -662,7 +624,7 @@ sub vcl_deliver {
    - Use descriptive names for custom headers (X-prefix for non-standard headers)
 
 2. Status Code Handling:
-   - Use http.status_matches for category-based status code handling
+   - Use http_status_matches to test against lists of status codes
    - Implement different caching strategies based on status codes
    - Add debugging information for error responses
    - Log errors appropriately based on status categories

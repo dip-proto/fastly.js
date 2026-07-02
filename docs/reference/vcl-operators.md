@@ -10,9 +10,13 @@ VCL operators are organized into several categories:
 2. **Comparison Operators**: Compare values
 3. **Logical Operators**: Combine boolean expressions
 4. **String Operators**: Manipulate strings
-5. **Assignment Operators**: Assign values to variables
-6. **Bitwise Operators**: Perform bitwise operations
-7. **Conditional Expression**: Choose a value with the `if()` function
+5. **Assignment Operators**: Assign values to variables, including compound
+   arithmetic, logical, and bitwise forms
+6. **Conditional Expression**: Choose a value with the `if()` function
+
+Note that bitwise operations exist only as compound assignment operators
+(`&=`, `|=`, `^=`, `<<=`, `>>=`, `rol=`, `ror=`); there are no infix bitwise
+operators in expressions.
 
 ## Arithmetic Operators
 
@@ -61,7 +65,8 @@ set var.product = 2 * 3;  // 6
 
 ### Division (/)
 
-Divides one value by another.
+Divides one value by another. INTEGER division truncates toward zero; if
+either operand is a FLOAT, the result is a FLOAT.
 
 **Syntax:**
 ```vcl
@@ -70,7 +75,7 @@ value1 / value2
 
 **Example:**
 ```vcl
-set var.quotient = 6 / 2;  // 3
+set var.quotient = 7 / 2;  // 3 for INTEGERs, 3.5 if either side is a FLOAT
 ```
 
 ### Modulo (%)
@@ -230,10 +235,14 @@ Returns the opposite of the expression.
 
 **Example:**
 ```vcl
-if (!req.http.Cookie) {
+if (!req.http.cookie) {
   # Do something
 }
 ```
+
+(Header lookups are case-sensitive, and Fastly.JS stores incoming request and
+origin response header names in lowercase — hence `req.http.cookie` rather
+than `req.http.Cookie` when reading a client-supplied header.)
 
 ## String Operators
 
@@ -248,16 +257,36 @@ string1 + string2
 
 **Example:**
 ```vcl
-set var.full_url = "https://" + req.http.Host + req.url;
+set var.full_url = "https://" + req.http.host + req.url;
+```
+
+### Implicit Concatenation
+
+Adjacent values without an operator between them are also concatenated. This
+is the idiomatic form in Fastly VCL.
+
+**Syntax:**
+```vcl
+string1 string2
+```
+
+**Example:**
+```vcl
+set var.full_url = "https://" req.http.host req.url;
 ```
 
 ### Regular Expression Match (~)
 
-Checks if a string matches a regular expression.
+Checks if a string matches a regular expression. Capture groups from the most
+recent successful match are available as `re.group.1` through `re.group.9`
+(and `re.group.0` for the whole match). There is no `~*` operator; use an
+inline `(?i)` flag for case-insensitive matching. When the right-hand side
+names an ACL, `~` performs an ACL membership check instead.
 
 **Syntax:**
 ```vcl
 string ~ regex
+ip ~ acl_name
 ```
 
 **Example:**
@@ -265,11 +294,18 @@ string ~ regex
 if (req.url ~ "^/api/") {
   # Do something
 }
+if (req.http.user-agent ~ "(?i)mobile") {
+  # Case-insensitive match
+}
+if (client.ip ~ internal_ips) {
+  # ACL check
+}
 ```
 
 ### Regular Expression Not Match (!~)
 
-Checks if a string does not match a regular expression.
+Checks if a string does not match a regular expression (or, with an ACL name
+on the right, that an IP is not in the ACL).
 
 **Syntax:**
 ```vcl
@@ -279,38 +315,6 @@ string !~ regex
 **Example:**
 ```vcl
 if (req.url !~ "^/api/") {
-  # Do something
-}
-```
-
-### Case-Insensitive Regular Expression Match (~*)
-
-Checks if a string matches a case-insensitive regular expression.
-
-**Syntax:**
-```vcl
-string ~* regex
-```
-
-**Example:**
-```vcl
-if (req.http.User-Agent ~* "mobile") {
-  # Do something
-}
-```
-
-### Case-Insensitive Regular Expression Not Match (!~*)
-
-Checks if a string does not match a case-insensitive regular expression.
-
-**Syntax:**
-```vcl
-string !~* regex
-```
-
-**Example:**
-```vcl
-if (req.http.User-Agent !~* "mobile") {
   # Do something
 }
 ```
@@ -390,6 +394,7 @@ set var.count /= 2;
 ### Modulo Assignment (%=)
 
 Calculates the modulo of a variable and a value and assigns the result.
+Division or modulo by zero is a runtime error.
 
 **Syntax:**
 ```vcl
@@ -401,90 +406,31 @@ variable %= value
 set var.count %= 10;
 ```
 
-## Bitwise Operators
+### Logical Assignment (&&=, ||=)
 
-### Bitwise AND (&)
-
-Performs a bitwise AND operation.
-
-**Syntax:**
-```vcl
-value1 & value2
-```
+Combines the variable with a value using boolean AND/OR and assigns the
+result.
 
 **Example:**
 ```vcl
-set var.result = 5 & 3;  // 1
+set var.ok &&= var.authenticated;
+set var.flagged ||= var.suspicious;
 ```
 
-### Bitwise OR (|)
+### Bitwise Assignment (&=, |=, ^=, <<=, >>=, rol=, ror=)
 
-Performs a bitwise OR operation.
-
-**Syntax:**
-```vcl
-value1 | value2
-```
+Applies a 64-bit integer bitwise operation to the variable and assigns the
+result: AND, OR, XOR, left shift, arithmetic right shift, rotate left, and
+rotate right. These are the only bitwise operations in VCL; there are no
+infix bitwise operators.
 
 **Example:**
 ```vcl
-set var.result = 5 | 3;  // 7
-```
-
-### Bitwise XOR (^)
-
-Performs a bitwise XOR operation.
-
-**Syntax:**
-```vcl
-value1 ^ value2
-```
-
-**Example:**
-```vcl
-set var.result = 5 ^ 3;  // 6
-```
-
-### Bitwise NOT (~)
-
-Performs a bitwise NOT operation.
-
-**Syntax:**
-```vcl
-~value
-```
-
-**Example:**
-```vcl
-set var.result = ~5;  // -6
-```
-
-### Left Shift (<<)
-
-Performs a left shift operation.
-
-**Syntax:**
-```vcl
-value1 << value2
-```
-
-**Example:**
-```vcl
-set var.result = 1 << 2;  // 4
-```
-
-### Right Shift (>>)
-
-Performs a right shift operation.
-
-**Syntax:**
-```vcl
-value1 >> value2
-```
-
-**Example:**
-```vcl
-set var.result = 4 >> 1;  // 2
+declare local var.bits INTEGER;
+set var.bits = 5;
+set var.bits &= 3;    // 1
+set var.bits <<= 2;   // 4
+set var.bits rol= 1;  // 8
 ```
 
 ## Conditional Expression
@@ -499,7 +445,7 @@ if(condition, value_if_true, value_if_false)
 
 **Example:**
 ```vcl
-set var.device_type = if(req.http.User-Agent ~ "Mobile", "mobile", "desktop");
+set var.device_type = if(req.http.user-agent ~ "Mobile", "mobile", "desktop");
 ```
 
 ## Operator Precedence
@@ -507,19 +453,18 @@ set var.device_type = if(req.http.User-Agent ~ "Mobile", "mobile", "desktop");
 Operators in VCL are evaluated in the following order of precedence (from highest to lowest):
 
 1. Parentheses `()`
-2. Unary operators `!`, `~`, `-` (negation)
-3. Multiplicative operators `*`, `/`, `%`
-4. Additive operators `+`, `-`
-5. Shift operators `<<`, `>>`
-6. Bitwise AND `&`
-7. Bitwise XOR `^`
-8. Bitwise OR `|`
-9. Comparison operators `<`, `>`, `<=`, `>=`
-10. Equality operators `==`, `!=`
-11. Regular expression operators `~`, `!~`, `~*`, `!~*`
-12. Logical AND `&&`
-13. Logical OR `||`
-14. Assignment operators `=`, `+=`, `-=`, `*=`, `/=`, `%=`
+2. Unary operators `!`, `-` (negation)
+3. Implicit concatenation (adjacent values)
+4. Multiplicative operators `*`, `/`, `%`
+5. Additive operators `+`, `-`
+6. Regular expression / ACL operators `~`, `!~`
+7. Comparison operators `<`, `>`, `<=`, `>=`
+8. Equality operators `==`, `!=`
+9. Logical AND `&&`
+10. Logical OR `||`
+
+Assignment (including the compound forms) is not an expression operator; it
+only appears in `set` statements.
 
 ## Examples
 
@@ -542,7 +487,7 @@ set var.result = 2 + (3 * 4);  // 14
 ### Complex Expressions
 
 ```vcl
-set var.score = (req.http.User-Agent ~ "Mobile" ? 10 : 5) + (req.url ~ "^/api/" ? 20 : 0);
+set var.score = if(req.http.user-agent ~ "Mobile", 10, 5) + if(req.url ~ "^/api/", 20, 0);
 ```
 
 ## Conclusion

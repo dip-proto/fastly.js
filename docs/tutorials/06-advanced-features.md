@@ -20,13 +20,17 @@ acl internal {
 
 ### Using an ACL
 
-You can use an ACL to control access to resources:
+You can use an ACL to control access to resources. The ACL match must be the whole `if` condition — combining `client.ip ~ acl` with `&&` or negating it with `!` is not currently supported — so use an `if`/`else`:
 
 ```vcl
 sub vcl_recv {
   # Allow only internal IPs to access the admin area
-  if (req.url ~ "^/admin/" && !(client.ip ~ internal)) {
-    error 403 "Forbidden";
+  if (req.url ~ "^/admin/") {
+    if (client.ip ~ internal) {
+      # Allowed
+    } else {
+      error 403 "Forbidden";
+    }
   }
 }
 ```
@@ -48,13 +52,21 @@ acl trusted_partners {
 
 sub vcl_recv {
   # Allow internal IPs to access the admin area
-  if (req.url ~ "^/admin/" && !(client.ip ~ internal)) {
-    error 403 "Forbidden";
+  if (req.url ~ "^/admin/") {
+    if (client.ip ~ internal) {
+      # Allowed
+    } else {
+      error 403 "Forbidden";
+    }
   }
 
   # Allow trusted partners to access the API
-  if (req.url ~ "^/api/partners/" && !(client.ip ~ trusted_partners)) {
-    error 403 "Forbidden";
+  if (req.url ~ "^/api/partners/") {
+    if (client.ip ~ trusted_partners) {
+      # Allowed
+    } else {
+      error 403 "Forbidden";
+    }
   }
 }
 ```
@@ -77,15 +89,23 @@ table redirects {
 
 ### Using a Table
 
-You can use a table for lookups:
+You can use a table for lookups. Since headers set on `req` are not copied to the error response automatically, attach the `Location` header in `vcl_error`:
 
 ```vcl
 sub vcl_recv {
   # Check if the URL path is in the redirects table
   if (table.contains(redirects, req.url)) {
     # Get the new path from the table
-    set req.http.Location = "https://" + req.http.host + table.lookup(redirects, req.url);
-    error 301 "Redirect";
+    set req.http.X-Redirect-Location = "https://" + req.http.host + table.lookup(redirects, req.url);
+    error 301 "Moved Permanently";
+  }
+}
+
+sub vcl_error {
+  if (obj.status == 301 && req.http.X-Redirect-Location) {
+    set obj.http.Location = req.http.X-Redirect-Location;
+    synthetic "";
+    return(deliver);
   }
 }
 ```
@@ -126,7 +146,7 @@ sub vcl_recv {
 
 ## Directors
 
-Directors allow you to distribute requests across multiple backends for load balancing.
+Directors allow you to distribute requests across multiple backends for load balancing. A director is used by assigning it to `req.backend`; there is no `.backend()` method syntax.
 
 ### Random Director
 
@@ -148,7 +168,7 @@ sub vcl_recv {
 
 ### Hash Director
 
-A hash director selects a backend based on a hash of a request attribute:
+A hash director selects a backend based on the cache hash key (the data collected with `hash_data()` in `vcl_hash`):
 
 ```vcl
 director api_director hash {
@@ -158,14 +178,13 @@ director api_director hash {
 }
 
 sub vcl_recv {
-  # Use the URL as the hash key
-  set req.backend = api_director.backend(req.url);
+  set req.backend = api_director;
 }
 ```
 
 ### Client Director
 
-A client director selects a backend based on the client IP address:
+A client director selects a backend based on the client identity, which Fastly.JS derives from the `X-Client-Identity` request header (falling back to the `Cookie` header):
 
 ```vcl
 director api_director client {
@@ -175,8 +194,7 @@ director api_director client {
 }
 
 sub vcl_recv {
-  # Use the client IP as the hash key
-  set req.backend = api_director.backend();
+  set req.backend = api_director;
 }
 ```
 
@@ -192,8 +210,7 @@ director api_director fallback {
 }
 
 sub vcl_recv {
-  # Use the fallback director
-  set req.backend = api_director.backend();
+  set req.backend = api_director;
 }
 ```
 
@@ -269,31 +286,36 @@ sub vcl_recv {
 
 ## A/B Testing
 
-You can use random functions to implement A/B testing:
+You can use random functions to implement A/B testing. Assign the variant in `vcl_recv`, but set the cookie in `vcl_deliver` — response headers set in `vcl_recv` are overwritten when the response is built:
 
 ```vcl
 sub vcl_recv {
   # Assign users to A or B variant (50/50 split)
-  if (!req.http.Cookie:ABTest) {
-    if (std.random.randombool(0.5)) {
-      set req.http.X-ABTest = "A";
-    } else {
-      set req.http.X-ABTest = "B";
-    }
-
-    # Set a cookie to maintain the variant across requests
-    add resp.http.Set-Cookie = "ABTest=" + req.http.X-ABTest + "; path=/; max-age=3600";
+  if (req.http.cookie ~ "ABTest=") {
+    set req.http.X-ABTest = regsub(req.http.cookie, ".*ABTest=([^;]+).*", "\1");
+  } else if (std.random.randombool(0.5)) {
+    set req.http.X-ABTest = "A";
   } else {
-    set req.http.X-ABTest = req.http.Cookie:ABTest;
+    set req.http.X-ABTest = "B";
   }
+}
 
+sub vcl_hash {
   # Add the variant to the cache key
-  set req.http.Fastly-Cache-Key = req.http.X-ABTest;
+  hash_data(req.url);
+  hash_data(req.http.host);
+  hash_data(req.http.X-ABTest);
+  return(hash);
 }
 
 sub vcl_deliver {
   # Add the variant to the response headers
   set resp.http.X-ABTest = req.http.X-ABTest;
+
+  # Set a cookie to maintain the variant across requests
+  if (req.http.cookie !~ "ABTest=") {
+    add resp.http.Set-Cookie = "ABTest=" + req.http.X-ABTest + "; path=/; max-age=3600";
+  }
 }
 ```
 
@@ -317,65 +339,64 @@ sub vcl_recv {
 ```vcl
 sub vcl_deliver {
   # Rewrite the Server header
-  if (resp.http.Server) {
-    set resp.http.Server = regsub(resp.http.Server, "Apache", "Fastly.JS");
+  if (resp.http.server) {
+    set resp.http.server = regsub(resp.http.server, "Apache", "Fastly.JS");
   }
 }
 ```
 
 ### Response Body Rewriting
 
-Fastly.JS doesn't natively support response body rewriting, but you can simulate it using synthetic responses:
-
-```vcl
-sub vcl_fetch {
-  # Check if the response is HTML
-  if (beresp.http.Content-Type ~ "text/html") {
-    # Create a synthetic response with modified content
-    synthetic beresp.body;
-
-    # Modify the synthetic response
-    set beresp.body = regsub(beresp.body, "<title>(.*)</title>", "<title>Modified: \1</title>");
-
-    return(deliver);
-  }
-}
-```
+Fastly.JS does not support rewriting backend response bodies. The `synthetic` statement replaces the response body, but it is only valid inside `vcl_error`, so the closest equivalent is serving a synthetic body for error responses (see the [Error Handling](./05-error-handling.md) tutorial). If you need to transform proxied bodies, do it in JavaScript around the pipeline rather than in VCL.
 
 ## Geolocation
 
-> **Not implemented.** Fastly.JS does not currently populate `client.geo.*`. The fields below are part of the standard Fastly VCL surface and are accepted by the parser, but they evaluate to empty strings at runtime. The example is shown for reference — to make it actually work locally, set `req.http.X-Country` (and friends) yourself in `vcl_recv`, either via a JavaScript-side resolver before calling `executeVCL` or by using a header injected by your test harness.
+> **No geolocation database.** The `client.geo.*` variables resolve, but without a geolocation database the string fields (country code, region, city, and so on) all read `"unknown"`, and the coordinates default to Fastly's San Francisco headquarters. To make the example below actually work locally, populate `client.geo` on the context from JavaScript before running the pipeline, or inject headers like `req.http.X-Country` from your test harness.
 
 ```vcl
 sub vcl_recv {
-  # Set headers based on geolocation (will be empty strings in Fastly.JS)
+  # Set headers based on geolocation (reads "unknown" without a geo database)
   set req.http.X-Country = client.geo.country_code;
   set req.http.X-Region = client.geo.region;
   set req.http.X-City = client.geo.city;
 
   # Redirect users based on country
   if (client.geo.country_code == "US") {
-    set req.http.Location = "https://us.example.com" + req.url;
-    error 302 "Redirect";
+    set req.http.X-Redirect-Location = "https://us.example.com" + req.url;
+    error 302 "Found";
   } else if (client.geo.country_code == "UK") {
-    set req.http.Location = "https://uk.example.com" + req.url;
-    error 302 "Redirect";
+    set req.http.X-Redirect-Location = "https://uk.example.com" + req.url;
+    error 302 "Found";
+  }
+}
+
+sub vcl_error {
+  # Attach the Location header to the redirect response
+  if (obj.status == 302 && req.http.X-Redirect-Location) {
+    set obj.http.Location = req.http.X-Redirect-Location;
+    synthetic "";
+    return(deliver);
   }
 }
 ```
 
 ## Edge Side Includes (ESI)
 
-Edge Side Includes (ESI) allow you to assemble dynamic content at the edge. Fastly.JS now fully supports ESI processing, allowing you to include dynamic content in otherwise static pages.
+Edge Side Includes (ESI) allow you to assemble dynamic content at the edge. Fastly.JS ships an ESI processor covering the most common tags: `esi:include`, `esi:remove`, `esi:comment`, and `esi:choose`/`esi:when`/`esi:otherwise`.
+
+Two caveats apply to the current implementation:
+
+- `esi:include` does not perform real backend subrequests; includes resolve to built-in placeholder content, so treat the include examples as documentation of the tag syntax.
+- `esi:when` conditions only support cookie comparisons of the form `$(HTTP_COOKIE{name}) == 'value'`.
 
 ### Enabling ESI Processing
 
-To enable ESI processing, set the `beresp.do_esi` variable to `true` in your VCL:
+To enable ESI processing, set the `beresp.do_esi` variable to `true` in your VCL. ESI is applied when the response `Content-Type` contains `text/html`:
 
 ```vcl
 sub vcl_fetch {
   # Enable ESI processing for HTML content
-  if (beresp.http.Content-Type ~ "text/html") {
+  if (beresp.http.content-type ~ "text/html") {
     set beresp.do_esi = true;
   }
   return(deliver);

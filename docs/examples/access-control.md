@@ -11,6 +11,8 @@ Access control is a critical aspect of web application security. With Fastly.JS,
 
 This guide demonstrates how to implement these access control mechanisms using Fastly.JS and VCL.
 
+> **Note:** Two implementation details matter throughout this guide. First, ACL matching is currently only supported in the form `if (client.ip ~ acl_name)` — the negated `!~` form does not work, so the deny case goes in an `else` branch. Second, the bundled proxy in `index.ts` does not yet populate the client address, so `client.ip` always reads `127.0.0.1` there; ACL rules are still fully testable through the test framework.
+
 ## IP-Based Access Control
 
 One of the simplest forms of access control is restricting access based on IP addresses. Here's an example that allows access only from specific IP addresses:
@@ -25,19 +27,19 @@ acl allowed_ips {
 
 sub vcl_recv {
   # Check if the client IP is in the allowed list
-  if (client.ip !~ allowed_ips) {
-    # If not, return a 403 Forbidden error
-    error 403 "Access Denied";
+  if (client.ip ~ allowed_ips) {
+    # Continue processing the request
+    return(lookup);
   }
   
-  # Continue processing the request
-  return(lookup);
+  # If not, return a 403 Forbidden error
+  error 403 "Access Denied";
 }
 ```
 
 ## Geo-Location Restrictions
 
-> **Note:** Geo-location features (`client.geo.*`) are not yet implemented in Fastly.JS. The examples below show the standard Fastly VCL syntax for reference.
+> **Note:** The `client.geo.*` variables exist in Fastly.JS but there is no geolocation database behind them: string fields read `"unknown"` and the coordinates point at Fastly's San Francisco headquarters. Rules based on them therefore won't behave meaningfully when run locally — a check like `client.geo.country_code != "US"` matches every request. The examples below show the standard Fastly VCL syntax for reference.
 
 You can restrict access based on the geographic location of the client:
 
@@ -64,13 +66,14 @@ Token-based authentication involves validating a token provided in the request:
 
 ```vcl
 sub vcl_recv {
-  # Check if the request has an API token
-  if (!req.http.X-API-Token) {
+  # Check if the request has an API token (client-sent header names
+  # are stored lowercase)
+  if (!req.http.x-api-token) {
     error 401 "API token is required";
   }
   
   # Validate the API token (simplified example)
-  if (req.http.X-API-Token != "valid-token-123") {
+  if (req.http.x-api-token != "valid-token-123") {
     error 401 "Invalid API token";
   }
   
@@ -114,12 +117,14 @@ You can filter requests based on the User-Agent header:
 ```vcl
 sub vcl_recv {
   # Block requests from specific user agents
-  if (req.http.User-Agent ~ "BadBot|EvilCrawler|Spammer") {
+  # (incoming request headers are stored lowercase, and header
+  # lookups are case-sensitive)
+  if (req.http.user-agent ~ "BadBot|EvilCrawler|Spammer") {
     error 403 "Access Denied";
   }
   
   # Allow only specific user agents
-  if (req.http.User-Agent !~ "Mozilla|Chrome|Safari|Edge|Firefox") {
+  if (req.http.user-agent !~ "Mozilla|Chrome|Safari|Edge|Firefox") {
     error 403 "Unsupported browser";
   }
   
@@ -135,13 +140,13 @@ Basic authentication requires users to provide a username and password:
 ```vcl
 sub vcl_recv {
   # Check if the request has an Authorization header
-  if (!req.http.Authorization) {
+  if (!req.http.authorization) {
     # If not, return a 401 Unauthorized error with a WWW-Authenticate header
     error 401 "Authentication required";
   }
   
   # Validate the Authorization header (simplified example)
-  if (req.http.Authorization != "Basic dXNlcm5hbWU6cGFzc3dvcmQ=") {
+  if (req.http.authorization != "Basic dXNlcm5hbWU6cGFzc3dvcmQ=") {
     error 401 "Invalid credentials";
   }
   
@@ -175,25 +180,26 @@ ratecounter api_requests {}
 penaltybox api_violators {}
 
 sub vcl_recv {
-  # Step 1: IP-based access control for admin area
-  if (req.url ~ "^/admin" && client.ip !~ allowed_ips) {
-    error 403 "Admin access restricted";
+  # Step 1: IP-based access control for admin area. ACL matching only
+  # works in the "client.ip ~ acl" form, so the deny case goes in the
+  # else branch.
+  if (req.url ~ "^/admin") {
+    if (client.ip ~ allowed_ips) {
+      # Internal address, let it through
+    } else {
+      error 403 "Admin access restricted";
+    }
   }
   
-  # Step 2: Geo-location restrictions for specific content (requires geo module)
-  if (req.url ~ "^/restricted-content" && client.geo.country_code != "US") {
-    error 403 "This content is only available in the US";
-  }
-  
-  # Step 3: Rate limiting for API endpoints (100 requests per 60 seconds)
+  # Step 2: Rate limiting for API endpoints (100 requests per 60 seconds)
   if (req.url ~ "^/api/") {
     if (ratelimit.check_rate(client.ip, api_requests, 100, 60, 1, api_violators, 300s)) {
       error 429 "Too Many Requests";
     }
   }
   
-  # Step 4: Token-based authentication for API endpoints
-  if (req.url ~ "^/api/" && (!req.http.X-API-Token || req.http.X-API-Token != "valid-token-123")) {
+  # Step 3: Token-based authentication for API endpoints
+  if (req.url ~ "^/api/" && (!req.http.x-api-token || req.http.x-api-token != "valid-token-123")) {
     error 401 "Invalid API token";
   }
   
@@ -202,23 +208,24 @@ sub vcl_recv {
 }
 
 sub vcl_error {
-  # Customize error responses
+  # Customize error responses. The synthetic statement resets
+  # Content-Type to text/html, so set the JSON Content-Type afterwards.
   if (obj.status == 401) {
-    set obj.http.Content-Type = "application/json";
     synthetic {"{"error": "Authentication required", "status": 401}"};
+    set obj.http.Content-Type = "application/json";
     return(deliver);
   }
 
   if (obj.status == 403) {
-    set obj.http.Content-Type = "application/json";
     synthetic {"{"error": "Access denied", "status": 403}"};
+    set obj.http.Content-Type = "application/json";
     return(deliver);
   }
 
   if (obj.status == 429) {
-    set obj.http.Content-Type = "application/json";
     set obj.http.Retry-After = "60";
     synthetic {"{"error": "Rate limit exceeded", "status": 429, "retry_after": 60}"};
+    set obj.http.Content-Type = "application/json";
     return(deliver);
   }
 

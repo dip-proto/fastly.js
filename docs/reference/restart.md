@@ -10,7 +10,9 @@ restart;
 
 ## Description
 
-When a `restart` statement is executed, the request processing is restarted from the beginning, and the `vcl_recv` subroutine is called again. The `req.restarts` counter is incremented each time a restart occurs, allowing you to track the number of restarts and prevent infinite loops.
+When a `restart` statement is executed, the request processing is restarted from the beginning, and the `vcl_recv` subroutine is called again. The `req.restarts` counter increases with each restart, allowing you to track the number of restarts.
+
+The statement is only allowed while executing `vcl_recv`, `vcl_hit`, `vcl_fetch`, `vcl_error`, or `vcl_deliver`. The runtime enforces a hard limit of 3 restarts per request; once it is exceeded the request fails with a `503 Maximum number of restarts (3) reached` error, so an unguarded restart cannot loop forever.
 
 ## Usage
 
@@ -32,9 +34,11 @@ sub vcl_recv {
 
 ```vcl
 sub vcl_recv {
-    # Extract auth token from cookie and set Authorization header
-    if (req.restarts == 0 && !req.http.Authorization && req.http.Cookie ~ "auth_token=([^;]+)") {
-        set req.http.Authorization = "Bearer " + re.group.1;
+    # Extract auth token from cookie and set an authorization header
+    # (incoming header names are stored lowercase, and header lookups
+    # are case-sensitive, hence req.http.cookie and req.http.authorization)
+    if (req.restarts == 0 && !req.http.authorization && req.http.cookie ~ "auth_token=([^;]+)") {
+        set req.http.authorization = "Bearer " + re.group.1;
         restart;
     }
 }
@@ -44,9 +48,9 @@ sub vcl_recv {
 
 ```vcl
 sub vcl_recv {
-    # Try a different backend if the primary backend returns a 5xx error
+    # Try a different backend if the primary backend returned a 5xx error
     if (req.restarts < 3 && req.http.X-Backend-Status ~ "5\d\d") {
-        set req.backend = "fallback_backend";
+        set req.backend = fallback_backend;
         restart;
     }
 }
@@ -54,12 +58,14 @@ sub vcl_recv {
 
 ## Preventing Infinite Loops
 
-To prevent infinite loops, always check the `req.restarts` counter and set a maximum number of restarts:
+The runtime already stops a request after 3 restarts with a generic 503, but
+you can check the `req.restarts` counter yourself to fail earlier or with a
+custom error:
 
 ```vcl
 sub vcl_recv {
-    # Prevent infinite loops
-    if (req.restarts >= 3) {
+    # Bail out with a custom error before the built-in limit kicks in
+    if (req.restarts >= 2) {
         error 503 "Maximum number of restarts reached";
     }
 }
@@ -67,11 +73,10 @@ sub vcl_recv {
 
 ## Best Practices
 
-1. **Always check the restart counter**: Use `req.restarts` to track the number of restarts and prevent infinite loops.
+1. **Always check the restart counter**: Use `req.restarts` to make sure each restart condition can only fire once; the platform limit is only 3 restarts per request.
 2. **Set a reason for the restart**: Use a custom header like `X-Restart-Reason` to track why a restart occurred.
-3. **Limit the number of restarts**: Set a maximum number of restarts (usually 3-5) to prevent infinite loops.
-4. **Use restarts sparingly**: Restarts can impact performance, so use them only when necessary.
-5. **Update req.url when normalizing URLs**: When using restart for URL normalization, make sure to update `req.url` with the normalized version before restarting.
+3. **Use restarts sparingly**: Restarts can impact performance, so use them only when necessary.
+4. **Update req.url when normalizing URLs**: When using restart for URL normalization, make sure to update `req.url` with the normalized version before restarting.
 
 ## Example
 
@@ -82,30 +87,27 @@ sub vcl_recv {
     # Add a header to track restarts
     set req.http.X-Restart-Count = req.restarts;
 
-    # URL normalization
-    if (req.restarts == 0 && req.url ~ "/$") {
+    # URL normalization. Each step guards on its own effect (not on an exact
+    # req.restarts value) so it can only trigger one restart.
+    if (req.url ~ "/$") {
         set req.url = req.url + "index.html";
         set req.http.X-Restart-Reason = "url_normalization";
         restart;
     }
 
     # Authentication
-    if (req.restarts == 1 && !req.http.Authorization && req.http.Cookie ~ "auth_token=([^;]+)") {
-        set req.http.Authorization = "Bearer " + re.group.1;
+    if (!req.http.authorization && req.http.cookie ~ "auth_token=([^;]+)") {
+        set req.http.authorization = "Bearer " + re.group.1;
         set req.http.X-Restart-Reason = "auth";
         restart;
     }
 
     # Failover
-    if (req.restarts == 2 && req.http.X-Backend-Status ~ "5\d\d") {
-        set req.backend = "fallback_backend";
+    if (!req.http.X-Failed-Over && req.http.X-Backend-Status ~ "5\d\d") {
+        set req.backend = fallback_backend;
+        set req.http.X-Failed-Over = "1";
         set req.http.X-Restart-Reason = "failover";
         restart;
-    }
-
-    # Prevent infinite loops
-    if (req.restarts >= 3) {
-        error 503 "Maximum number of restarts reached";
     }
 
     return(lookup);
@@ -171,10 +173,10 @@ The A/B testing example demonstrates how to use restarts to:
 
 We've also created integration tests for each of these examples to demonstrate how they work in practice:
 
-- [URL Normalization Test](../../test/integration/restart_url_normalization_test.ts)
-- [Authentication Test](../../test/integration/restart_auth_token_test.ts)
-- [Backend Failover Test](../../test/integration/restart_backend_failover_test.ts)
-- [A/B Testing Test](../../test/integration/restart_ab_testing_test.ts)
+- [URL Normalization Test](../../test/integration/restart_url_normalization_test.integration.ts)
+- [Authentication Test](../../test/integration/restart_auth_token_test.integration.ts)
+- [Backend Failover Test](../../test/integration/restart_backend_failover_test.integration.ts)
+- [A/B Testing Test](../../test/integration/restart_ab_testing_test.integration.ts)
 
 You can run all the integration tests with the following command:
 
@@ -184,14 +186,14 @@ You can run all the integration tests with the following command:
 
 ## Troubleshooting Restart Issues
 
-### Infinite Restart Loops
+### Restart Loops
 
-If you're experiencing infinite restart loops, check for these common issues:
+A restart loop cannot run forever — the runtime fails the request with a 503
+after 3 restarts — but a request hitting that limit usually indicates one of
+these issues:
 
 1. **Not updating req.url**: When normalizing URLs, make sure to update `req.url` with the normalized version before restarting.
-2. **Missing restart counter check**: Always check `req.restarts` to prevent infinite loops.
-3. **Condition always evaluates to true**: Ensure your restart conditions can eventually become false.
-4. **Maximum restart limit too high**: Set a reasonable maximum restart limit (3-5 is usually sufficient).
+2. **Condition always evaluates to true**: Ensure your restart conditions can eventually become false, either through the changes they make or by checking `req.restarts`.
 
 ### Debugging Restart Flows
 
@@ -210,5 +212,5 @@ if (req.http.X-Restart-Reason) {
 ## See Also
 
 - [VCL Subroutines](vcl-subroutines.md)
-- [Error Handling](error-handling.md)
-- [Request Processing](../fastly-vcl/02-request-pipeline.md)
+- [Error Handling](../tutorials/05-error-handling.md)
+- [VCL Statements](vcl-statements.md)

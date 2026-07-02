@@ -7,21 +7,26 @@ VCL (Varnish Configuration Language) functions provide a way to perform operatio
 VCL functions are organized into several categories:
 
 1. **String Functions**: Functions for working with strings
-2. **Math Functions**: Functions for mathematical operations
+2. **Math and Randomness Functions**: Numeric parsing, math operations, random values
 3. **Time Functions**: Functions for working with dates and times
-4. **Digest Functions**: Functions for cryptographic operations
-5. **HTTP Functions**: Functions for HTTP header and status manipulation
-6. **Logging Functions**: Functions for logging messages
-7. **Director Functions**: Functions for backend selection
-8. **Geo Functions**: Functions for geolocation
-9. **Ratelimit Functions**: Functions for rate limiting
-10. **WAF Functions**: Functions for web application firewall
+4. **Digest and Cryptographic Functions**: Hashing, HMAC, base64, encryption
+5. **Header Functions**: HTTP header and status manipulation
+6. **Query String Functions**: Manipulating URL query strings
+7. **Table Functions**: Looking up entries in `table` declarations
+8. **Content Negotiation Functions**: `accept.*` lookups
+9. **Address Functions**: IP address helpers
+10. **Miscellaneous Functions**: Binary, UUID, UTF-8, logging
+11. **Director Functions**: Backend selection
+12. **Ratelimit Functions**: Rate limiting
+13. **WAF Functions**: Web application firewall
+
+Unknown function calls are a runtime error: they set `fastly.error` and abort the subroutine.
 
 ## String Functions
 
 ### std.strlen(string)
 
-Returns the length of a string.
+Returns the length of a string in bytes.
 
 **Parameters:**
 - `string`: The string to measure
@@ -46,8 +51,12 @@ Converts a string to uppercase.
 
 **Example:**
 ```vcl
-set req.http.X-Upper = std.toupper(req.http.Host);
+set req.http.X-Upper = std.toupper(req.http.host);
 ```
+
+(Header lookups are case-sensitive and incoming header names are stored in
+lowercase, which is why the examples read client headers like `req.http.host`
+with lowercase names.)
 
 ### std.tolower(string)
 
@@ -61,24 +70,24 @@ Converts a string to lowercase.
 
 **Example:**
 ```vcl
-set req.http.X-Lower = std.tolower(req.http.Host);
+set req.http.X-Lower = std.tolower(req.http.host);
 ```
 
-### std.substr(string, offset, length)
+### std.substr(string, offset [, length])
 
-Returns a substring.
+Returns a substring. The `length` argument is optional; when omitted, the rest of the string is returned. Also callable as bare `substr()`.
 
 **Parameters:**
 - `string`: The string to extract from
 - `offset`: The starting position
-- `length`: The length of the substring
+- `length`: The length of the substring (optional)
 
 **Returns:**
 - The extracted substring
 
 **Example:**
 ```vcl
-set req.http.X-Subdomain = std.substr(req.http.Host, 0, std.strstr(req.http.Host, "."));
+set req.http.X-Prefix = std.substr(req.url, 0, 5);
 ```
 
 ### std.strstr(haystack, needle)
@@ -90,20 +99,20 @@ Finds the first occurrence of a substring.
 - `needle`: The string to search for
 
 **Returns:**
-- The substring from the first occurrence of `needle` to the end of `haystack`
+- The substring from the first occurrence of `needle` to the end of `haystack`, or a not-set string when `needle` does not occur
 
 **Example:**
 ```vcl
-set req.http.X-Domain = std.strstr(req.http.Host, ".");
+set req.http.X-Domain = std.strstr(req.http.host, ".");
 ```
 
-### std.regsuball(string, pattern, replacement)
+### regsub(string, pattern, replacement)
 
-Replaces all occurrences of a pattern with a replacement.
+Replaces the first occurrence of a regular expression match. Also callable as `std.regsub()`.
 
 **Parameters:**
 - `string`: The string to modify
-- `pattern`: The pattern to replace
+- `pattern`: The regular expression to match
 - `replacement`: The replacement string
 
 **Returns:**
@@ -111,7 +120,24 @@ Replaces all occurrences of a pattern with a replacement.
 
 **Example:**
 ```vcl
-set req.url = std.regsuball(req.url, "^/old/", "/new/");
+set req.url = regsub(req.url, "^/old/", "/new/");
+```
+
+### regsuball(string, pattern, replacement)
+
+Replaces all occurrences of a regular expression match. Also callable as `std.regsuball()`.
+
+**Parameters:**
+- `string`: The string to modify
+- `pattern`: The regular expression to match
+- `replacement`: The replacement string
+
+**Returns:**
+- The modified string
+
+**Example:**
+```vcl
+set req.url = regsuball(req.url, "//+", "/");
 ```
 
 ### std.prefixof(string, prefix)
@@ -150,7 +176,28 @@ if (std.suffixof(req.url, ".jpg")) {
 }
 ```
 
-## Math Functions
+### Other string functions
+
+The full Fastly string library is implemented. Briefly:
+
+- `std.replace(s, target, replacement)`: replaces the first occurrence of a literal substring
+- `std.replaceall(s, target, replacement)`: replaces all occurrences of a literal substring
+- `std.replace_prefix(s, prefix, replacement)` / `std.replace_suffix(s, suffix, replacement)`
+- `std.strrev(s)`: reverses a string
+- `std.strrep(s, count)`: repeats a string
+- `std.strpad(s, width, pad)`: pads a string to a width
+- `std.strcasecmp(a, b)`: case-insensitive comparison
+- `std.basename(path)` / `std.dirname(path)`
+- `std.collect(req.http.Name [, separator])`: collapses duplicate header fragments into one value
+- `std.count(req.http.Name)`: number of fragments in a header
+- `subfield(header, name [, separator])`: extracts a subfield value (for example a cookie or `Cache-Control` directive)
+- `urlencode(s)` / `urldecode(s)`
+- `cstr_escape(s)`, `json.escape(s)`, `xml_escape(s)`
+- `boltsort.sort(url)`: sorts query string parameters (equivalent to `querystring.sort`)
+- `url.normalize(url)`: normalizes a URL
+- `utf8.is_valid(s)`, `utf8.codepoint_count(s)`, `utf8.substr(s, offset, length)`, `utf8.strpad(s, width, pad)`: UTF-8 aware variants
+
+## Math and Randomness Functions
 
 ### std.atoi(string)
 
@@ -160,98 +207,104 @@ Converts a string to an integer.
 - `string`: The string to convert
 
 **Returns:**
-- The integer value
+- The integer value. On a parse failure it returns `0` and sets `fastly.error` to `EPARSENUM`.
 
 **Example:**
 ```vcl
-set req.http.X-Page = std.atoi(req.url.qs);
+set req.http.X-Page = std.atoi(req.http.X-Page-Param);
 ```
 
-### std.random.randombool(probability)
+Related conversion functions: `std.atof(s)` (FLOAT, `NaN` plus `EPARSENUM` on failure), `std.strtol(s, base)`, `std.strtof(s, base)`, `std.itoa(n [, base])`, and `std.itoa_charset(n, charset)`.
 
-Returns a random boolean with the given probability.
+### randombool(numerator, denominator)
 
-**Parameters:**
-- `probability`: The probability of returning true (0.0 to 1.0)
-
-**Returns:**
-- A random boolean
+Returns a random boolean that is true with probability `numerator / denominator`. A seeded variant `randombool_seeded(numerator, denominator, seed)` produces a deterministic result.
 
 **Example:**
 ```vcl
-if (std.random.randombool(0.1)) {
+if (randombool(1, 10)) {
   set req.http.X-Debug = "true";
 }
 ```
 
-### std.random.randomint(min, max)
+Fastly.JS also accepts `std.random.randombool(probability)` with a single 0.0-1.0 probability argument as a local extension.
 
-Returns a random integer between min and max.
+### randomint(from, to)
 
-**Parameters:**
-- `min`: The minimum value
-- `max`: The maximum value
-
-**Returns:**
-- A random integer
+Returns a random integer between `from` and `to`. A seeded variant `randomint_seeded(from, to, seed)` is deterministic.
 
 **Example:**
 ```vcl
-set req.http.X-Random = std.random.randomint(1, 100);
+set req.http.X-Random = randomint(1, 100);
 ```
+
+`std.random.randomint(from, to)` also works as a local extension.
+
+### randomstr(length [, characters])
+
+Returns a random string of the given length, optionally drawn from a custom character set.
+
+**Example:**
+```vcl
+set req.http.X-Token = randomstr(16);
+```
+
+### math.* namespace
+
+The `math` namespace implements Fastly's math functions and constants:
+
+- Rounding: `math.floor`, `math.ceil`, `math.round`, `math.trunc`, `math.roundeven`, `math.roundhalfup`, `math.roundhalfdown`
+- Exponentials and logarithms: `math.exp`, `math.exp2`, `math.log`, `math.log2`, `math.log10`, `math.sqrt` (domain and range errors set `fastly.error` to `EDOM`/`ERANGE`)
+- Trigonometry: `math.sin`, `math.cos`, `math.tan`, `math.asin`, `math.acos`, `math.atan`, `math.atan2`, and the hyperbolic variants (`math.sinh`, `math.cosh`, ...)
+- Classification: `math.is_finite`, `math.is_infinite`, `math.is_nan`, `math.is_normal`, `math.is_subnormal`
+- Constants: `math.PI`, `math.E`, `math.TAU`, `math.PHI`, `math.SQRT2`, `math.INTEGER_MAX`, `math.INTEGER_MIN`, `math.FLOAT_MAX`, `math.NAN`, `math.POS_INFINITY`, and the rest of Fastly's constant set
+
+`std.min`, `std.max`, `std.floor`, `std.ceiling`, and `std.round` are also available.
 
 ## Time Functions
 
-### std.time.now()
+The current time is available through the `now` variable (and `now.sec` for the epoch seconds as a string); there is no `std.time.now()` function.
 
-Returns the current time as a Unix timestamp.
+### time.add(time, offset) / time.sub(time, offset)
 
-**Returns:**
-- The current time
-
-**Example:**
-```vcl
-set req.http.X-Time = std.time.now();
-```
-
-### std.time.add(time, offset)
-
-Adds an offset to a time.
+Adds or subtracts a relative time (RTIME) from a TIME value, returning a new TIME. Note that `time.sub` subtracts a duration from a time; it does not compute the difference between two times.
 
 **Parameters:**
-- `time`: The time to add to
-- `offset`: The offset to add (e.g., "1h", "30m", "1d")
+- `time`: The TIME value to adjust
+- `offset`: The RTIME offset (e.g., `1h`, `30m`, `1d`)
 
 **Returns:**
 - The new time
 
 **Example:**
 ```vcl
-set req.http.X-Expires = std.time.add(std.time.now(), "1h");
+set req.http.X-Expires = time.add(now, 1h);
 ```
 
-### std.time.sub(time1, time2)
+### std.time(string, fallback)
 
-Calculates the difference between two times.
-
-**Parameters:**
-- `time1`: The first time
-- `time2`: The second time
-
-**Returns:**
-- The difference in seconds
+Parses a string into a TIME value, returning `fallback` when the string cannot be parsed.
 
 **Example:**
 ```vcl
-set req.http.X-Age = std.time.sub(std.time.now(), obj.time.start);
+set req.http.X-Since = std.time(req.http.if-modified-since, now);
 ```
 
-### std.strftime(format, time)
+### std.integer2time(integer)
 
-Formats a time according to the format string.
+Converts Unix epoch seconds to a TIME value.
+
+**Example:**
+```vcl
+set req.http.X-Time = std.integer2time(1719900000);
+```
+
+### strftime(format, time)
+
+Formats a time according to the format string. The format must be written as a long string (`{"..."}`) because `%` sequences are treated as percent escapes inside quoted strings.
 
 **Parameters:**
-- `format`: The format string
+- `format`: The strftime format string
 - `time`: The time to format
 
 **Returns:**
@@ -259,192 +312,215 @@ Formats a time according to the format string.
 
 **Example:**
 ```vcl
-set req.http.X-Date = std.strftime("%Y-%m-%d %H:%M:%S", std.time.now());
+set req.http.X-Date = strftime({"%Y-%m-%d %H:%M:%S"}, now);
 ```
 
-## HTTP Functions
+### Other time functions
 
-### header.get(headers, name)
+- `time.is_after(t1, t2)`: true when `t1` is later than `t2`
+- `time.hex_to_time(divisor, hex)`: parses a hexadecimal epoch value
+- `time.units(unit, time)` / `time.runits(unit, rtime)`: renders a TIME/RTIME in `s`, `ms`, `us`, or `ns` units (invalid units yield a not-set string and set `fastly.error` to `EINVAL`)
+- `time.interval_elapsed_ratio(now, start, end)`: elapsed fraction of an interval
+- `parse_time_delta(string)`: parses a duration string like `"2h"` into seconds
 
-Gets the value of a header.
+## Header Functions
+
+### header.get(where, name)
+
+Gets the value of a header. `where` is one of the HTTP variable objects: `req`, `bereq`, `beresp`, `resp`, or `obj`.
 
 **Parameters:**
-- `headers`: The headers object (e.g., `req.http.*`)
+- `where`: The request or response the header lives on (e.g., `req`)
 - `name`: The name of the header to get
 
 **Returns:**
-- The value of the header, or an empty string if not found
+- The value of the header, or a not-set string if absent
 
 **Example:**
 ```vcl
-set req.http.X-Original-UA = header.get(req.http.*, "User-Agent");
+set req.http.X-Original-UA = header.get(req, "User-Agent");
 ```
 
-### header.set(headers, name, value)
+### header.set(where, name, value)
 
-Sets the value of a header.
-
-**Parameters:**
-- `headers`: The headers object (e.g., `req.http.*`)
-- `name`: The name of the header to set
-- `value`: The value to set
-
-**Returns:**
-- The modified headers object
+Sets the value of a header in place. There is no return value.
 
 **Example:**
 ```vcl
-set req.http.* = header.set(req.http.*, "X-Custom-Header", "New Value");
+header.set(req, "X-Custom-Header", "New Value");
 ```
 
-### header.unset(headers, name)
+### header.unset(where, name)
 
-Removes a header.
-
-**Parameters:**
-- `headers`: The headers object (e.g., `req.http.*`)
-- `name`: The name of the header to remove
-
-**Returns:**
-- The modified headers object
+Removes a header. Unlike the `unset` statement, the header afterwards reads back as a set-but-empty string.
 
 **Example:**
 ```vcl
-set req.http.* = header.unset(req.http.*, "X-To-Remove");
+header.unset(req, "X-To-Remove");
 ```
 
-### header.filter(headers, pattern)
+### header.filter(where, name, ...)
 
-Keeps only headers that match a pattern.
-
-**Parameters:**
-- `headers`: The headers object (e.g., `req.http.*`)
-- `pattern`: The regex pattern to match header names against
-
-**Returns:**
-- The filtered headers object
+Removes the named headers, keeping all others. The arguments are header names, not patterns.
 
 **Example:**
 ```vcl
-set req.http.* = header.filter(req.http.*, "^X-");
+header.filter(req, "Cookie", "Authorization");
 ```
 
-### header.filter_except(headers, pattern)
+### header.filter_except(where, name, ...)
 
-Removes headers that match a pattern.
-
-**Parameters:**
-- `headers`: The headers object (e.g., `req.http.*`)
-- `pattern`: The regex pattern to match header names against
-
-**Returns:**
-- The filtered headers object
+Keeps only the named headers, removing all others.
 
 **Example:**
 ```vcl
-set req.http.* = header.filter_except(req.http.*, "^X-");
+header.filter_except(req, "Host", "User-Agent");
 ```
 
-### http.status_matches(status, pattern)
+### http_status_matches(status, pattern [, pattern ...])
 
-Checks if a status code matches a pattern.
+Checks if a status code matches a pattern. Patterns may be exact codes (`"404"`), `Nxx`/`NNx` wildcards (`"5xx"`, `"30x"`), or ranges (`"400-499"`).
 
 **Parameters:**
 - `status`: The HTTP status code to check
-- `pattern`: The pattern to match against (e.g., "2xx", "30[1-3]", "4xx,5xx")
+- `pattern`: One or more patterns to match against
 
 **Returns:**
-- `true` if the status code matches the pattern, `false` otherwise
+- `true` if the status code matches any pattern, `false` otherwise
 
 **Example:**
 ```vcl
-if (http.status_matches(resp.status, "5xx")) {
+if (http_status_matches(resp.status, "5xx")) {
   set resp.http.X-Error = "Server Error";
 }
 ```
 
-## Digest Functions
+### setcookie.get_value_by_name(where, name) / setcookie.delete_by_name(where, name)
 
-### digest.hash_md5(string)
-
-Calculates the MD5 hash of a string.
-
-**Parameters:**
-- `string`: The string to hash
-
-**Returns:**
-- The MD5 hash
+Reads or removes a cookie from the `Set-Cookie` header of `beresp` or `resp`.
 
 **Example:**
 ```vcl
-set req.http.X-MD5 = digest.hash_md5(req.url);
+set resp.http.X-Session = setcookie.get_value_by_name(resp, "session");
 ```
 
-### digest.hash_sha1(string)
+## Query String Functions
 
-Calculates the SHA-1 hash of a string.
+The `querystring` namespace operates on URL strings and returns modified URLs (except `querystring.get`, which returns a value):
 
-**Parameters:**
-- `string`: The string to hash
-
-**Returns:**
-- The SHA-1 hash
+- `querystring.get(url, name)`: value of the first matching parameter, or not set
+- `querystring.set(url, name, value)` / `querystring.add(url, name, value)`
+- `querystring.remove(url)`: strips the entire query string
+- `querystring.clean(url)`: removes parameters with an empty name
+- `querystring.filter(url, names)` / `querystring.filter_except(url, names)`: removes/keeps the named parameters; multiple names are joined with `querystring.filtersep()`
+- `querystring.globfilter(url, glob)` / `querystring.globfilter_except(url, glob)`
+- `querystring.regfilter(url, regex)` / `querystring.regfilter_except(url, regex)`
+- `querystring.sort(url)`: sorts parameters by name
 
 **Example:**
 ```vcl
-set req.http.X-SHA1 = digest.hash_sha1(req.url);
+set req.url = querystring.filter(req.url,
+  "utm_source" + querystring.filtersep() + "utm_medium");
 ```
 
-### digest.hash_sha256(string)
+## Table Functions
 
-Calculates the SHA-256 hash of a string.
+Tables are declared with `table` blocks and read with the `table.*` functions. The first argument is the table name as a bare identifier.
 
-**Parameters:**
-- `string`: The string to hash
+- `table.lookup(table, key [, default])`: returns the entry, the default, or a not-set string when there is no default
+- `table.lookup_bool`, `table.lookup_integer`, `table.lookup_float`, `table.lookup_ip`, `table.lookup_rtime`: typed lookups with typed defaults
+- `table.lookup_acl`, `table.lookup_backend`, `table.lookup_regex`
+- `table.contains(table, key)`: true when the key exists
 
-**Returns:**
-- The SHA-256 hash
+**Example:**
+```vcl
+table redirects {
+  "/old": "/new",
+}
+
+sub vcl_recv {
+  if (table.contains(redirects, req.url.path)) {
+    set req.url = table.lookup(redirects, req.url.path);
+  }
+}
+```
+
+## Content Negotiation Functions
+
+- `accept.language_lookup(lookup_list, default, accept_header)`: best language match against a colon-separated list
+- `accept.charset_lookup(lookup_list, default, accept_header)`
+- `accept.encoding_lookup(lookup_list, default, accept_header)`
+- `accept.media_lookup(media_list, default, patterns, accept_header)`
+- `accept.language_filter_basic(lookup_list, default, accept_header, limit)`
+
+**Example:**
+```vcl
+set req.http.X-Lang = accept.language_lookup("en:de:fr", "en", req.http.accept-language);
+```
+
+## Address Functions
+
+- `addr.is_ipv4(addr)` / `addr.is_ipv6(addr)`: address family checks
+- `addr.extract_bits(addr, offset, length)`: extracts bits from an address
+- `std.ip(string, fallback)`: parses a string as an IP, returning the fallback on failure
+- `std.str2ip(string, fallback)`, `std.anystr2ip(string, fallback)`, `std.ip2str(ip)`
+
+**Example:**
+```vcl
+if (addr.is_ipv6(client.ip)) {
+  set req.http.X-IPv6 = "true";
+}
+```
+
+## Digest and Cryptographic Functions
+
+### Hashes
+
+`digest.hash_md5`, `digest.hash_sha1`, `digest.hash_sha224`, `digest.hash_sha256`, `digest.hash_sha384`, `digest.hash_sha512`, `digest.hash_crc32`, `digest.hash_crc32b`, `digest.hash_xxh32`, and `digest.hash_xxh64` each take a string and return the hex digest. The `*_from_base64` variants (`digest.hash_sha256_from_base64`, ...) hash the decoded bytes of a base64 input.
 
 **Example:**
 ```vcl
 set req.http.X-SHA256 = digest.hash_sha256(req.url);
 ```
 
-### digest.base64_decode(string)
+### HMAC
 
-Decodes a base64-encoded string.
+- `digest.hmac_md5(key, input)`, `digest.hmac_sha1`, `digest.hmac_sha256`, `digest.hmac_sha512`: return the MAC as `0x`-prefixed hex
+- `digest.hmac_md5_base64` and friends: return the MAC base64-encoded
+- `digest.hmac_sha256_with_base64_key(base64_key, input)`
+- `digest.time_hmac_md5(key, interval, offset)` and the sha1/sha256/sha512 variants: TOTP-style time-based MACs
+- `digest.secure_is_equal(a, b)`: constant-time string comparison
+- `digest.awsv4_hmac(key, date, region, service, string)`: AWS signature v4 signing key MAC
+- `digest.rsa_verify(hash_method, public_key, payload, signature [, base64_method])` and `digest.ecdsa_verify(...)`: signature verification
 
-**Parameters:**
-- `string`: The base64-encoded string
+### Base64
 
-**Returns:**
-- The decoded string
-
-**Example:**
-```vcl
-set req.http.X-Decoded = digest.base64_decode(req.http.X-Encoded);
-```
-
-### digest.base64_encode(string)
-
-Encodes a string as base64.
-
-**Parameters:**
-- `string`: The string to encode
-
-**Returns:**
-- The base64-encoded string
+- `digest.base64(string)`: encodes a string as base64 (there is no `digest.base64_encode`)
+- `digest.base64_decode(string)`: decodes base64
+- `digest.base64url(string)` / `digest.base64url_decode(string)`
+- `digest.base64url_nopad(string)` / `digest.base64url_nopad_decode(string)`
 
 **Example:**
 ```vcl
-set req.http.X-Encoded = digest.base64_encode(req.url);
+set req.http.X-Encoded = digest.base64(req.url);
 ```
+
+### Symmetric encryption
+
+`crypto.encrypt_base64(cipher, mode, padding, key, iv, plaintext)`, `crypto.decrypt_base64(...)`, `crypto.encrypt_hex(...)`, and `crypto.decrypt_hex(...)` implement Fastly's AES encryption helpers.
+
+### Binary and UUID helpers
+
+- `bin.base64_to_hex(string)` / `bin.hex_to_base64(string)`: conversion between encodings (invalid input yields not set and `fastly.error = "EINVAL"`)
+- `uuid.version3(namespace, name)`, `uuid.version4()`, `uuid.version5(namespace, name)`, `uuid.version7()`: UUID generation
+- `uuid.is_valid(s)`, `uuid.is_version3(s)`, `uuid.is_version4(s)`, `uuid.is_version5(s)`, `uuid.is_version7(s)`
+- `uuid.dns()`, `uuid.url()`, `uuid.oid()`, `uuid.x500()`: well-known namespace UUIDs
 
 ## Logging Functions
 
 ### std.log(string)
 
-Logs a message.
+Logs a message. (There is no `std.syslog` in Fastly VCL or in Fastly.JS.)
 
 **Parameters:**
 - `string`: The message to log
@@ -454,28 +530,31 @@ Logs a message.
 std.log("Request received: " + req.url);
 ```
 
-### std.syslog(priority, string)
+## Director Functions
 
-Logs a message with the given priority.
+Directors are normally declared with `director` blocks and assigned to `req.backend` directly:
 
-**Parameters:**
-- `priority`: The log priority (0-7)
-- `string`: The message to log
-
-**Example:**
 ```vcl
-std.syslog(3, "Error processing request: " + req.url);
+backend b1 { .host = "127.0.0.1"; .port = "8080"; }
+backend b2 { .host = "127.0.0.1"; .port = "8081"; }
+
+director my_director random {
+  { .backend = b1; .weight = 2; }
+  { .backend = b2; .weight = 1; }
+}
+
+sub vcl_recv {
+  set req.backend = my_director;
+}
 ```
 
-## Director Functions
+Supported director types are `random`, `hash`, `client`, `fallback`, and `chash`. Round-robin and weighted balancing are achieved with the `random` type by tuning each backend's weight; there is no separate `round-robin` or `weighted` director type.
+
+A runtime API mirrors the declarations:
 
 ### std.director.add(name, type)
 
-Adds a director. Round-robin and weighted balancing are achieved with the `"random"` type by tuning each backend's weight; there is no separate `"round-robin"` or `"weighted"` director type.
-
-**Parameters:**
-- `name`: The name of the director
-- `type`: One of `"random"`, `"hash"`, `"client"`, `"fallback"`, `"chash"`
+Adds a director at runtime.
 
 **Example:**
 ```vcl
@@ -486,11 +565,6 @@ std.director.add("my_director", "random");
 
 Adds a backend to a director.
 
-**Parameters:**
-- `director`: The name of the director
-- `backend`: The name of the backend
-- `weight`: The weight of the backend
-
 **Example:**
 ```vcl
 std.director.add_backend("my_director", "my_backend", 2);
@@ -498,123 +572,76 @@ std.director.add_backend("my_director", "my_backend", 2);
 
 ### std.director.select_backend(director)
 
-Selects a backend from a director.
-
-**Parameters:**
-- `director`: The name of the director
-
-**Returns:**
-- The selected backend
-
-**Example:**
-```vcl
-set req.backend = std.director.select_backend("my_director").name;
-```
+Selects a backend from a director, honoring the director type, backend health, and quorum. Returns the backend object, or nothing when the quorum is not met.
 
 ## Geo Functions
 
-Geolocation is **not implemented** in Fastly.JS. There is no `std.geo` namespace, and the only field on `client` is `client.ip`. References to `client.geo.country_code`, `client.geo.continent_code`, and similar properties parse without error but evaluate to empty strings at runtime. If you need geo data while developing locally, populate `context.client` from JavaScript before invoking the VCL pipeline.
+Geolocation data is exposed through the `client.geo.*` variables (with a `geoip.*` legacy alias), not through functions. Without a geolocation database, string fields read `"unknown"` and the coordinates default to Fastly's San Francisco headquarters; populate `context.client.geo` from JavaScript to supply real data. See the [VCL Variables Reference](./vcl-variables.md) for details.
 
 ## Ratelimit Functions
 
-### std.ratelimit.open_window(windowSeconds)
+These functions live in the `ratelimit` namespace (a `std.ratelimit.*` alias also works). Rate counter and penalty box arguments are bare identifiers, following Fastly's `ID` parameter convention.
 
-Opens a rate counter window with the specified duration.
+### ratelimit.ratecounter_increment(ratecounter, entry, delta)
 
-**Parameters:**
-- `windowSeconds`: The window duration in seconds
-
-**Returns:**
-- A unique identifier for the window
-
-**Example:**
-```vcl
-set req.http.X-Window-ID = std.ratelimit.open_window(60);
-```
-
-### std.ratelimit.ratecounter_increment(counterName, incrementBy)
-
-Increments a named rate counter.
+Increments a rate counter for an entry.
 
 **Parameters:**
-- `counterName`: The name of the counter
-- `incrementBy`: The amount to increment by (default: 1)
+- `ratecounter`: The rate counter (ID)
+- `entry`: The client entry being counted (e.g., `client.ip`)
+- `delta`: The amount to increment by
 
 **Returns:**
 - The new count value
 
 **Example:**
 ```vcl
-set req.http.X-Count = std.ratelimit.ratecounter_increment(client.ip, 1);
+set req.http.X-Count = ratelimit.ratecounter_increment(rc, client.ip, 1);
 ```
 
-### std.ratelimit.check_rate(counterName, ratePerSecond)
+### ratelimit.check_rate(entry, ratecounter, threshold, window, delta, penaltybox, ttl)
 
-Checks if a rate limit has been exceeded.
+Increments a rate counter and checks it against a threshold. When the count within `window` seconds exceeds `threshold`, the entry is added to `penaltybox` for `ttl` and the function returns `true`.
 
-**Parameters:**
-- `counterName`: The name of the counter
-- `ratePerSecond`: The maximum allowed rate
-
-**Returns:**
-- `true` if the rate limit has been exceeded, `false` otherwise
+Note the argument order: the threshold comes third and the increment delta fifth, which differs from Fastly's `(entry, rc, delta, window, limit, pb, ttl)` order.
 
 **Example:**
 ```vcl
-if (std.ratelimit.check_rate(client.ip, 10)) {
+if (ratelimit.check_rate(client.ip, rc, 100, 60, 1, pb, 5m)) {
   error 429 "Too Many Requests";
 }
 ```
 
-### std.ratelimit.check_rates(counterName, rates)
+### ratelimit.check_rates(entry, rc, threshold1, window1, delta1, penaltybox1, threshold2, window2, delta2, penaltybox2, ttl)
 
-Checks if any of multiple rate limits have been exceeded.
+Checks an entry against two rate windows at once; returns `true` when either limit is exceeded (and adds the entry to the corresponding penalty box).
 
-**Parameters:**
-- `counterName`: The name of the counter
-- `rates`: A comma-separated list of rates in the format "count:seconds"
+### ratelimit.penaltybox_add(penaltybox, entry, ttl)
 
-**Returns:**
-- `true` if any rate limit has been exceeded, `false` otherwise
+Adds an entry to a penalty box for the given duration.
 
 **Example:**
 ```vcl
-if (std.ratelimit.check_rates(client.ip, "10:5,100:60,1000:3600")) {
+ratelimit.penaltybox_add(rate_violators, client.ip, 60s);
+```
+
+### ratelimit.penaltybox_has(penaltybox, entry)
+
+Checks if an entry is in a penalty box.
+
+**Returns:**
+- `true` if the entry is in the penalty box, `false` otherwise
+
+**Example:**
+```vcl
+if (ratelimit.penaltybox_has(rate_violators, client.ip)) {
   error 429 "Too Many Requests";
 }
 ```
 
-### std.ratelimit.penaltybox_add(penaltyboxName, identifier, duration)
+### std.ratelimit.open_window(windowSeconds)
 
-Adds an identifier to a penalty box for a specified duration.
-
-**Parameters:**
-- `penaltyboxName`: The name of the penalty box
-- `identifier`: The identifier to add
-- `duration`: The duration in seconds
-
-**Example:**
-```vcl
-std.ratelimit.penaltybox_add("rate_violators", client.ip, 60);
-```
-
-### std.ratelimit.penaltybox_has(penaltyboxName, identifier)
-
-Checks if an identifier is in a penalty box.
-
-**Parameters:**
-- `penaltyboxName`: The name of the penalty box
-- `identifier`: The identifier to check
-
-**Returns:**
-- `true` if the identifier is in the penalty box, `false` otherwise
-
-**Example:**
-```vcl
-if (std.ratelimit.penaltybox_has("rate_violators", client.ip)) {
-  error 429 "Too Many Requests";
-}
-```
+Fastly.JS extension: opens a rate counter window with the specified duration and returns a unique identifier for it.
 
 ## WAF Functions
 
@@ -639,7 +666,7 @@ Blocks a request with a status code and message.
 
 **Example:**
 ```vcl
-if (req.http.User-Agent ~ "BadBot") {
+if (req.http.user-agent ~ "BadBot") {
   waf.block(403, "Forbidden");
 }
 ```
@@ -666,11 +693,11 @@ Implements token bucket rate limiting.
 - `period`: The time period in seconds
 
 **Returns:**
-- `true` if the rate limit has been exceeded, `false` otherwise
+- `true` if a token was available and consumed (the request is within the limit), `false` when the bucket is exhausted
 
 **Example:**
 ```vcl
-if (waf.rate_limit(client.ip, 10, 60)) {
+if (!waf.rate_limit(client.ip, 10, 60)) {
   error 429 "Too Many Requests";
 }
 ```
@@ -696,7 +723,7 @@ Detects attack patterns in a string.
 
 **Parameters:**
 - `string`: The string to check
-- `type`: The type of attack to detect (e.g., "sql", "xss", "path")
+- `type`: The type of attack to detect: `sql`, `xss`, `path`, `command`, `lfi`, `rfi`, or `any`
 
 **Returns:**
 - `true` if an attack is detected, `false` otherwise
@@ -707,6 +734,13 @@ if (waf.detect_attack(req.url.qs, "sql")) {
   waf.block(403, "SQL Injection Attempt");
 }
 ```
+
+## Miscellaneous Functions
+
+- `if(condition, true_value, false_value)`: ternary expression
+- `early_hints(...)`, `h2.push(resource)`, `h2.disable_header_compression(...)`, `h3.alt_svc()`, and `resp.tarpit(...)` are accepted for compatibility but are no-ops locally
+- `fastly.hash(key, seed, from, to)`: Fastly's consistent hash function
+- `fastly.try_select_shield(...)`: accepted, always returns false locally
 
 ## Conclusion
 

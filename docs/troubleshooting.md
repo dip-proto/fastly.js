@@ -28,7 +28,7 @@ Error parsing VCL: Unexpected token at line 10, column 15
 
 ```vcl
 # Before (missing semicolon)
-set req.http.X-Test = "value";
+set req.http.X-Test = "value"
 
 # After (fixed)
 set req.http.X-Test = "value";
@@ -104,11 +104,12 @@ backend default {
 
 **Solution**:
 
-1. Verify that the request is cacheable:
-   - GET or HEAD method
-   - No authentication headers
-   - No cookies
-   - No query parameters (unless explicitly included in the cache key)
+1. Verify that the request actually reaches the cache:
+   - `vcl_recv` must return `lookup` for the request (Fastly.JS caches whatever
+     reaches lookup with a positive TTL; the usual conventions of bypassing the
+     cache for POST requests, cookies, or authenticated requests only apply if
+     your VCL implements them)
+   - A `return(pass)` anywhere in `vcl_recv` skips the cache entirely
 2. Check the TTL settings in `vcl_fetch`:
    - Ensure that `beresp.ttl` is set to a positive value
    - Verify that `beresp.ttl` is not being overridden elsewhere
@@ -148,7 +149,8 @@ sub vcl_deliver {
 **Solution**:
 
 1. Check the backend response time:
-   - Use the `X-Backend-Response-Time` header to measure backend response time
+   - Time the backend directly (for example with `curl -w '%{time_total}'`
+     against the origin) to see how much of the latency it accounts for
    - Optimize the backend server if it's slow to respond
 2. Optimize caching:
    - Increase TTLs for frequently accessed content
@@ -214,16 +216,13 @@ if (req.url ~ "^/products/\d+/[a-zA-Z0-9-]+") {
 
 **Solution**:
 
-1. Check the valid return values for the subroutine:
-   - `vcl_recv`: `lookup`, `pass`, `pipe`, `error`, `hash`, `purge`
-   - `vcl_hash`: `hash`
-   - `vcl_hit`: `deliver`, `pass`, `restart`, `error`
-   - `vcl_miss`: `fetch`, `pass`, `error`
-   - `vcl_pass`: `fetch`, `error`
-   - `vcl_fetch`: `deliver`, `pass`, `error`, `restart`
-   - `vcl_deliver`: `deliver`, `restart`, `error`
-   - `vcl_error`: `deliver`, `restart`
-   - `vcl_log`: No return value required
+1. Check the return values that Fastly.JS acts on:
+   - `vcl_recv`: `lookup` (the default), `pass`, `error`, and `restart`
+   - `vcl_hash`: the return value is ignored; the cache key is computed from the request
+   - `vcl_hit`: `deliver` serves the cached object; any other value falls through to a backend fetch
+   - `vcl_miss` and `vcl_pass`: `fetch` (the default)
+   - `vcl_fetch`: `deliver` (the default); the object is only stored in the cache when `vcl_fetch` returns `deliver` and the TTL is positive
+   - `vcl_deliver`, `vcl_error`, `vcl_log`: the return value does not change the flow
 2. Correct the return value to a valid one for the subroutine.
 
 ## Debugging Techniques
@@ -264,20 +263,16 @@ sub vcl_deliver {
   # Add backend information
   set resp.http.X-Backend = req.backend;
 
-  # Add timing information (if available)
-  # Note: time.elapsed may not be implemented in all versions
-  # Use std.time.now() and calculate differences manually if needed
-  set resp.http.X-Response-Time = std.time.now();
+  # Add timing information
+  # Note: time.elapsed is recognized but always reports zero in Fastly.JS,
+  # so record wall-clock timestamps with the "now" variable instead
+  set resp.http.X-Response-Time = now;
 }
 ```
 
 ### Verbose output
 
-The proxy itself does not take a `--verbose` flag — every command-line argument is treated as a path to a VCL file. To see more detail at runtime, sprinkle `std.log(...)` calls through your VCL (they print to stderr prefixed with `[VCL]`) or run Bun with extra debug output:
-
-```bash
-BUN_DEBUG_QUIET_LOGS=0 bun run index.ts my-vcl-file.vcl
-```
+The proxy itself does not take a `--verbose` flag — every command-line argument is treated as a path to a VCL file. To see more detail at runtime, sprinkle `std.log(...)` calls through your VCL; they are printed to the console prefixed with `[VCL]`.
 
 ### Using Multiple VCL Files
 

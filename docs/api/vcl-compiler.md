@@ -2,7 +2,7 @@
 
 The VCL compiler turns the abstract syntax tree produced by the parser into a map of executable JavaScript functions — one per `sub` block in the source. Each compiled subroutine is a closure of the form `(context: VCLContext) => string`, where the returned string is the action (`"lookup"`, `"pass"`, `"deliver"`, …) the surrounding host code uses to drive the request pipeline.
 
-The compiler lives in [`src/vcl-compiler.ts`](../../src/vcl-compiler.ts) and is exposed as a single class, `VCLCompiler`. Most callers will not use this class directly; the higher-level helpers in `src/vcl.ts` (`loadVCL`, `loadVCLContent`) lex, parse, and compile in one step.
+The compiler lives in [`src/vcl-compiler.ts`](../../src/vcl-compiler.ts) and is exposed as a single class, `VCLCompiler`. Most callers will not use this class directly; the higher-level helpers `loadVCLContent` (in `src/vcl.ts`) and `loadVCL` (in `src/node-loader.ts`) lex, parse, and compile in one step.
 
 ## Importing the compiler
 
@@ -58,9 +58,9 @@ Creates a compiler bound to a parsed program. The constructor does not do any wo
 
 #### `compile(): VCLSubroutines`
 
-Walks the program, registering every ACL, director, penalty box, and rate counter declared at the top level on a fresh internal context, then compiles each `sub` block into an executable function. Returns a `VCLSubroutines` map keyed by subroutine name.
+Walks the program, registering every ACL, director, penalty box, rate counter, table, and backend declared at the top level on a fresh internal context, then compiles each `sub` block into an executable function. Returns a `VCLSubroutines` map keyed by subroutine name.
 
-The compiler does not throw for unknown identifiers at compile time — VCL is dynamically typed, so the runtime resolves names against the live `VCLContext` when each subroutine actually runs. Lexer and parser errors *do* surface as exceptions during `parseVCL` / `loadVCLContent`.
+The compiler does not throw for unknown identifiers at compile time — VCL is dynamically typed, so the runtime resolves names against the live `VCLContext` when each subroutine actually runs. It *does* throw for a few structural problems, matching Fastly's load-time checks: a `goto` whose label is missing or appears before the goto (jumps are forward-only), and a subroutine call graph that exceeds Fastly's inlined-size limit (`VCLLimitExceededError` from `src/vcl-limits.ts`). Lexer and parser errors surface as exceptions during `parseVCL` / `loadVCLContent`.
 
 ## VCLSubroutines
 
@@ -72,10 +72,13 @@ interface VCLSubroutines {
   vcl_miss?:    (context: VCLContext) => string;
   vcl_pass?:    (context: VCLContext) => string;
   vcl_fetch?:   (context: VCLContext) => string;
-  vcl_error?:   (context: VCLContext) => string;
   vcl_deliver?: (context: VCLContext) => string;
-  vcl_log?:     (context: VCLContext) => string;
-  [name: string]: ((context: VCLContext) => string) | undefined;
+  vcl_error?:   (context: VCLContext) => string;
+  vcl_pipe?:    (context: VCLContext) => string;
+  vcl_init?:    (context: VCLContext) => string;
+  vcl_synth?:   (context: VCLContext) => string;
+  vcl_log?:     (context: VCLContext) => void;
+  [name: string]: ((context: VCLContext) => string | void) | undefined;
 }
 ```
 
@@ -85,7 +88,7 @@ Each entry is a function that takes a `VCLContext`, mutates it in place, and ret
 
 The compiler is a tree walker — it does not emit JavaScript source and re-`eval` it. For each VCL statement it builds a small JavaScript function that performs the equivalent runtime mutation against the context. The high-level steps for each program are:
 
-1. Initialise an internal context for declaration-time side effects (ACLs, directors, penalty boxes, rate counters).
+1. Initialise an internal context for declaration-time side effects (ACLs, directors, penalty boxes, rate counters, tables, backends).
 2. For every `sub` block, walk its body and produce a single function that:
    - Looks up identifiers against the live `context` (not against compile-time bindings).
    - Resolves header subfields (`req.http.X-Foo:bar`) using the header module.
@@ -158,11 +161,13 @@ try {
   loadVCLContent("sub vcl_recv { set req.http.X = ; }");
 } catch (error) {
   console.error((error as Error).message);
-  // Error loading VCL content: Unexpected token ';' at line 1
+  // Unexpected token ";" in expression at line 1, column 33
 }
 ```
 
-Runtime errors raised from inside a compiled subroutine — for example a regex with an invalid pattern, or a `std.*` call that fails — are caught by `executeVCL` in `src/vcl.ts`, logged, and surfaced as the action string `"error"`. The host pipeline can then route into `vcl_error`.
+`loadVCLContent` also logs the message together with a source frame pointing at the offending line, and the thrown error is a `VCLDiagnosticError` (from `src/diagnostics.ts`).
+
+Runtime errors raised from inside a compiled subroutine — for example a regex with an invalid pattern, or a `std.*` call that fails — are caught by the compiled function itself, logged, and mapped to a per-phase error action: `"error"` for `vcl_recv`/`vcl_hash`/`vcl_hit`/`vcl_miss`/`vcl_pass`/`vcl_fetch`, `"deliver"` for `vcl_deliver`/`vcl_error`/`vcl_synth`, `"pipe"` for `vcl_pipe`, `"ok"` for `vcl_init`. (`executeVCL` in `src/vcl.ts` adds an outer safety net that returns `"error"` should anything still escape.) The host pipeline can then route into `vcl_error`. Two exception types are deliberately re-thrown instead of being swallowed at either layer: `UnsupportedFeatureError` (from `src/platform.ts`) and `VCLLimitExceededError`.
 
 ## See also
 

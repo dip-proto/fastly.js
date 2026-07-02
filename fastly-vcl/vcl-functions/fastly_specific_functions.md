@@ -17,9 +17,9 @@ INTEGER fastly.hash(STRING key, INTEGER seed, INTEGER from, INTEGER to)
 ### Parameters
 
 - `key`: The string to hash
-- `seed`: A seed value for the hash function
-- `from`: The lower bound of the range for the returned hash value
-- `to`: The upper bound of the range for the returned hash value
+- `seed`: A seed value for the hash function (must be an integer literal)
+- `from`: The lower bound of the range for the returned hash value (must be an integer literal)
+- `to`: The upper bound of the range for the returned hash value (must be an integer literal)
 
 ### Return Value
 
@@ -133,202 +133,57 @@ if (req.url ~ "^/app/") {
     set req.http.X-Feature-Enhanced-Search = "enabled";
   }
 }
-## fastly.ff.last_hop_was_serviceid
-
-Determines if the last hop in a Fastly-Fastly request chain was from the specified service ID.
-
-### Syntax
-
-```vcl
-BOOL fastly.ff.last_hop_was_serviceid(STRING service_id)
-```
-
-### Parameters
-
-- `service_id`: The Fastly service ID to check against
-
-### Return Value
-
-- TRUE if the last hop was from the specified service ID
-- FALSE otherwise
-
-### Examples
-
-#### Basic service chaining verification
-
-```vcl
-declare local var.trusted_service_id STRING;
-declare local var.is_from_trusted_service BOOL;
-
-# Set the trusted service ID
-set var.trusted_service_id = "SU1Z0isxPaozGVKXdv0eY";
-
-# Check if the request came from the trusted service
-set var.is_from_trusted_service = fastly.ff.last_hop_was_serviceid(var.trusted_service_id);
-
-# Take action based on the result
-if (var.is_from_trusted_service) {
-  # Request came from a trusted service, allow special operations
-  set req.http.X-Trusted-Service = "true";
-} else {
-  # Request did not come from a trusted service
-  set req.http.X-Trusted-Service = "false";
-  
-  # Optionally block certain paths from untrusted sources
-  if (req.url ~ "^/admin/") {
-    error 403 "Access denied";
-  }
-}
-```
-
-#### Multi-service architecture with service chaining
-
-This example demonstrates how to implement a multi-service architecture:
-
-```vcl
-declare local var.auth_service_id STRING;
-declare local var.api_gateway_id STRING;
-
-set var.auth_service_id = "a1b2c3d4e5f6g7h8i9j0";
-set var.api_gateway_id = "z9y8x7w6v5u4t3s2r1q0";
-
-# Check if the request came through the proper service chain
-if (fastly.ff.last_hop_was_serviceid(var.auth_service_id)) {
-  # Request has been authenticated by the auth service
-  set req.http.X-Auth-Status = "verified";
-} else if (fastly.ff.last_hop_was_serviceid(var.api_gateway_id)) {
-  # Request came through the API gateway but bypassed auth
-  set req.http.X-Auth-Status = "bypassed";
-  
-  # Check if this is an allowed public endpoint
-  if (req.url !~ "^/public/") {
-    error 401 "Authentication required";
-  }
-} else {
-  # Request did not come through the expected service chain
-  set req.http.X-Auth-Status = "unknown";
-  
-  # Only allow public endpoints
-  if (req.url !~ "^/public/") {
-    error 403 "Direct access not allowed";
-  }
-}
 ```
 
 ## fastly.try_select_shield
 
-Attempts to select a shield POP based on the client's location.
+Returns the shield backend named in the first argument if it is healthy and available; otherwise returns the fallback backend given as the second argument.
 
 ### Syntax
 
 ```vcl
-BOOL fastly.try_select_shield(STRING shield_name)
+BACKEND fastly.try_select_shield(BACKEND shield, BACKEND fallback)
 ```
 
 ### Parameters
 
-- `shield_name`: The name of the shield POP to try to select
+- `shield`: The shield POP backend to try (shield backends are named `ssl_shield_` followed by the POP identifier, e.g. `ssl_shield_iad-va-us`)
+- `fallback`: The backend to return if the shield is unhealthy or unavailable
 
 ### Return Value
 
-- TRUE if the shield was successfully selected
-- FALSE otherwise
+The shield backend if it can be used, otherwise the fallback backend
 
 ### Examples
 
-#### Basic shield selection
+#### Basic shield selection with fallback to the origin
 
 ```vcl
-declare local var.shield_selected BOOL;
+# Route through the IAD shield when possible, otherwise go straight to origin
+set req.backend = fastly.try_select_shield(ssl_shield_iad-va-us, F_origin);
+```
 
-# Try to select a shield based on the client's location
+#### Location-based shield selection
+
+```vcl
+# Pick a shield close to the client, falling back to the origin
 if (client.geo.continent_code == "EU") {
-  set var.shield_selected = fastly.try_select_shield("london-uk");
+  set req.backend = fastly.try_select_shield(ssl_shield_london-uk, F_origin);
 } else if (client.geo.continent_code == "AS") {
-  set var.shield_selected = fastly.try_select_shield("tokyo-jp");
-} else if (client.geo.continent_code == "OC") {
-  set var.shield_selected = fastly.try_select_shield("sydney-au");
-} else if (client.geo.country_code == "US" && client.geo.region ~ "^(CA|OR|WA)$") {
-  set var.shield_selected = fastly.try_select_shield("seattle-wa");
-} else if (client.geo.country_code == "US") {
-  set var.shield_selected = fastly.try_select_shield("ashburn-va");
+  set req.backend = fastly.try_select_shield(ssl_shield_tokyo-jp, F_origin);
 } else {
-  # Default shield for other locations
-  set var.shield_selected = fastly.try_select_shield("ashburn-va");
-}
-
-# Log the shield selection result
-if (var.shield_selected) {
-  log "Shield selected successfully";
-} else {
-  log "Shield selection failed, using default routing";
+  set req.backend = fastly.try_select_shield(ssl_shield_iad-va-us, F_origin);
 }
 ```
 
-#### Advanced shield selection with fallbacks
+#### Chained shield selection
 
-This example demonstrates a more sophisticated shield selection strategy:
+Because the function returns a backend, calls can be nested to express a preference order:
 
 ```vcl
-declare local var.primary_shield STRING;
-declare local var.backup_shield STRING;
-declare local var.primary_selected BOOL;
-declare local var.backup_selected BOOL;
-
-# Determine the appropriate shields based on client location
-if (client.geo.continent_code == "EU") {
-  set var.primary_shield = "london-uk";
-  set var.backup_shield = "amsterdam-nl";
-} else if (client.geo.continent_code == "AS") {
-  if (client.geo.country_code == "JP" || client.geo.country_code == "KR") {
-    set var.primary_shield = "tokyo-jp";
-    set var.backup_shield = "osaka-jp";
-  } else if (client.geo.country_code == "SG" || client.geo.country_code == "MY" || client.geo.country_code == "ID") {
-    set var.primary_shield = "singapore-sg";
-    set var.backup_shield = "hong-kong-hk";
-  } else {
-    set var.primary_shield = "hong-kong-hk";
-    set var.backup_shield = "singapore-sg";
-  }
-} else if (client.geo.continent_code == "OC") {
-  set var.primary_shield = "sydney-au";
-  set var.backup_shield = "auckland-nz";
-} else if (client.geo.country_code == "US") {
-  if (client.geo.region ~ "^(CA|OR|WA|NV|ID|MT)$") {
-    set var.primary_shield = "seattle-wa";
-    set var.backup_shield = "san-jose-ca";
-  } else if (client.geo.region ~ "^(NY|MA|CT|RI|NH|VT|ME|NJ|PA|DE|MD|DC)$") {
-    set var.primary_shield = "newark-nj";
-    set var.backup_shield = "ashburn-va";
-  } else {
-    set var.primary_shield = "ashburn-va";
-    set var.backup_shield = "atlanta-ga";
-  }
-} else {
-  # Default shields for other locations
-  set var.primary_shield = "ashburn-va";
-  set var.backup_shield = "newark-nj";
-}
-
-# Try the primary shield first
-set var.primary_selected = fastly.try_select_shield(var.primary_shield);
-
-# If primary shield selection fails, try the backup
-if (!var.primary_selected) {
-  set var.backup_selected = fastly.try_select_shield(var.backup_shield);
-  
-  if (var.backup_selected) {
-    log "Primary shield selection failed, using backup shield: " + var.backup_shield;
-  } else {
-    log "Both primary and backup shield selection failed, using default routing";
-  }
-} else {
-  log "Using primary shield: " + var.primary_shield;
-}
-
-# Set a header for debugging
-set req.http.X-Selected-Shield = if(var.primary_selected, var.primary_shield, 
-                                  if(var.backup_selected, var.backup_shield, "none"));
+# Prefer the primary shield, then the backup shield, then the origin
+set req.backend = fastly.try_select_shield(ssl_shield_london-uk,
+    fastly.try_select_shield(ssl_shield_amsterdam-nl, F_origin));
 ```
 ## h2.push
 
@@ -337,12 +192,13 @@ Triggers an HTTP/2 server push of the asset at the specified path.
 ### Syntax
 
 ```vcl
-h2.push(STRING path)
+h2.push(STRING resource [, STRING as])
 ```
 
 ### Parameters
 
-- `path`: The path of the asset to push
+- `resource`: The path of the asset to push
+- `as`: Optional content type hint for the pushed resource
 
 ### Return Value
 
@@ -437,17 +293,17 @@ if (fastly.info.is_h2 && !req.http.Fastly-FF) {
 
 ## h2.disable_header_compression
 
-Disables HTTP/2 header compression for the current request/response.
+Disables HTTP/2 header compression for the named response headers, so their values are never entered into the HPACK dynamic table.
 
 ### Syntax
 
 ```vcl
-h2.disable_header_compression()
+h2.disable_header_compression(STRING header_name, ...)
 ```
 
 ### Parameters
 
-None
+- `header_name`: One or more header names for which compression should be disabled
 
 ### Return Value
 
@@ -455,13 +311,14 @@ None
 
 ### Examples
 
-#### Disabling HTTP/2 header compression for security-sensitive contexts
+#### Disabling HTTP/2 header compression for sensitive headers
 
 ```vcl
 # Check if this is a security-sensitive context
 if (req.url ~ "^/admin/" || req.url ~ "^/account/") {
-  # Disable HTTP/2 header compression to mitigate potential HPACK attacks
-  h2.disable_header_compression();
+  # Keep sensitive header values out of the HPACK dynamic table
+  # to mitigate compression side-channel attacks
+  h2.disable_header_compression("Authorization", "Set-Cookie");
   
   # Log the action
   log "Disabled HTTP/2 header compression for security-sensitive path: " + req.url;
@@ -470,18 +327,17 @@ if (req.url ~ "^/admin/" || req.url ~ "^/account/") {
 
 ## h3.alt_svc
 
-Adds an Alt-Svc header to advertise HTTP/3 support.
+Adds an Alt-Svc header to the response to advertise HTTP/3 support.
 
 ### Syntax
 
 ```vcl
-h3.alt_svc(STRING origin, INTEGER max_age)
+h3.alt_svc()
 ```
 
 ### Parameters
 
-- `origin`: The origin to advertise HTTP/3 support for
-- `max_age`: The maximum age of the advertisement in seconds
+None
 
 ### Return Value
 
@@ -492,26 +348,23 @@ None
 #### Advertising HTTP/3 support
 
 ```vcl
-# Add Alt-Svc header to advertise HTTP/3 support
-h3.alt_svc("example.com", 86400);  # 24 hours
-
-# You can also use an empty string for the current origin
-# h3.alt_svc("", 86400);
+# Add an Alt-Svc header to advertise HTTP/3 support
+h3.alt_svc();
 ```
 
 ## early_hints
 
-Sends an HTTP 103 Early Hints response with Link headers.
+Sends an HTTP 103 Early Hints response with Link headers. The function is variadic: several Link values can be passed in a single call.
 
 ### Syntax
 
 ```vcl
-early_hints(STRING link_header)
+early_hints(STRING link_header, ...)
 ```
 
 ### Parameters
 
-- `link_header`: The Link header value to include in the Early Hints response
+- `link_header`: One or more Link header values to include in the Early Hints response
 
 ### Return Value
 
@@ -575,110 +428,36 @@ early_hints("</js/critical.js>; rel=preload; as=script");
 This example demonstrates how multiple Fastly-specific functions can work together to create a comprehensive performance optimization system.
 
 ```vcl
-# First, set up some reusable subroutines
-
-# Subroutine for determining critical resources based on the page type
-sub determine_critical_resources {
-  # Initialize arrays for critical resources
-  declare local var.css_resources STRING;
-  declare local var.js_resources STRING;
-  declare local var.image_resources STRING;
-  declare local var.font_resources STRING;
-  
-  # Set default empty values
-  set var.css_resources = "";
-  set var.js_resources = "";
-  set var.image_resources = "";
-  set var.font_resources = "";
-  
-  # Determine critical resources based on the page type
-  if (req.url == "/" || req.url == "/index.html") {
-    # Homepage
-    set var.css_resources = "/css/critical.css /css/home.css";
-    set var.js_resources = "/js/critical.js /js/home.js";
-    set var.image_resources = "/images/hero.jpg /images/logo.png";
-    set var.font_resources = "/fonts/roboto.woff2";
-  } else if (req.url ~ "^/products/") {
-    # Product pages
-    set var.css_resources = "/css/critical.css /css/product.css";
-    set var.js_resources = "/js/critical.js /js/product.js /js/reviews.js";
-    set var.image_resources = "/images/logo.png";
-    set var.font_resources = "/fonts/roboto.woff2";
-  } else if (req.url ~ "^/blog/") {
-    # Blog pages
-    set var.css_resources = "/css/critical.css /css/blog.css";
-    set var.js_resources = "/js/critical.js /js/blog.js";
-    set var.image_resources = "/images/logo.png";
-    set var.font_resources = "/fonts/roboto.woff2 /fonts/serif.woff2";
-  } else {
-    # Default for other pages
-    set var.css_resources = "/css/critical.css /css/main.css";
-    set var.js_resources = "/js/critical.js /js/main.js";
-    set var.image_resources = "/images/logo.png";
-    set var.font_resources = "/fonts/roboto.woff2";
-  }
-  
-  # Store the resources in headers for use in other subroutines
-  set req.http.X-Critical-CSS = var.css_resources;
-  set req.http.X-Critical-JS = var.js_resources;
-  set req.http.X-Critical-Images = var.image_resources;
-  set req.http.X-Critical-Fonts = var.font_resources;
-}
-
-# Main VCL subroutines
-
 sub vcl_recv {
-  # Step 1: Determine the appropriate shield POP
-  declare local var.shield_selected BOOL;
-  
-  # Select shield based on client location
+  # Step 1: Route through the closest shield POP, falling back to the origin
   if (client.geo.continent_code == "EU") {
-    set var.shield_selected = fastly.try_select_shield("london-uk");
+    set req.backend = fastly.try_select_shield(ssl_shield_london-uk, F_origin);
   } else if (client.geo.continent_code == "AS") {
-    set var.shield_selected = fastly.try_select_shield("tokyo-jp");
+    set req.backend = fastly.try_select_shield(ssl_shield_tokyo-jp, F_origin);
   } else {
-    set var.shield_selected = fastly.try_select_shield("ashburn-va");
+    set req.backend = fastly.try_select_shield(ssl_shield_iad-va-us, F_origin);
   }
   
-  # Step 2: Determine critical resources for the page
-  call determine_critical_resources;
-  
-  # Step 3: Send Early Hints for critical resources
-  
-  # Process CSS resources
-  if (req.http.X-Critical-CSS != "") {
-    declare local var.css_list ARRAY;
-    set var.css_list = split(req.http.X-Critical-CSS, " ");
-    
-    declare local var.css_resource STRING;
-    foreach (var.css_resource, var.css_list) {
-      early_hints("<" + var.css_resource + ">; rel=preload; as=style");
-    }
+  # Step 2: Send Early Hints for critical resources based on the page type
+  # (VCL has no loops, so each page type lists its resources explicitly)
+  if (req.url == "/" || req.url == "/index.html") {
+    early_hints(
+      "</css/critical.css>; rel=preload; as=style",
+      "</css/home.css>; rel=preload; as=style",
+      "</js/home.js>; rel=preload; as=script",
+      "</fonts/roboto.woff2>; rel=preload; as=font; crossorigin");
+  } else if (req.url ~ "^/products/") {
+    early_hints(
+      "</css/critical.css>; rel=preload; as=style",
+      "</css/product.css>; rel=preload; as=style",
+      "</js/product.js>; rel=preload; as=script");
+  } else {
+    early_hints(
+      "</css/critical.css>; rel=preload; as=style",
+      "</js/main.js>; rel=preload; as=script");
   }
   
-  # Process JS resources
-  if (req.http.X-Critical-JS != "") {
-    declare local var.js_list ARRAY;
-    set var.js_list = split(req.http.X-Critical-JS, " ");
-    
-    declare local var.js_resource STRING;
-    foreach (var.js_resource, var.js_list) {
-      early_hints("<" + var.js_resource + ">; rel=preload; as=script");
-    }
-  }
-  
-  # Process font resources
-  if (req.http.X-Critical-Fonts != "") {
-    declare local var.font_list ARRAY;
-    set var.font_list = split(req.http.X-Critical-Fonts, " ");
-    
-    declare local var.font_resource STRING;
-    foreach (var.font_resource, var.font_list) {
-      early_hints("<" + var.font_resource + ">; rel=preload; as=font; crossorigin");
-    }
-  }
-  
-  # Step 4: A/B testing for performance optimizations
+  # Step 3: A/B testing for performance optimizations
   declare local var.user_id STRING;
   declare local var.perf_test_bucket INTEGER;
   
@@ -699,104 +478,35 @@ sub vcl_recv {
   } else if (var.perf_test_bucket <= 50) {
     # 25% of users get standard optimization
     set req.http.X-Perf-Optimization = "standard";
-  } else if (var.perf_test_bucket <= 75) {
-    # 25% of users get minimal optimization
-    set req.http.X-Perf-Optimization = "minimal";
   } else {
-    # 25% of users get no optimization (control group)
+    # 50% of users get no optimization (control group)
     set req.http.X-Perf-Optimization = "none";
   }
 }
 
 sub vcl_deliver {
-  # Step 5: HTTP/2 Server Push for critical resources
+  # Step 4: HTTP/2 Server Push for critical resources
   
   # Only push if the client supports HTTP/2 and based on optimization level
   if (fastly.info.is_h2 && !req.http.Fastly-FF) {
-    # Different push strategies based on optimization level
     if (req.http.X-Perf-Optimization == "aggressive") {
       # Push all critical resources
-      
-      # Push CSS
-      if (req.http.X-Critical-CSS != "") {
-        declare local var.css_list ARRAY;
-        set var.css_list = split(req.http.X-Critical-CSS, " ");
-        
-        declare local var.css_resource STRING;
-        foreach (var.css_resource, var.css_list) {
-          h2.push(var.css_resource);
-        }
-      }
-      
-      # Push JS
-      if (req.http.X-Critical-JS != "") {
-        declare local var.js_list ARRAY;
-        set var.js_list = split(req.http.X-Critical-JS, " ");
-        
-        declare local var.js_resource STRING;
-        foreach (var.js_resource, var.js_list) {
-          h2.push(var.js_resource);
-        }
-      }
-      
-      # Push images
-      if (req.http.X-Critical-Images != "") {
-        declare local var.img_list ARRAY;
-        set var.img_list = split(req.http.X-Critical-Images, " ");
-        
-        declare local var.img_resource STRING;
-        foreach (var.img_resource, var.img_list) {
-          h2.push(var.img_resource);
-        }
-      }
-      
+      h2.push("/css/critical.css");
+      h2.push("/js/main.js");
+      h2.push("/images/logo.png");
     } else if (req.http.X-Perf-Optimization == "standard") {
-      # Push only CSS and JS, not images
-      
-      # Push CSS
-      if (req.http.X-Critical-CSS != "") {
-        declare local var.css_list ARRAY;
-        set var.css_list = split(req.http.X-Critical-CSS, " ");
-        
-        declare local var.css_resource STRING;
-        foreach (var.css_resource, var.css_list) {
-          h2.push(var.css_resource);
-        }
-      }
-      
-      # Push JS
-      if (req.http.X-Critical-JS != "") {
-        declare local var.js_list ARRAY;
-        set var.js_list = split(req.http.X-Critical-JS, " ");
-        
-        declare local var.js_resource STRING;
-        foreach (var.js_resource, var.js_list) {
-          h2.push(var.js_resource);
-        }
-      }
-      
-    } else if (req.http.X-Perf-Optimization == "minimal") {
-      # Push only CSS
-      if (req.http.X-Critical-CSS != "") {
-        declare local var.css_list ARRAY;
-        set var.css_list = split(req.http.X-Critical-CSS, " ");
-        
-        declare local var.css_resource STRING;
-        foreach (var.css_resource, var.css_list) {
-          h2.push(var.css_resource);
-        }
-      }
+      # Push only the critical CSS
+      h2.push("/css/critical.css");
     }
-    # No push for "none" optimization level
+    # No push for the control group
   }
   
-  # Step 6: HTTP/3 support advertisement
-  # Add Alt-Svc header to advertise HTTP/3 support
-  h3.alt_svc("", 86400);  # 24 hours, current origin
+  # Step 5: HTTP/3 support advertisement
+  # Add an Alt-Svc header to advertise HTTP/3 support
+  h3.alt_svc();
   
-  # Step 7: Set performance-related response headers for analytics
+  # Step 6: Set performance-related response headers for analytics
   set resp.http.X-Perf-Optimization = req.http.X-Perf-Optimization;
-  set resp.http.X-Shield-Used = req.http.X-Selected-Shield;
   set resp.http.X-HTTP-Version = if(fastly.info.is_h3, "HTTP/3", 
                                  if(fastly.info.is_h2, "HTTP/2", "HTTP/1.1"));
 }
@@ -806,7 +516,7 @@ sub vcl_deliver {
 
 1. Shield Selection:
    - Choose shields based on client geography for optimal performance
-   - Implement fallback strategies for shield selection
+   - Always provide a sensible fallback backend as the second argument
    - Monitor shield performance and adjust selection logic accordingly
 
 2. HTTP/2 Server Push:
@@ -825,22 +535,17 @@ sub vcl_deliver {
    - Choose appropriate seed values to avoid correlation between tests
    - Implement percentage-based bucketing for gradual feature rollouts
 
-5. Service Chaining with fastly.ff.last_hop_was_serviceid:
-   - Implement proper authentication between services
-   - Use service chaining for specialized processing (auth, API gateway, etc.)
-   - Validate service IDs to prevent unauthorized access
-
-6. HTTP/3 Support:
+5. HTTP/3 Support:
    - Advertise HTTP/3 support using h3.alt_svc
    - Set appropriate max-age values for Alt-Svc headers
    - Monitor HTTP/3 adoption and performance
 
-7. Security Considerations:
+6. Security Considerations:
    - Disable HTTP/2 header compression for security-sensitive contexts
    - Implement proper access controls for service chaining
    - Use secure random seeds for hash-based functions
 
-8. Performance Monitoring:
+7. Performance Monitoring:
    - Set debug headers to track which optimizations were applied
    - Log performance metrics for different optimization strategies
    - Use A/B testing to measure the impact of optimizations

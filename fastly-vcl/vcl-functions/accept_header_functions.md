@@ -15,7 +15,7 @@ STRING accept.language_lookup(STRING available_languages, STRING default_languag
 
 ### Parameters
 
-- `available_languages`: Colon-separated list of languages available for the resource
+- `available_languages`: Colon-separated list of languages available for the resource (must be a literal string, not a variable)
 - `default_language`: Fallback language if no match is found
 - `accept_language_header`: The Accept-Language header value to parse
 
@@ -66,13 +66,51 @@ if (var.selected_language == "ja") {
 
 This example shows how to rewrite URLs based on the selected language:
 
+Regular expression patterns must be literal in VCL, so a dynamic prefix check uses `std.prefixof` instead:
+
 ```vcl
 if (var.selected_language == "en") {
   # No rewriting needed for English (default)
-} else if (req.url !~ "^/" + var.selected_language + "/") {
+} else if (!std.prefixof(req.url, "/" + var.selected_language + "/")) {
   # Rewrite URL to include language prefix
   set req.url = "/" + var.selected_language + req.url;
 }
+```
+
+## accept.language_filter_basic
+
+Filters an Accept-Language header against a list of supported languages using basic filtering (RFC 4647, Section 3.3.1), returning up to `nmatches` matching languages as a comma-separated list.
+
+### Syntax
+
+```vcl
+STRING accept.language_filter_basic(STRING available_languages, STRING default_language, STRING accept_language_header, INTEGER nmatches)
+```
+
+### Parameters
+
+- `available_languages`: Colon-separated list of languages available for the resource (must be a literal string, not a variable)
+- `default_language`: Fallback language if no match is found
+- `accept_language_header`: The Accept-Language header value to parse
+- `nmatches`: Maximum number of matches to return (must be an integer literal)
+
+### Return Value
+
+A comma-separated list of up to `nmatches` matching languages, or the default if none match.
+
+### Examples
+
+```vcl
+declare local var.languages STRING;
+set var.languages = accept.language_filter_basic(
+  "en:de:fr:nl",
+  "en",
+  req.http.Accept-Language,
+  2
+);
+
+# var.languages might be "de,fr" for Accept-Language: de, fr;q=0.9, sv;q=0.8
+set req.http.X-Languages = var.languages;
 ```
 
 ## accept.charset_lookup
@@ -87,8 +125,8 @@ STRING accept.charset_lookup(STRING available_charsets, STRING default_charset, 
 
 ### Parameters
 
-- `available_charsets`: Colon-separated list of charsets available for the resource
-- `default_charset`: Fallback charset if no match is found
+- `available_charsets`: Colon-separated list of charsets available for the resource (must be a literal string, not a variable)
+- `default_charset`: Fallback charset if no match is found (must be a literal string)
 - `accept_charset_header`: The Accept-Charset header value to parse
 
 ### Return Value
@@ -129,8 +167,8 @@ STRING accept.encoding_lookup(STRING available_encodings, STRING default_encodin
 
 ### Parameters
 
-- `available_encodings`: Colon-separated list of encodings available for the resource
-- `default_encoding`: Fallback encoding if no match is found
+- `available_encodings`: Colon-separated list of encodings available for the resource (must be a literal string, not a variable)
+- `default_encoding`: Fallback encoding if no match is found (must be a literal string)
 - `accept_encoding_header`: The Accept-Encoding header value to parse
 
 ### Return Value
@@ -180,14 +218,14 @@ Selects the best match from an Accept header value against available media types
 ### Syntax
 
 ```vcl
-STRING accept.media_lookup(STRING available_media_types, STRING default_media_type, STRING media_type_patterns, STRING accept_header)
+STRING accept.media_lookup(STRING available_media_types, STRING default_media_type, STRING range_defaults, STRING accept_header)
 ```
 
 ### Parameters
 
-- `available_media_types`: Colon-separated list of media types available for the resource
-- `default_media_type`: Fallback media type if no match is found
-- `media_type_patterns`: Colon-separated list of media types corresponding to media type patterns
+- `available_media_types`: Colon-separated list of media types available for the resource (must be a literal string, not a variable)
+- `default_media_type`: Fallback media type if no match is found; also answers a `*/*` range (must be a literal string)
+- `range_defaults`: Colon-separated list of media types used to answer wildcard ranges: an entry such as `text/plain` is returned when the Accept header contains `text/*`. At most one entry per top-level type (must be a literal string)
 - `accept_header`: The Accept header value to parse
 
 ### Return Value
@@ -208,8 +246,8 @@ This example selects the best media type match from the Accept header:
 declare local var.selected_media_type STRING;
 set var.selected_media_type = accept.media_lookup(
   "application/json:application/xml:text/html:text/plain", # Available media types
-  "application/json",                                      # Default media type
-  "application/json:application/xml:text/html:text/plain", # Media type patterns
+  "application/json",                                      # Default media type (also answers */*)
+  "application/json:text/html",                            # Defaults for application/* and text/* ranges
   req.http.Accept
 );
 ```
@@ -218,17 +256,14 @@ set var.selected_media_type = accept.media_lookup(
 
 This example demonstrates how to handle API versioning through content negotiation:
 
+Note that the media type lists must be literal strings; they cannot be built up in variables at runtime.
+
 ```vcl
 if (req.url ~ "^/api/") {
-  declare local var.api_media_types STRING;
-  set var.api_media_types = "application/vnd.company.api.v2+json:" +
-                           "application/vnd.company.api.v1+json:" +
-                           "application/json";
-  
   set var.selected_media_type = accept.media_lookup(
-    var.api_media_types,
-    "application/json", # Default to latest version
-    var.api_media_types, # Media type patterns
+    "application/vnd.company.api.v2+json:application/vnd.company.api.v1+json:application/json",
+    "application/json", # Default (also answers */*)
+    "application/json", # Default for application/* ranges
     req.http.Accept
   );
   
@@ -280,7 +315,7 @@ sub vcl_recv {
   set var.format = accept.media_lookup(
     "application/json:application/xml:text/html",
     "text/html",
-    "application/json:application/xml:text/html", # Media type patterns
+    "application/json:text/html", # Defaults for application/* and text/* ranges
     req.http.Accept
   );
   

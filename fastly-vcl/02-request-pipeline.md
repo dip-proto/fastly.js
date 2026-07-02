@@ -15,9 +15,12 @@ Think of Fastly like a smart postal service for the web. When a request arrives,
 3. **Storage Check**: Looks for the requested content in storage
    - If found → **Found It!** (`vcl_hit`)
    - If not found → **Need to Get It** (`vcl_miss`)
+   - If the reception desk said to skip the cache → **Bypass** (`vcl_pass`)
 4. **Retrieval** (`vcl_fetch`): Gets content from the origin server when needed
 5. **Packaging** (`vcl_deliver`): Prepares the response before sending it back
 6. **Record Keeping** (`vcl_log`): Takes notes about what happened
+
+There is also an error handler (`vcl_error`) that builds synthetic responses whenever a subroutine calls `error` or the origin cannot be reached.
 
 Each checkpoint can make decisions that affect where the request goes next. This flow of decisions is what we call the "request pipeline."
 
@@ -33,57 +36,62 @@ Here's a simplified map of how requests travel through Fastly:
                          │
                          ▼
                   ┌─────────────┐
-                  │  Reception  │
-                  │  (vcl_recv) │◄────────────┐
-                  └──────┬──────┘             │
-                         │                    │
-                ┌────────┴────────┐           │
-                │                 │           │
-                ▼                 ▼           │
-       ┌─────────────┐     ┌─────────────┐    │
-       │ Skip Cache  │     │ Check Cache │    │
-       │  (pass)     │     │  (lookup)   │    │
-       └──────┬──────┘     └──────┬──────┘    │
-              │                   │           │
-              │                   │           │
-              │             ┌─────┴─────┐     │
-              │             │           │     │
-              │             ▼           ▼     │
-              │      ┌─────────┐  ┌─────────┐ │
-              │      │ Found!  │  │Not Found│ │
+                  │  Reception  │◄─────────────┐
+                  │  (vcl_recv) │              │
+                  └──────┬──────┘              │
+                         │                     │
+                         ▼                     │
+                  ┌─────────────┐              │
+                  │ Filing Sys. │              │
+                  │ (vcl_hash)  │              │
+                  └──────┬──────┘              │
+                         │                     │
+                ┌────────┴────────┐            │
+                │ pass            │ lookup     │
+                ▼                 ▼            │
+       ┌─────────────┐      ┌───────────┐      │
+       │ Skip Cache  │      │Check Cache│      │
+       │ (vcl_pass)  │      └─────┬─────┘      │
+       └──────┬──────┘            │            │
+              │             ┌─────┴─────┐      │
+              │             │           │      │
+              │             ▼           ▼      │
+              │      ┌─────────┐  ┌──────────┐ │
+              │      │ Found!  │  │Not Found │ │
               │      │(vcl_hit)│  │(vcl_miss)│ │
-              │      └────┬────┘  └────┬────┘ │
-              │           │            │      │
-              │           │            ▼      │
-              │           │      ┌──────────┐ │
-              │           │      │ Get from │ │
-              │           │      │  Origin  │ │
-              │           │      │(vcl_fetch)│ │
-              │           │      └────┬─────┘ │
-              │           │           │       │
-              ▼           ▼           ▼       │
-       ┌─────────────────────────────────┐    │
-       │         Package Response        │    │
-       │          (vcl_deliver)          │    │
-       └──────────────┬──────────────────┘    │
-                      │                       │
-                      ▼                       │
-               ┌─────────────┐                │
-               │ Record Log  │                │
-               │ (vcl_log)   │                │
-               └──────┬──────┘                │
-                      │                       │
-                      ▼                       │
-               ┌─────────────┐                │
-               │   Restart?  │────Yes─────────┘
+              │      └────┬────┘  └────┬─────┘ │
+              │           │            │       │
+              ▼           │            ▼       │
+      ┌────────────┐      │     ┌────────────┐ │
+      │  Get from  │      │     │  Get from  │ │
+      │   Origin   │      │     │   Origin   │ │
+      │ (vcl_fetch)│      │     │ (vcl_fetch)│ │
+      └──────┬─────┘      │     └──────┬─────┘ │
+             │            │            │       │
+             ▼            ▼            ▼       │
+       ┌─────────────────────────────────┐     │
+       │         Package Response        │     │
+       │          (vcl_deliver)          │─Yes─┘
+       └──────────────┬──────────────────┘ (restart)
+                      │
+                      ▼
+               ┌─────────────┐
+               │ Record Log  │
+               │ (vcl_log)   │
                └──────┬──────┘
-                      │No
+                      │
                       ▼
                ┌─────────────┐
                │   Send to   │
                │   Browser   │
                └─────────────┘
 ```
+
+A few details worth noting:
+
+- `vcl_hash` always runs after `vcl_recv`, even when the request is going to bypass the cache.
+- A passed request still goes to the origin: it flows through `vcl_pass`, then the origin response is processed by `vcl_fetch` — it just isn't stored in the cache.
+- A restart (`return(restart)`) can be issued from `vcl_recv`, `vcl_hit`, `vcl_miss`, `vcl_fetch`, `vcl_deliver`, or `vcl_error`, and sends the request back to `vcl_recv`.
 
 ## The Checkpoints Explained
 
@@ -136,15 +144,17 @@ sub vcl_recv {
 ```vcl
 sub vcl_hash {
     # Basic information
-    hash_data(req.url);
-    hash_data(req.http.host);
+    set req.hash += req.url;
+    set req.hash += req.http.host;
     
     # Different versions for mobile and desktop
     if (req.http.User-Agent ~ "Mobile") {
-        hash_data("mobile");
+        set req.hash += "mobile";
     } else {
-        hash_data("desktop");
+        set req.hash += "desktop";
     }
+    
+    return(hash);
 }
 ```
 
@@ -165,7 +175,7 @@ sub vcl_hit {
     }
     
     # Use cached content even if origin is down
-    if (!req.backend.healthy && obj.ttl + obj.grace > 0s) {
+    if (!req.backend.healthy && obj.ttl + obj.stale_if_error > 0s) {
         return(deliver);
     }
 }
@@ -188,7 +198,7 @@ sub vcl_miss {
     }
     
     # Add a request ID for tracking
-    set bereq.http.X-Request-ID = digest.hash_sha256(now + req.url);
+    set bereq.http.X-Request-ID = digest.hash_sha256(now.sec + req.url);
 }
 ```
 

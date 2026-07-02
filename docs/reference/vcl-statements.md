@@ -18,11 +18,14 @@ VCL statements are organized into several categories:
 
 ### set
 
-Sets the value of a variable.
+Sets the value of a variable. Besides plain assignment, `set` accepts the
+compound assignment operators listed in the
+[VCL Operators Reference](./vcl-operators.md#assignment-operators).
 
 **Syntax:**
 ```vcl
 set variable = expression;
+set variable += expression;
 ```
 
 **Example:**
@@ -34,22 +37,32 @@ set req.backend = my_backend;
 
 ### unset
 
-Removes a variable.
+Removes a header or local variable. `remove` is accepted as an alias. A
+trailing `*` wildcard removes every matching header.
 
 **Syntax:**
 ```vcl
 unset variable;
+remove variable;
 ```
 
 **Example:**
 ```vcl
-unset req.http.Cookie;
-unset resp.http.Server;
+unset req.http.cookie;
+unset resp.http.server;
+unset req.http.X-Debug-*;
 ```
+
+Note that header lookups are case-sensitive and Fastly.JS stores incoming
+request and origin response header names in lowercase, so client and origin
+headers (`cookie`, `server`, `content-type`, ...) are written in lowercase in
+the examples below. Headers your own VCL sets keep the casing you write.
 
 ### add
 
-Adds a value to a header, creating it if it doesn't exist.
+Adds another line of a header, keeping any existing lines. Only HTTP headers
+(`req.http.*`, `bereq.http.*`, `beresp.http.*`, `resp.http.*`, `obj.http.*`)
+can be targets.
 
 **Syntax:**
 ```vcl
@@ -58,7 +71,8 @@ add variable = expression;
 
 **Example:**
 ```vcl
-add req.http.X-Custom = "value";
+add resp.http.Set-Cookie = "a=1";
+add resp.http.Set-Cookie = "b=2";
 ```
 
 ## Control Flow Statements
@@ -92,69 +106,51 @@ if (req.url ~ "^/api/") {
 }
 ```
 
-### for
+### switch
 
-Iterates over a list of items.
+Compares a subject expression against a series of cases. Cases compare as
+strings; a case prefixed with `~` performs a regular expression match instead.
+Every case body must end with `break;` or `fallthrough;` (fallthrough continues
+into the next case in source order). At most one `default:` case is allowed,
+and it runs only when no case matches.
 
 **Syntax:**
 ```vcl
-for (variable in list) {
-  # Code to execute for each item
-}
-```
-
-**Example:**
-```vcl
-for (backend in backends) {
-  if (backend.healthy) {
-    set req.backend = backend;
+switch (expression) {
+  case "value":
+    # statements
     break;
-  }
-}
-```
-
-### break
-
-Exits a loop.
-
-**Syntax:**
-```vcl
-break;
-```
-
-**Example:**
-```vcl
-for (backend in backends) {
-  if (backend.healthy) {
-    set req.backend = backend;
+  case ~"pattern":
+    # statements
+    fallthrough;
+  default:
+    # statements
     break;
-  }
 }
-```
-
-### continue
-
-Skips to the next iteration of a loop.
-
-**Syntax:**
-```vcl
-continue;
 ```
 
 **Example:**
 ```vcl
-for (backend in backends) {
-  if (!backend.healthy) {
-    continue;
-  }
-  set req.backend = backend;
-  break;
+switch (req.url.ext) {
+  case "jpg":
+    fallthrough;
+  case ~"^(png|gif|webp)$":
+    set req.http.X-Type = "image";
+    break;
+  default:
+    set req.http.X-Type = "other";
+    break;
 }
 ```
+
+Note: VCL has no loops; `break` and `fallthrough` are only valid inside a
+`switch` case body.
 
 ### goto
 
-Jumps to a labeled section of code.
+Jumps forward to a labeled section of code. Jumps are forward-only: the label
+must be defined after the `goto` and at the top level of the same subroutine,
+or loading the VCL fails. See [Goto Statements](../goto.md) for details.
 
 **Syntax:**
 ```vcl
@@ -163,7 +159,7 @@ goto label_name;
 
 **Example:**
 ```vcl
-if (req.http.Host == "admin.example.com") {
+if (req.http.host == "admin.example.com") {
   goto admin_processing;
 }
 
@@ -185,30 +181,43 @@ request_end:
 
 ### sub
 
-Defines a subroutine.
+Defines a subroutine. Custom subroutines can optionally declare typed
+parameters and a return type; a subroutine with a return type can be invoked
+like a function inside expressions.
 
 **Syntax:**
 ```vcl
 sub name {
   # Code to execute
 }
+
+sub name(TYPE param1, TYPE param2) TYPE {
+  return expression;
+}
 ```
 
 **Example:**
 ```vcl
 sub vcl_recv {
-  set req.backend = default;
+  set req.backend = origin;
   return(lookup);
+}
+
+sub double(INTEGER n) INTEGER {
+  return n * 2;
 }
 ```
 
 ### call
 
-Calls a subroutine.
+Calls a subroutine. Arguments may be passed to subroutines declared with
+parameters. If the called subroutine returns a lifecycle action (such as
+`pass` or `error`), the action propagates to the caller.
 
 **Syntax:**
 ```vcl
 call name;
+call name(arguments);
 ```
 
 **Example:**
@@ -220,31 +229,46 @@ call check_auth;
 
 ### return
 
-Returns a value from a subroutine.
+Ends the current subroutine, optionally handing a lifecycle action to the
+state machine. The recognized actions are `lookup`, `pass`, `pipe`, `error`,
+`restart`, `hash`, `deliver`, `deliver_stale`, `fetch`, `purge`, and
+`hit_for_pass`. Parentheses around the action are optional, and a bare
+`return;` exits a custom subroutine without an action. In a subroutine
+declared with a return type, `return expression;` yields the subroutine's
+value instead.
 
 **Syntax:**
 ```vcl
 return(action);
+return action;
+return;
+return expression;   # typed subroutines only
 ```
 
 **Example:**
 ```vcl
 return(lookup);
 return(pass);
-return(pipe);
 return(deliver);
-return(error);
 return(restart);
+return lookup;
 ```
 
 ## Error Statements
 
 ### error
 
-Generates an error response.
+Generates an error response and transfers control to `vcl_error`. The status
+code and response text are both optional: a bare `error;` re-raises with the
+current `obj.status`. The status may be an integer literal, identifier, or
+function call, and the response text may be any string expression. The
+statement is only allowed while executing `vcl_recv`, `vcl_hit`, `vcl_miss`,
+`vcl_pass`, or `vcl_fetch`.
 
 **Syntax:**
 ```vcl
+error;
+error status_code;
 error status_code "message";
 ```
 
@@ -259,11 +283,14 @@ error 500 "Internal Server Error";
 
 ### synthetic
 
-Generates a synthetic response body.
+Generates a synthetic response body. Only allowed inside `vcl_error`. The body
+is a full string expression, so `{"..."}` long strings can be concatenated
+with variables.
 
 **Syntax:**
 ```vcl
 synthetic "body";
+synthetic {"long body"} + obj.status + {" more"};
 ```
 
 **Example:**
@@ -284,7 +311,8 @@ synthetic {"
 
 ### synthetic.base64
 
-Generates a synthetic response body from base64-encoded data.
+Generates a synthetic response body from base64-encoded data. Like
+`synthetic`, it is only allowed inside `vcl_error`.
 
 **Syntax:**
 ```vcl
@@ -300,7 +328,10 @@ synthetic.base64 "PGgxPkVycm9yPC9oMT4=";
 
 ### declare local
 
-Declares a local variable with a specific type.
+Declares a local variable with a specific type. Variable names must be
+prefixed with `var.`. Supported types are `STRING`, `INTEGER`, `FLOAT`,
+`BOOL`, `TIME`, `RTIME`, and `IP`. Variables start out with the type's zero
+value; as an extension, Fastly.JS also accepts an inline initializer.
 
 **Syntax:**
 ```vcl
@@ -311,7 +342,8 @@ declare local var.name TYPE;
 ```vcl
 declare local var.is_mobile BOOL;
 declare local var.device_type STRING;
-declare local var.request_count INT;
+declare local var.request_count INTEGER;
+declare local var.limit INTEGER = 10;  # Fastly.JS extension
 ```
 
 ## Backend Declaration
@@ -376,20 +408,25 @@ acl internal_ips {
   "192.168.1.0"/24;
   "10.0.0.1";
   "2001:db8::/32";
+  !"192.168.1.13";
 }
 ```
+
+Entries prefixed with `!` are negated. CIDR masks may be written inside or
+outside the quoted address.
 
 ## Table Declaration
 
 ### table
 
-Defines a lookup table.
+Defines a lookup table. An optional value type may follow the table name
+(the default is STRING).
 
 **Syntax:**
 ```vcl
 table name {
   "key": "value",
-  "key": "value"
+  "key": "value",
 }
 ```
 
@@ -399,13 +436,62 @@ table redirects {
   "/old-page": "/new-page",
   "/deprecated": "/current"
 }
+
+table limits INTEGER {
+  "burst": 100,
+}
+```
+
+## Director Declaration
+
+### director
+
+Defines a director that distributes traffic across backends. Supported types
+are `random`, `hash`, `client`, `fallback`, and `chash`.
+
+**Syntax:**
+```vcl
+director name type {
+  .property = value;
+  { .backend = backend_name; .weight = weight; }
+}
+```
+
+**Example:**
+```vcl
+director my_pool random {
+  .quorum = 50%;
+  { .backend = origin_a; .weight = 2; }
+  { .backend = origin_b; .weight = 1; }
+}
+```
+
+## Rate Limiting Declarations
+
+### penaltybox
+
+Declares a penalty box for use with the `ratelimit.*` functions.
+
+**Syntax:**
+```vcl
+penaltybox name {}
+```
+
+### ratecounter
+
+Declares a rate counter for use with the `ratelimit.*` functions.
+
+**Syntax:**
+```vcl
+ratecounter name {}
 ```
 
 ## Import Statement
 
 ### import
 
-Imports a VCL module.
+Imports a VCL module. All modules are built into Fastly.JS, so the statement
+is accepted for compatibility but has no effect.
 
 **Syntax:**
 ```vcl
@@ -415,32 +501,29 @@ import module;
 **Example:**
 ```vcl
 import std;
-import directors;
-import crypto;
 ```
 
 ## Include Statement
 
 ### include
 
-Includes another VCL file.
+Includes another VCL file. Fastly.JS parses and records `include` statements
+but does not resolve them to files: combine your VCL into a single input
+before loading it.
 
 **Syntax:**
 ```vcl
 include "file";
 ```
 
-**Example:**
-```vcl
-include "common.vcl";
-include "backends.vcl";
-```
-
 ## Restart Statement
 
 ### restart
 
-Restarts the request processing.
+Restarts the request processing from `vcl_recv`. Only allowed while executing
+`vcl_recv`, `vcl_hit`, `vcl_fetch`, `vcl_error`, or `vcl_deliver`; the runtime
+enforces a maximum number of restarts (3) and fails the request with a 503
+once it is exceeded. See [Restart Functionality](./restart.md).
 
 **Syntax:**
 ```vcl
@@ -449,7 +532,7 @@ restart;
 
 **Example:**
 ```vcl
-if (req.restarts < 3) {
+if (req.restarts == 0) {
   restart;
 }
 ```
@@ -485,6 +568,27 @@ log "message";
 **Example:**
 ```vcl
 log "Request received: " + req.url;
+```
+
+## ESI Statement
+
+### esi
+
+Enables Edge Side Includes processing for the response. Only allowed in
+`vcl_fetch` (it sets `beresp.do_esi`).
+
+**Syntax:**
+```vcl
+esi;
+```
+
+**Example:**
+```vcl
+sub vcl_fetch {
+  if (beresp.http.content-type ~ "text/html") {
+    esi;
+  }
+}
 ```
 
 ## Conclusion

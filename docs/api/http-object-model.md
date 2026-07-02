@@ -36,7 +36,7 @@ bereq: {
 
 `req.url` is the path-and-query as seen by the proxy. `bereq.url` is the absolute URL that will be issued to the backend, with the chosen backend's host, port, and scheme baked in.
 
-Header keys on `req.http` and `bereq.http` are stored lowercased. Setting headers from VCL works on whatever case you use — the runtime normalises lookups — but if you read these fields from JavaScript, expect lowercase keys.
+Header keys are matched exactly against the record — there is no case normalisation at lookup time. Headers arriving from the client are stored lowercased by the proxy (`index.ts` lowercases them before `vcl_recv`), and headers set from VCL keep whatever case the VCL source used. In practice this means VCL running behind the proxy should read client headers with lowercase names (`req.http.host`, `req.http.cookie`), while a header it set itself is read back with the same spelling it was written with.
 
 ## Response: `beresp` and `resp`
 
@@ -45,7 +45,7 @@ beresp: {
   status: number;
   statusText: string;
   http: Record<string, string>;
-  ttl: number;                       // seconds; 0 means "do not cache"
+  ttl: number;                       // seconds; 0 means "unset" — defaults apply after vcl_fetch
   grace?: number;                    // seconds
   stale_while_revalidate?: number;   // seconds
   do_esi?: boolean;                  // when true, vcl_deliver triggers ESI processing
@@ -58,14 +58,14 @@ resp: {
 };
 ```
 
-`beresp` is what the backend returned (and what `vcl_fetch` runs against); `resp` is what will go to the client (and what `vcl_deliver` runs against). The proxy copies `beresp.http` into `resp.http` and adds the bookkeeping headers `X-Cache` and `X-Backend`. The response *body* is not stored on either object — it's an `ArrayBuffer` carried by the surrounding pipeline (or, for synthetic responses, by `obj.response`).
+`beresp` is what the backend returned (and what `vcl_fetch` runs against); `resp` is what will go to the client (and what `vcl_deliver` runs against). The proxy copies `beresp.http` into `resp.http` and adds the bookkeeping headers `X-Cache` and `X-Backend`. Backend header names are lowercased as they land on `beresp.http`. The response *body* is not stored on either object — it's a `Uint8Array` carried by the surrounding pipeline (or, for synthetic responses, by `obj.response`).
 
 ## Errors and synthetic responses: `obj`
 
 ```typescript
 obj: {
   status: number;
-  response: string;       // body for synthetic responses and error pages
+  response?: string;      // body for synthetic responses and error pages; unset until one is produced
   http: Record<string, string>;
   hits: number;
 };
@@ -75,16 +75,16 @@ obj: {
 
 ## Headers
 
-Headers are plain JavaScript records. Both incoming directions normalise keys to lowercase before exposing them to VCL, so any of these will find a `Host` header set by the client:
+Headers are plain JavaScript records. Both incoming directions normalise keys to lowercase before exposing them to VCL (client headers in `index.ts`, backend headers in the pipeline), so a `Host` header set by the client is found with the lowercase name:
 
 ```vcl
 sub vcl_recv {
-  set req.http.X-Original-Host = req.http.host;       # case-insensitive lookup
-  set req.http.X-Original-Host = req.http.Host;       # also fine
+  set req.http.X-Original-Host = req.http.host;   # finds the inbound header
+  # req.http.Host would NOT match — lookups are exact, not case-insensitive
 }
 ```
 
-Subfield syntax (`req.http.Foo:bar`) is recognised by the parser and mapped to substring lookups inside the header value via the header module — see `src/vcl-header.ts`. The standard library also exposes a programmatic interface on `context.std.header`:
+Subfield syntax (`req.http.Foo:bar`) is recognised by the parser and mapped to substring lookups inside the header value. The standard library also exposes a programmatic interface on `context.std.header`; unlike direct property access, `get` and `remove` match the header name case-insensitively:
 
 ```typescript
 context.std.header.get(headers, "X-Token");          // -> string | null
@@ -100,9 +100,12 @@ Query parsing is exposed via `context.querystring` (mounted from `src/vcl-querys
 
 ```vcl
 set req.url = querystring.set(req.url, "page", "2");
-set req.url = querystring.remove(req.url, "utm_source");
+set req.url = querystring.globfilter(req.url, "utm_*");  # drop matching params
 set req.url = querystring.sort(req.url);
+set req.url = querystring.remove(req.url);               # strip the whole query string
 ```
+
+Note that `querystring.remove(url)` takes a single argument and removes the entire query string; to drop individual parameters use `filter` (exact names, separated by `querystring.filtersep()`), `globfilter`, or `regfilter`.
 
 If you need the parsed parameters as a record from JavaScript, call `URL` on the path:
 
@@ -116,7 +119,7 @@ There is no separate `cookies` field on `req` or `resp`. Cookies travel in the r
 
 ```vcl
 sub vcl_recv {
-  if (req.http.Cookie ~ "session=([^;]+)") {
+  if (req.http.cookie ~ "session=([^;]+)") {
     set req.http.X-Session = re.group.1;
   }
 }
@@ -142,7 +145,7 @@ context.req.http = {
 context.client = { ip: "203.0.113.7" };
 ```
 
-Cloning is just `structuredClone`. There is no `cloneRequest` / `cloneResponse` helper — TypeScript's structural typing makes that unnecessary.
+Cloning the plain `req` / `bereq` / `beresp` / `resp` / `obj` objects is just `structuredClone` (the full context is not cloneable — it carries the standard library functions). There is no `cloneRequest` / `cloneResponse` helper — TypeScript's structural typing makes that unnecessary.
 
 ## See also
 

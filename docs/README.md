@@ -51,6 +51,7 @@ Detailed documentation for specific features:
 - [Edge Side Includes (ESI)](./features/edge-side-includes.md)
 - [Goto Statements](./goto.md)
 - [Restart Functionality](./reference/restart.md)
+- [CSRF Protection](./csrf-protection.md)
 
 ### Web Playground
 
@@ -88,4 +89,4 @@ branch, add tests for your change, and open a pull request.
 
 ## License
 
-Fastly.JS is licensed under the MIT License. See the [LICENSE](../LICENSE) file for more information.
+Fastly.JS is licensed under the MIT License.
