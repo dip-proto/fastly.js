@@ -269,8 +269,11 @@ There is no `beresp.body` variable; response bodies cannot be rewritten from VCL
 - `beresp.proto`: the protocol of the backend response
 - `beresp.cacheable`: whether the response is cacheable
 - `beresp.do_esi`: enables ESI processing of the response
-- `beresp.do_stream`, `beresp.gzip`, `beresp.brotli`, `beresp.saintmode`, `beresp.hipaa`, `beresp.pci`
-- `beresp.backend.name`, `beresp.backend.ip`, `beresp.backend.port`, `beresp.backend.src_ip`, `beresp.backend.src_port`, `beresp.backend.requests`, `beresp.backend.alternate_ips`
+- `beresp.do_stream`, `beresp.gzip`, `beresp.brotli`, `beresp.saintmode`
+- `beresp.hipaa`, `beresp.pci`: the same flag under two names, marking the
+  response so it is kept out of non-volatile cache; the value is remembered with
+  the cached object and read back as `obj.is_hipaa` / `obj.is_pci` on later hits
+- `beresp.backend.host`, `beresp.backend.name`, `beresp.backend.ip`, `beresp.backend.port`, `beresp.backend.src_ip`, `beresp.backend.src_port`, `beresp.backend.requests`, `beresp.backend.alternate_ips`: describe the backend that answered this pass. When no backend request was made — a cache hit, for instance — the host and addresses read as not set, the name reads empty, and the port reads zero
 - `beresp.headers`: all backend response headers serialized as a string
 - `beresp.handshake_time_to_origin_ms`, `beresp.used_alternate_path_to_origin`
 
@@ -342,7 +345,8 @@ set resp.http.X-Cache-Age = obj.age;
 
 - `obj.response`: the status text (in `vcl_error`, the error message; not set until an error occurs)
 - `obj.proto`: the protocol
-- `obj.cacheable`, `obj.is_pci`
+- `obj.cacheable`
+- `obj.is_pci`, `obj.is_hipaa`: the PCI/HIPAA flag the object was cached with (see `beresp.pci` / `beresp.hipaa`); the two names read the same value
 - `obj.stale_if_error`, `obj.stale_while_revalidate`
 - `obj.lastuse`, `obj.entered`
 - `obj.headers`: all object headers serialized as a string
@@ -500,10 +504,21 @@ set var.request_count = 1;
 VCL supports the following variable types:
 
 - `STRING`: Text strings (locals start out not set)
-- `INTEGER`: Integer numbers (`INT` is accepted as an alias; starts at 0)
-- `FLOAT`: Floating-point numbers (starts at 0)
+- `INTEGER`: Integer numbers (`INT` is accepted as an alias; starts at 0).
+  Written in decimal (a leading zero is still decimal, so `0755` is 755) or in
+  hexadecimal with a lowercase `0x` prefix (`0x5a5a`).
+  The value must fit a signed 64-bit integer; `-9223372036854775808` is the one
+  value that overflows on its own and is only valid written with the minus sign.
+- `FLOAT`: Floating-point numbers (starts at 0).
+  Written as `1.5`, with a lowercase decimal exponent (`1.5e3`, `1e-3`), or as a
+  hexadecimal float with a lowercase binary exponent (`0x1.8p3`, and `0x1.8`
+  when the exponent is omitted).
 - `TIME`: Absolute time values
-- `RTIME`: Relative time values (e.g., 3600s, 24h)
+- `RTIME`: Relative time values.
+  A number carries one of the unit suffixes `ms`, `s`, `m` (minute), `h`, `d`,
+  `w` (week), or `y` (a 365-day year), for example `3600s`, `24h`, or `2w`.
+  The unit may be written against the number (`60s`) or separated from it by
+  spaces or tabs (`60 s`); a newline does not join them.
 - `BOOL`: Boolean values (starts at false)
 - `IP`: IP addresses (starts out not set)
 - `BACKEND`: Backend references (assigning one to `req.backend` dereferences to the backend it holds)

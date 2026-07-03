@@ -302,6 +302,14 @@ if (client.ip ~ internal_ips) {
 }
 ```
 
+An ACL match follows Fastly's rules: the most specific (longest-prefix) entry
+that contains the address decides the outcome, and a negated entry (`! "..."`)
+excludes it.
+So a negated `/32` inside a positive `/24` carves out that one address.
+The `"localhost"` entry stands for exactly `127.0.0.1` and `::1`, a bare IPv4
+entry is a `/32` and a bare IPv6 entry a `/128`, and a value that is not a valid
+IP never matches.
+
 ### Regular Expression Not Match (!~)
 
 Checks if a string does not match a regular expression (or, with an ACL name

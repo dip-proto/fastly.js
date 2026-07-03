@@ -6,6 +6,7 @@
 // the CLI, a synthetic response for the simulator — injected as getBackendResponse.
 
 import { executeVCL } from "../vcl";
+import { getIPType } from "../vcl-acl";
 import type { VCLContext, VCLSubroutines } from "../vcl-compiler";
 import { seedRequestWorkspace } from "../vcl-limits";
 
@@ -25,7 +26,14 @@ export interface CacheEntry {
 	beresp: VCLContext["beresp"];
 }
 
-export type CacheOutcome = "hit" | "hit-stale" | "miss" | "pass" | "uncacheable" | "error";
+export type CacheOutcome =
+	| "hit"
+	| "hit-stale"
+	| "miss"
+	| "pass"
+	| "uncacheable"
+	| "error"
+	| "upgrade";
 
 export interface PipelineResponse {
 	status: number;
@@ -119,9 +127,35 @@ async function runPass(opts: PipelineOptions): Promise<PipelineResult | "restart
 	// not survive a restart (req.hash reads it, and computeCacheKey joins it).
 	context.hashData = [];
 
+	// beresp.backend.* and the PCI/HIPAA flag describe this pass only. A pass
+	// that serves from cache makes no backend request, so both start cleared
+	// and a restart cannot inherit the previous pass's values.
+	context.beresp.backend = undefined;
+	context.beresp.pci = undefined;
+
 	let action = executeVCL(subroutines, "vcl_recv", context) || "lookup";
 	if (action === "restart") return "restart";
 	const restarts = context.req.restarts ?? 0;
+
+	// return(upgrade) hands the connection off for a protocol upgrade (e.g. a
+	// WebSocket). The cache and backend fetch are bypassed; the request goes
+	// straight to logging with a 101 Switching Protocols response.
+	if (action === "upgrade") {
+		context.fastly = context.fastly ?? {};
+		context.fastly.state = "UPGRADE";
+		executeVCL(subroutines, "vcl_log", context);
+		return {
+			response: {
+				status: 101,
+				statusText: "Switching Protocols",
+				headers: {},
+				body: new Uint8Array(),
+			},
+			action: "upgrade",
+			restarts,
+			cache: { outcome: "upgrade", key: "", stored: false },
+		};
+	}
 
 	if (action === "error") {
 		if (executeVCL(subroutines, "vcl_error", context) === "restart") return "restart";
@@ -140,6 +174,9 @@ async function runPass(opts: PipelineOptions): Promise<PipelineResult | "restart
 			const isStale = !isFresh && at < cached.staleUntil;
 			if (isFresh || isStale) {
 				context.obj.hits = 1;
+				// The PCI/HIPAA flag the object was cached with drives obj.is_pci
+				// and obj.is_hipaa on the hit.
+				(context.obj as Record<string, unknown>).pci = cached.beresp?.pci ?? false;
 				action = executeVCL(subroutines, "vcl_hit", context) || "deliver";
 				if (action === "restart") return "restart";
 				if (action === "deliver") {
@@ -207,6 +244,22 @@ async function runPass(opts: PipelineOptions): Promise<PipelineResult | "restart
 	for (const [name, value] of Object.entries(backendResponse.headers)) {
 		context.beresp.http[name.toLowerCase()] = value;
 	}
+
+	// Record the backend that answered so beresp.backend.* can report it for
+	// the rest of this pass. The peer address is not observable through the
+	// fetch API, so a backend host given as an IP literal is reported verbatim
+	// and any other host falls back to the emulated origin address.
+	const answeringBackend =
+		context.current_backend ?? context.backends?.[context.req.backend ?? "default"];
+	context.beresp.backend = {
+		name: answeringBackend?.name ?? "",
+		host: answeringBackend?.host ?? "",
+		port: answeringBackend?.port ?? 0,
+		ip:
+			answeringBackend?.host && getIPType(answeringBackend.host)
+				? answeringBackend.host
+				: "127.0.0.1",
+	};
 
 	action = executeVCL(subroutines, "vcl_fetch", context) || "deliver";
 	if (action === "restart") return "restart";

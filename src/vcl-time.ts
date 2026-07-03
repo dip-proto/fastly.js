@@ -51,7 +51,7 @@ const MONTH_ABBREV = MONTHS.map((m) => m.slice(0, 3));
 const pad2 = (n: number) => String(n).padStart(2, "0");
 const padSpace2 = (n: number) => String(n).padStart(2, " ");
 
-const TIME_UNITS: Record<string, number> = {
+export const TIME_UNITS: Record<string, number> = {
 	ms: 0.001,
 	s: 1,
 	m: 60,
