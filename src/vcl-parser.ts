@@ -451,7 +451,19 @@ export interface Token {
 	line: number;
 	column: number;
 	position?: number;
+	/**
+	 * RTIME unit suffix for NUMBER tokens ("ms", "s", "m", "h", "d", "w", "y").
+	 * The unit may be attached ("60s") or whitespace-separated ("60 s"), as on
+	 * Fastly, where the unit is a separate token bound by the duration parser.
+	 * `value` holds the normalized form without whitespace ("60s").
+	 */
+	unit?: string;
 }
+
+const RTIME_UNITS = new Set(["ms", "s", "m", "h", "d", "w", "y"]);
+// A unit only binds to a number when the character after it ends the word, so
+// "60 s" is an RTIME but "60 second" is a number followed by an identifier.
+const UNIT_BOUNDARY = /[a-zA-Z0-9_.:-]/;
 
 const VCL_KEYWORDS = [
 	"sub",
@@ -830,33 +842,88 @@ export class VCLLexer {
 		const start = this.position;
 		const startLine = this.line;
 		const startColumn = this.column;
-
-		while (this.position < this.input.length && /[0-9]/.test(this.input[this.position] ?? ""))
-			this.advance();
-		if (this.position < this.input.length && this.input[this.position] === ".") {
-			this.advance();
-			while (this.position < this.input.length && /[0-9]/.test(this.input[this.position] ?? ""))
+		const isDigit = (c: string) => c >= "0" && c <= "9";
+		const isHexDigit = (c: string) =>
+			(c >= "0" && c <= "9") || (c >= "a" && c <= "f") || (c >= "A" && c <= "F");
+		// A float exponent: the marker char, an optional sign, then decimal
+		// digits. Consumed only when digits actually follow, so a bare "e"/"p"
+		// is left for whatever comes next.
+		const consumeExponent = (marker: string) => {
+			if (this.input[this.position] !== marker) return;
+			let probe = this.position + 1;
+			if (this.input[probe] === "+" || this.input[probe] === "-") probe++;
+			if (probe >= this.input.length || !isDigit(this.input[probe]!)) return;
+			while (this.position <= probe) this.advance();
+			while (this.position < this.input.length && isDigit(this.input[this.position]!))
 				this.advance();
+		};
+
+		if (this.input[this.position] === "0" && this.input[this.position + 1] === "x") {
+			// Hexadecimal literal. Only a lowercase "x" marks hex on Fastly;
+			// digits are case-insensitive, and a lowercase "p" gives the binary
+			// exponent.
+			this.advance();
+			this.advance();
+			let digits = 0;
+			while (this.position < this.input.length && isHexDigit(this.input[this.position]!)) {
+				this.advance();
+				digits++;
+			}
+			if (this.position < this.input.length && this.input[this.position] === ".") {
+				this.advance();
+				while (this.position < this.input.length && isHexDigit(this.input[this.position]!)) {
+					this.advance();
+					digits++;
+				}
+			}
+			if (digits === 0) {
+				throw new Error(`Invalid hexadecimal literal at line ${startLine}, column ${startColumn}`);
+			}
+			consumeExponent("p");
+		} else {
+			while (this.position < this.input.length && isDigit(this.input[this.position]!))
+				this.advance();
+			if (this.position < this.input.length && this.input[this.position] === ".") {
+				this.advance();
+				while (this.position < this.input.length && isDigit(this.input[this.position]!))
+					this.advance();
+			}
+			// A lowercase "e" gives the decimal exponent; an uppercase "E" is
+			// not an exponent on Fastly.
+			consumeExponent("e");
 		}
 
-		// RTIME units (ms, s, m, h, d, y). Consume the full alphabetic suffix so
-		// "10ms" lexes as one token rather than "10m" + "s".
-		const unitStart = this.position;
-		while (this.position < this.input.length && /[a-z]/.test(this.input[this.position] ?? ""))
-			this.advance();
-		const unit = this.input.substring(unitStart, this.position);
-		if (unit.length > 0 && !/^(ms|s|m|h|d|y)$/.test(unit)) {
-			// Not a valid RTIME unit; back off to just the numeric part.
-			this.column -= this.position - unitStart;
-			this.position = unitStart;
+		const numberRaw = this.input.substring(start, this.position);
+
+		// RTIME unit. Fastly lexes the unit as a separate token and binds it to
+		// the number in duration contexts, so a space or tab may separate the
+		// two ("60 s" == "60s") but a newline does not. The unit must be exact
+		// and end at a word boundary, so "60 second" is a number followed by an
+		// identifier.
+		let wordStart = this.position;
+		while (this.input[wordStart] === " " || this.input[wordStart] === "\t") wordStart++;
+		let wordEnd = wordStart;
+		while (
+			wordEnd < this.input.length &&
+			this.input[wordEnd]! >= "a" &&
+			this.input[wordEnd]! <= "z"
+		)
+			wordEnd++;
+		const word = this.input.substring(wordStart, wordEnd);
+		let unit = "";
+		const nextChar = this.input[wordEnd];
+		if (RTIME_UNITS.has(word) && (nextChar === undefined || !UNIT_BOUNDARY.test(nextChar))) {
+			unit = word;
+			while (this.position < wordEnd) this.advance();
 		}
 
 		this.tokens.push({
 			type: TokenType.NUMBER,
-			value: this.input.substring(start, this.position),
+			value: numberRaw + unit,
 			line: startLine,
 			column: startColumn,
 			position: start,
+			unit: unit || undefined,
 		});
 	}
 

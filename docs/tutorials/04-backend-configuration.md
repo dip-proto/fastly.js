@@ -30,9 +30,10 @@ backend default {
 - **connect_timeout**: How long to wait for a connection to the backend
 - **first_byte_timeout**: How long to wait for the first byte of the response
 - **between_bytes_timeout**: How long to wait between bytes of the response
+- **fetch_timeout**: How long a whole backend fetch may take. `bereq.fetch_timeout` overrides it at request time; when neither is set the proxy falls back to a 15-second bound.
 - **max_connections**: The maximum number of connections to the backend
 
-Fastly.JS parses all of these properties, but only `host`, `port`, and `ssl` affect how requests are sent. The timeout and connection-limit values are stored on the backend object and are not currently enforced by the proxy.
+Fastly.JS parses all of these properties. `host`, `port`, and `ssl` decide how requests are sent, and the proxy bounds each backend fetch by `fetch_timeout` (or `bereq.fetch_timeout`). The remaining timeout and connection-limit values are stored on the backend object but are not otherwise enforced.
 
 ## Defining Multiple Backends
 

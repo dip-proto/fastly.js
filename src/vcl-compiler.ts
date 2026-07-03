@@ -7,6 +7,7 @@ import {
 	type VCLPlatform,
 } from "./platform";
 import { createVCLContext } from "./vcl";
+import { aclMatch, validateAclEntries } from "./vcl-acl";
 import { BUILTIN_SIGNATURES, VARIABLE_TYPES } from "./vcl-builtin-types";
 import {
 	checkCallTreeLimit,
@@ -85,6 +86,8 @@ export interface VCLBackend {
 	connect_timeout: number;
 	first_byte_timeout: number;
 	between_bytes_timeout: number;
+	/** Total fetch bound in seconds; 0 or unset falls back to first_byte_timeout. */
+	fetch_timeout?: number;
 	max_connections: number;
 	ssl_cert_hostname?: string;
 	ssl_sni_hostname?: string;
@@ -116,6 +119,7 @@ export interface VCLDirector {
 export interface VCLACLEntry {
 	ip: string;
 	subnet?: number;
+	negated?: boolean;
 }
 
 export interface VCLACL {
@@ -146,6 +150,15 @@ export interface VCLContext {
 		grace?: number;
 		stale_while_revalidate?: number;
 		do_esi?: boolean;
+		/** Whether beresp.pci / beresp.hipaa was set on this response. */
+		pci?: boolean;
+		/**
+		 * The backend that answered this pass's request, captured when the
+		 * response was obtained.
+		 * Absent when no backend request was made (e.g. a cache hit), which
+		 * makes beresp.backend.* read as not set.
+		 */
+		backend?: { name: string; host: string; port: number; ip: string };
 	};
 	resp: { status: number; statusText: string; http: Record<string, string> };
 	obj: {
@@ -381,10 +394,9 @@ export interface VCLContext {
 		acl?: {
 			add: (name: string) => boolean;
 			remove: (name: string) => boolean;
-			add_entry: (aclName: string, ip: string, subnet?: number) => boolean;
+			add_entry: (aclName: string, ip: string, subnet?: number, negated?: boolean) => boolean;
 			remove_entry: (aclName: string, ip: string, subnet?: number) => boolean;
 			check: (ip: string, aclName: string) => boolean;
-			isIpInCidr?: (ip: string, cidrIp: string, cidrSubnet: number) => boolean;
 		};
 		// Random functions
 		random?: {
@@ -915,9 +927,10 @@ export class VCLCompiler {
 		// Process ACL declarations
 		if (this.program.acls && context.std?.acl) {
 			for (const acl of this.program.acls) {
+				validateAclEntries(acl.name, acl.entries);
 				context.std.acl.add(acl.name);
 				for (const entry of acl.entries) {
-					context.std.acl.add_entry(acl.name, entry.ip, entry.subnet);
+					context.std.acl.add_entry(acl.name, entry.ip, entry.subnet, entry.negated);
 				}
 			}
 		}
@@ -993,6 +1006,9 @@ export class VCLCompiler {
 					connect_timeout: parseTimeValue(String(props.connect_timeout ?? "1s")),
 					first_byte_timeout: parseTimeValue(String(props.first_byte_timeout ?? "15s")),
 					between_bytes_timeout: parseTimeValue(String(props.between_bytes_timeout ?? "10s")),
+					// Zero means unset: the fetch is bounded by first_byte_timeout
+					// unless bereq.fetch_timeout overrides it at request time.
+					fetch_timeout: props.fetch_timeout ? parseTimeValue(String(props.fetch_timeout)) : 0,
 					max_connections: Number(props.max_connections ?? 200),
 					is_healthy: true,
 					probe,
@@ -1749,6 +1765,9 @@ export class VCLCompiler {
 			(context.beresp as any).saintmode = parseTimeValue(String(value));
 		} else if (parts.length === 2 && part0 === "beresp" && part1 === "stale_if_error") {
 			(context.beresp as any).stale_if_error = parseTimeValue(String(value));
+		} else if (parts.length === 2 && part0 === "beresp" && (part1 === "pci" || part1 === "hipaa")) {
+			// One flag under two names; setting either marks the response.
+			context.beresp.pci = toBool(value);
 		} else if (parts.length === 2 && part0 === "client" && part1 === "identity") {
 			(context.client as any).identity = String(value);
 		} else if (parts.length === 2 && part0 === "req" && part1 === "hash_always_miss") {
@@ -1771,6 +1790,8 @@ export class VCLCompiler {
 			(context.bereq as any).first_byte_timeout = parseTimeValue(String(value));
 		} else if (parts.length === 2 && part0 === "bereq" && part1 === "between_bytes_timeout") {
 			(context.bereq as any).between_bytes_timeout = parseTimeValue(String(value));
+		} else if (parts.length === 2 && part0 === "bereq" && part1 === "fetch_timeout") {
+			(context.bereq as any).fetch_timeout = parseTimeValue(String(value));
 		} else if (parts.length >= 2) {
 			const target = parts[0] as keyof VCLContext;
 			if (target in context && typeof (context as any)[target] === "object") {
@@ -2771,28 +2792,38 @@ export class VCLCompiler {
 		if (name === "beresp.gzip") return ctx.beresp?.gzip ?? false;
 		if (name === "beresp.brotli") return ctx.beresp?.brotli ?? false;
 		if (name === "beresp.saintmode") return ctx.beresp?.saintmode ?? 0;
-		if (name === "beresp.hipaa") return false;
-		if (name === "beresp.pci") return false;
+		// beresp.hipaa and beresp.pci are the same flag under two names.
+		if (name === "beresp.hipaa" || name === "beresp.pci") return context.beresp.pci ?? false;
 		if (name === "beresp.headers") return serializeHeaders(context.beresp.http);
 		if (name === "beresp.handshake_time_to_origin_ms") return 100;
 		if (name === "beresp.used_alternate_path_to_origin") return false;
 		if (name.startsWith("beresp.backend.")) {
 			const prop = name.substring(15);
-			const be = context.current_backend || context.backends?.[context.req.backend || "default"];
-			if (!be) return prop === "host" ? VCLString.notset() : "";
-			const beProps: Record<string, any> = {
-				name: be.name,
-				host: be.host,
-				// No connection was actually established, so the peer address
-				// is empty until a real backend request records one.
-				ip: ctx.beresp?.backend_ip ?? "",
-				port: be.port,
-				src_ip: "127.0.0.1",
-				src_port: 0,
-				requests: 1,
-				alternate_ips: "",
-			};
-			return beProps[prop] ?? "";
+			// These reflect the backend request made in this pass. Without one
+			// (a cache hit, or a subroutine run outside the pipeline) the name
+			// reads empty, host and the addresses read not set, and the port
+			// reads zero.
+			const snap = context.beresp.backend;
+			switch (prop) {
+				case "name":
+					return snap?.name ?? "";
+				case "host":
+					return snap?.host ? snap.host : VCLString.notset();
+				case "ip":
+					return snap?.ip ? snap.ip : VCLString.notset();
+				case "port":
+					return snap?.port ?? 0;
+				case "src_ip":
+					return snap ? "127.0.0.1" : VCLString.notset();
+				case "src_port":
+					return 0;
+				case "requests":
+					return snap ? 1 : 0;
+				case "alternate_ips":
+					return "";
+				default:
+					return VCLString.notset();
+			}
 		}
 
 		// resp.* variables
@@ -2820,7 +2851,9 @@ export class VCLCompiler {
 		if (name === "obj.lastuse") return ctx.obj?.lastuse ?? 0;
 		if (name === "obj.entered") return ctx.obj?.entered ?? 0;
 		if (name === "obj.cacheable") return ctx.obj?.cacheable ?? false;
-		if (name === "obj.is_pci") return false;
+		// obj.is_pci and obj.is_hipaa reflect the flag the object was cached
+		// with; they are the same value under two names.
+		if (name === "obj.is_pci" || name === "obj.is_hipaa") return ctx.obj?.pci ?? false;
 		if (name === "obj.stale_if_error") return ctx.obj?.stale_if_error ?? 0;
 		if (name === "obj.stale_while_revalidate") return ctx.obj?.stale_while_revalidate ?? 60;
 		if (name === "obj.headers") return serializeHeaders(context.obj.http);
@@ -3169,29 +3202,10 @@ export class VCLCompiler {
 			case "/":
 			case "%":
 				return applyArithmetic(expression.operator, left, right);
-			case "==": {
-				// NOTSET values compare using their display string "(null)"
-				if (isNotSet(left) || isNotSet(right)) {
-					return toDisplayString(left) === toDisplayString(right);
-				}
-				if (isNumericValue(left) || isNumericValue(right)) {
-					return Number(left) === Number(right);
-				}
-				const l = left instanceof VCLString ? left.value : left;
-				const r = right instanceof VCLString ? right.value : right;
-				return l === r;
-			}
-			case "!=": {
-				if (isNotSet(left) || isNotSet(right)) {
-					return toDisplayString(left) !== toDisplayString(right);
-				}
-				if (isNumericValue(left) || isNumericValue(right)) {
-					return Number(left) !== Number(right);
-				}
-				const l = left instanceof VCLString ? left.value : left;
-				const r = right instanceof VCLString ? right.value : right;
-				return l !== r;
-			}
+			case "==":
+				return this.vclEquals(left, right);
+			case "!=":
+				return !this.vclEquals(left, right);
 			case ">":
 				return left > right;
 			case ">=":
@@ -3218,6 +3232,33 @@ export class VCLCompiler {
 		}
 	}
 
+	/**
+	 * Equality for the == and != operators.
+	 * A STRING left operand drives the comparison: the right side is
+	 * stringified per its VCL type and compared byte-wise, matching how
+	 * Fastly compiles string equality to VRT_strcmp with the right operand
+	 * rendered through the type's to-string conversion.
+	 * NOTSET values compare using their display string "(null)".
+	 */
+	private vclEquals(left: any, right: any): boolean {
+		const isStringOperand = (v: any) =>
+			typeof v === "string" || v instanceof VCLString || v instanceof VCLConcatResult;
+		const notset = (v: any) => isNotSet(v) || (v instanceof VCLConcatResult && v.allNotSet);
+		if (notset(left) || notset(right)) {
+			// NOTSET renders as "(null)", so an unset header never equals "".
+			const display = (v: any) => (v instanceof VCLConcatResult ? v.display() : toDisplayString(v));
+			return display(left) === display(right);
+		}
+		if (isStringOperand(left)) {
+			const asString = (v: any) => (v instanceof VCLConcatResult ? v.display() : toRawString(v));
+			return asString(left) === (isStringOperand(right) ? asString(right) : vclToString(right));
+		}
+		if (isNumericValue(left) || isNumericValue(right)) {
+			return Number(left) === Number(right);
+		}
+		return left === right;
+	}
+
 	private regexMatch(left: any, right: any, context: VCLContext, negate: boolean): boolean {
 		try {
 			const regex = right instanceof RegExp ? right : new RegExp(String(right));
@@ -3239,120 +3280,7 @@ export class VCLCompiler {
 
 	private isIpInAcl(ip: string, acl: VCLACL, context: VCLContext): boolean {
 		if (context.std?.acl?.check) return context.std.acl.check(ip, acl.name);
-
-		for (const entry of acl.entries) {
-			if (entry.subnet) {
-				const checkFn = context.std?.acl?.isIpInCidr ?? this.isIpInCidr.bind(this);
-				if (checkFn(ip, entry.ip, entry.subnet)) return true;
-			} else if (ip === entry.ip) {
-				return true;
-			}
-		}
-		return false;
-	}
-
-	private isIpInCidr(ip: string, cidrIp: string, cidrSubnet: number): boolean {
-		try {
-			const ipType = this.getIPType(ip);
-			const cidrType = this.getIPType(cidrIp);
-
-			if (!ipType || !cidrType || ipType !== cidrType) {
-				logError(`IP type mismatch or invalid IP: ${ip} (${ipType}) vs ${cidrIp} (${cidrType})`);
-				return false;
-			}
-
-			const maxSubnet = ipType === "ipv4" ? 32 : 128;
-			if (cidrSubnet < 0 || cidrSubnet > maxSubnet) {
-				logError(`Invalid ${ipType} subnet mask: ${cidrSubnet}`);
-				return false;
-			}
-
-			const toBinary =
-				ipType === "ipv4" ? this.ipv4ToBinary.bind(this) : this.ipv6ToBinary.bind(this);
-			const ipBinary = toBinary(ip);
-			const cidrBinary = toBinary(cidrIp);
-
-			return !!(
-				ipBinary &&
-				cidrBinary &&
-				ipBinary.substring(0, cidrSubnet) === cidrBinary.substring(0, cidrSubnet)
-			);
-		} catch (e) {
-			logError(`Error checking CIDR match: ${e}`);
-			return false;
-		}
-	}
-
-	private getIPType(ip: string): "ipv4" | "ipv6" | null {
-		if (ip.includes(".") && !ip.includes(":")) {
-			const parts = ip.split(".");
-			if (
-				parts.length === 4 &&
-				parts.every((p) => {
-					const n = parseInt(p, 10);
-					return !Number.isNaN(n) && n >= 0 && n <= 255;
-				})
-			) {
-				return "ipv4";
-			}
-		} else if (ip.includes(":")) {
-			const doubleColonCount = (ip.match(/::/g) || []).length;
-			if (doubleColonCount > 1) return null;
-			const parts = ip.split(":");
-			if (parts.length > 8) return null;
-			if (parts.every((p) => p === "" || /^[0-9A-Fa-f]{1,4}$/.test(p))) return "ipv6";
-		}
-		return null;
-	}
-
-	private ipv4ToBinary(ip: string): string {
-		try {
-			const octets = ip.split(".");
-			if (octets.length !== 4) return "";
-			return octets
-				.map((o) => {
-					const n = parseInt(o, 10);
-					return Number.isNaN(n) || n < 0 || n > 255 ? "" : n.toString(2).padStart(8, "0");
-				})
-				.join("");
-		} catch {
-			return "";
-		}
-	}
-
-	private ipv6ToBinary(ip: string): string {
-		try {
-			const normalized = this.normalizeIPv6(ip);
-			if (!normalized) return "";
-			return normalized
-				.split(":")
-				.map((s) => {
-					const n = parseInt(s, 16);
-					return Number.isNaN(n) || n < 0 || n > 65535 ? "" : n.toString(2).padStart(16, "0");
-				})
-				.join("");
-		} catch {
-			return "";
-		}
-	}
-
-	private normalizeIPv6(ip: string): string {
-		try {
-			if (ip.includes("::")) {
-				const parts = ip.split("::");
-				if (parts.length !== 2) return "";
-				const left = parts[0] ? parts[0].split(":") : [];
-				const right = parts[1] ? parts[1].split(":") : [];
-				const missing = 8 - (left.length + right.length);
-				if (missing < 0) return "";
-				ip = [...left, ...Array(missing).fill("0"), ...right].join(":");
-			}
-			const segments = ip.split(":");
-			if (segments.length !== 8) return "";
-			return segments.map((s) => s.padStart(4, "0")).join(":");
-		} catch {
-			return "";
-		}
+		return aclMatch(ip, acl.entries);
 	}
 
 	/** Parse header name with optional subfield: "VARS:VALUE" → ["VARS", "VALUE"] */

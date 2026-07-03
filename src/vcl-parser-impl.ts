@@ -1,3 +1,4 @@
+import { getIPType } from "./vcl-acl";
 import {
 	type Token,
 	TokenType,
@@ -40,7 +41,59 @@ import {
 	type VCLTableEntry,
 	type VCLUnsetStatement,
 } from "./vcl-parser";
-import { parseTimeValue } from "./vcl-time";
+import { TIME_UNITS } from "./vcl-time";
+
+const INT64_MAX = 2n ** 63n - 1n;
+const INT64_MIN_MAGNITUDE = 2n ** 63n;
+// A hex literal: mantissa (with an optional fraction) and an optional lowercase
+// binary exponent.
+const HEX_LITERAL = /^0x([0-9a-fA-F]*)(?:\.([0-9a-fA-F]*))?(?:p([+-]?[0-9]+))?$/;
+
+/**
+ * Convert the numeric part of a NUMBER token to its value.
+ * Handles decimal and hex integers, decimal-exponent floats, and hex floats
+ * with a binary exponent.
+ * Integer literals are range-checked against int64 like Fastly's compiler;
+ * the magnitude 2^63 is only valid under a unary minus, where it becomes
+ * INT64_MIN.
+ * Values beyond 2^53 lose precision because the runtime stores numbers as
+ * doubles; the range check itself is exact.
+ */
+function parseNumericLiteral(
+	raw: string,
+	negative: boolean,
+	at: string,
+): { value: number; isFloat: boolean } {
+	const checkInt64 = (magnitude: bigint): number => {
+		if (negative) {
+			if (magnitude > INT64_MIN_MAGNITUDE) {
+				throw new Error(`Negative signed integer overflow ${at}`);
+			}
+			return -Number(magnitude);
+		}
+		if (magnitude > INT64_MAX) {
+			throw new Error(`Positive signed integer overflow ${at}`);
+		}
+		return Number(magnitude);
+	};
+
+	const hex = HEX_LITERAL.exec(raw);
+	if (hex) {
+		const [, whole = "", frac, exp] = hex;
+		if (frac === undefined && exp === undefined) {
+			return { value: checkInt64(BigInt(`0x${whole}`)), isFloat: false };
+		}
+		let mantissa = whole ? Number.parseInt(whole, 16) : 0;
+		if (frac) mantissa += Number.parseInt(frac, 16) / 16 ** frac.length;
+		const value = mantissa * 2 ** (exp !== undefined ? Number.parseInt(exp, 10) : 0);
+		return { value: negative ? -value : value, isFloat: true };
+	}
+	if (!raw.includes(".") && !raw.includes("e")) {
+		return { value: checkInt64(BigInt(raw)), isFloat: false };
+	}
+	const value = Number.parseFloat(raw);
+	return { value: negative ? -value : value, isFloat: true };
+}
 
 // Paren-less `return <action>;` keywords.
 const RETURN_ACTIONS = new Set([
@@ -55,6 +108,7 @@ const RETURN_ACTIONS = new Set([
 	"fetch",
 	"purge",
 	"hit_for_pass",
+	"upgrade",
 ]);
 
 export class VCLParser {
@@ -162,25 +216,15 @@ export class VCLParser {
 		return raw;
 	}
 
+	// Both delegate to the shared classifier so the parser accepts exactly what
+	// the runtime matcher understands, including IPv4-mapped IPv6 forms
+	// (::ffff:192.0.2.1).
 	private isValidIPv4(ip: string): boolean {
-		const parts = ip.split(".");
-		if (parts.length !== 4) return false;
-		return parts.every((part) => {
-			const num = parseInt(part, 10);
-			return !Number.isNaN(num) && num >= 0 && num <= 255 && part === num.toString();
-		});
+		return getIPType(ip) === "ipv4";
 	}
 
 	private isValidIPv6(ip: string): boolean {
-		const doubleColonCount = (ip.match(/::/g) || []).length;
-		if (doubleColonCount > 1) return false;
-		const parts = ip
-			.replace("::", ":DOUBLE:")
-			.split(":")
-			.filter((p) => p !== "");
-		if (doubleColonCount === 0 && parts.length !== 8) return false;
-		if (doubleColonCount === 1 && parts.length > 8) return false;
-		return parts.every((p) => p === "DOUBLE" || /^[0-9a-fA-F]{1,4}$/.test(p));
+		return getIPType(ip) === "ipv6";
 	}
 
 	private isValidCIDR(subnet: number, isIPv6: boolean): boolean {
@@ -210,6 +254,24 @@ export class VCLParser {
 				let ip = this.unquoteStringToken(ipToken.value);
 
 				let subnet: number | undefined;
+
+				// "localhost" is the one hostname Fastly allows in an ACL; it
+				// stands for 127.0.0.1 and ::1 and takes no prefix length.
+				if (ip === "localhost") {
+					if (ip.includes("/") || this.check(TokenType.OPERATOR, "/")) {
+						throw new Error(
+							`A prefix length is not supported for "localhost" at line ${ipToken.line}, column ${ipToken.column}`,
+						);
+					}
+					this.consume(TokenType.PUNCTUATION, "Expected ';' after ACL entry");
+					entries.push({
+						type: "ACLEntry",
+						ip: "localhost",
+						negated,
+						location: { line: ipToken.line, column: ipToken.column },
+					});
+					continue;
+				}
 
 				// Check for CIDR notation inside the string
 				if (ip.includes("/")) {
@@ -1565,6 +1627,20 @@ export class VCLParser {
 			const operator = this.previous().value;
 			const right = this.parseComparison();
 
+			// Fastly compiles a string equality's right side as a string
+			// value, which admits only string constants, variables, and
+			// calls. A numeric literal there — even grouped or negated — is
+			// a compile error. Headers are the statically known STRINGs.
+			if (
+				expr.type === "Identifier" &&
+				/^(req|bereq|beresp|resp|obj)\.http\./.test((expr as VCLIdentifier).name) &&
+				(right.type === "NumberLiteral" || right.type === "RTimeLiteral")
+			) {
+				throw new Error(
+					`Expected string constant, variable, or call at line ${right.location?.line}, column ${right.location?.column}`,
+				);
+			}
+
 			expr = {
 				type: "BinaryExpression",
 				operator,
@@ -1792,29 +1868,7 @@ export class VCLParser {
 		}
 
 		if (this.match(TokenType.NUMBER)) {
-			const token = this.previous();
-			const unitMatch = token.value.match(/^([0-9.]+)(ms|s|m|h|d|y)$/);
-			if (unitMatch) {
-				return {
-					type: "RTimeLiteral",
-					seconds: parseTimeValue(token.value),
-					raw: token.value,
-					location: {
-						line: token.line,
-						column: token.column,
-					},
-				};
-			}
-
-			return {
-				type: "NumberLiteral",
-				value: parseFloat(token.value),
-				isFloat: token.value.includes("."),
-				location: {
-					line: token.line,
-					column: token.column,
-				},
-			};
+			return this.numberLiteralFromToken(this.previous(), false);
 		}
 
 		if (this.match(TokenType.REGEX)) {
@@ -1937,6 +1991,12 @@ export class VCLParser {
 		if (this.match(TokenType.OPERATOR, "!") || this.match(TokenType.OPERATOR, "-")) {
 			const token = this.previous();
 			const operator = token.value;
+			// Fold a minus directly into a numeric literal, as Fastly's lexer
+			// does; this is also what permits -9223372036854775808 (INT64_MIN)
+			// while the bare positive magnitude overflows.
+			if (operator === "-" && this.check(TokenType.NUMBER)) {
+				return this.numberLiteralFromToken(this.advance(), true);
+			}
 			const operand = this.parsePrimary();
 
 			return {
@@ -1955,6 +2015,28 @@ export class VCLParser {
 		throw new Error(
 			`Unexpected token "${tok.value}" in expression at line ${tok.line}, column ${tok.column}`,
 		);
+	}
+
+	/** Build a NumberLiteral or RTimeLiteral (unit-suffixed) from a NUMBER token. */
+	private numberLiteralFromToken(token: Token, negative: boolean): VCLExpression {
+		const unit = token.unit;
+		const raw = unit ? token.value.slice(0, -unit.length) : token.value;
+		const at = `at line ${token.line}, column ${token.column}`;
+		const lit = parseNumericLiteral(raw, negative, at);
+		if (unit) {
+			return {
+				type: "RTimeLiteral",
+				seconds: lit.value * (TIME_UNITS[unit] ?? 1),
+				raw: (negative ? "-" : "") + token.value,
+				location: { line: token.line, column: token.column },
+			};
+		}
+		return {
+			type: "NumberLiteral",
+			value: lit.value,
+			isFloat: lit.isFloat,
+			location: { line: token.line, column: token.column },
+		};
 	}
 
 	private match(type: TokenType, value?: string): boolean {
