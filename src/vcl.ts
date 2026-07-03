@@ -7,6 +7,7 @@ import {
 	type VCLPlatform,
 } from "./platform";
 import { AcceptModule } from "./vcl-accept";
+import { aclMatch } from "./vcl-acl";
 import { AddressModule } from "./vcl-address";
 import { BinaryModule } from "./vcl-binary";
 import { VCLCompiler, type VCLContext, type VCLSubroutines } from "./vcl-compiler";
@@ -124,6 +125,7 @@ export function createVCLContext(platform: VCLPlatform = getPlatform()): VCLCont
 				connect_timeout: 1,
 				first_byte_timeout: 15,
 				between_bytes_timeout: 10,
+				fetch_timeout: 0,
 				max_connections: 200,
 				is_healthy: true,
 				builtin: true,
@@ -416,6 +418,7 @@ export function createVCLContext(platform: VCLPlatform = getPlatform()): VCLCont
 				connect_timeout: options.connect_timeout || 1,
 				first_byte_timeout: options.first_byte_timeout || 15,
 				between_bytes_timeout: options.between_bytes_timeout || 10,
+				fetch_timeout: options.fetch_timeout || 0,
 				max_connections: options.max_connections || 200,
 				ssl_cert_hostname: options.ssl_cert_hostname || host,
 				ssl_sni_hostname: options.ssl_sni_hostname || host,
@@ -511,10 +514,10 @@ export function createVCLContext(platform: VCLPlatform = getPlatform()): VCLCont
 			delete context.acls[name];
 			return true;
 		},
-		add_entry: (aclName: string, ip: string, subnet?: number) => {
+		add_entry: (aclName: string, ip: string, subnet?: number, negated?: boolean) => {
 			const acl = context.acls[aclName];
 			if (!acl) return false;
-			acl.entries.push({ ip, subnet });
+			acl.entries.push({ ip, subnet, negated });
 			return true;
 		},
 		remove_entry: (aclName: string, ip: string, subnet?: number) => {
@@ -528,9 +531,7 @@ export function createVCLContext(platform: VCLPlatform = getPlatform()): VCLCont
 		check: (ip: string, aclName: string) => {
 			const acl = context.acls[aclName];
 			if (!acl) return false;
-			return acl.entries.some((entry) =>
-				entry.subnet ? isIpInCidr(ip, entry.ip, entry.subnet) : ip === entry.ip,
-			);
+			return aclMatch(ip, acl.entries);
 		},
 	};
 
@@ -813,170 +814,6 @@ export function createVCLContext(platform: VCLPlatform = getPlatform()): VCLCont
 	context.rateLimitModule = RateLimitModule;
 
 	return context;
-}
-
-function ipv4ToBinary(ip: string): string {
-	const octets = ip.split(".");
-	if (octets.length !== 4) return "";
-	try {
-		return octets
-			.map((octet) => {
-				const num = parseInt(octet, 10);
-				if (Number.isNaN(num) || num < 0 || num > 255) throw new Error();
-				return num.toString(2).padStart(8, "0");
-			})
-			.join("");
-	} catch {
-		return "";
-	}
-}
-
-function normalizeIPv6(ip: string): string {
-	try {
-		// Handle IPv4-mapped IPv6 (::ffff:x.x.x.x)
-		if (ip.includes(".")) {
-			if (ip.toLowerCase().includes("::ffff:") && ip.split(".").length === 4) {
-				return ip;
-			}
-			const lastColon = ip.lastIndexOf(":");
-			const ipv4Part = ip.substring(lastColon + 1);
-			if (ipv4Part.includes(".")) {
-				const octets = ipv4Part.split(".");
-				if (octets.length === 4) {
-					const hex1 =
-						parseInt(octets[0]!, 10).toString(16).padStart(2, "0") +
-						parseInt(octets[1]!, 10).toString(16).padStart(2, "0");
-					const hex2 =
-						parseInt(octets[2]!, 10).toString(16).padStart(2, "0") +
-						parseInt(octets[3]!, 10).toString(16).padStart(2, "0");
-					ip = `${ip.substring(0, lastColon + 1) + hex1}:${hex2}`;
-				}
-			}
-		}
-
-		// Expand :: shorthand
-		if (ip.includes("::")) {
-			const parts = ip.split("::");
-			if (parts.length !== 2) return "";
-			const leftParts = parts[0] ? parts[0].split(":") : [];
-			const rightParts = parts[1] ? parts[1].split(":") : [];
-			const missingBlocks = 8 - (leftParts.length + rightParts.length);
-			if (missingBlocks < 0) return "";
-			ip = [...leftParts, ...Array(missingBlocks).fill("0"), ...rightParts].join(":");
-		}
-
-		const segments = ip.split(":");
-		if (segments.length !== 8) return "";
-		return segments.map((part) => part.padStart(4, "0")).join(":");
-	} catch {
-		return "";
-	}
-}
-
-function ipv6ToBinary(ip: string): string {
-	try {
-		// Handle IPv4-mapped IPv6
-		if (ip.includes(".") && ip.toLowerCase().includes("::ffff:")) {
-			const ipv4Binary = ipv4ToBinary(ip.substring(ip.lastIndexOf(":") + 1));
-			return ipv4Binary ? "0".repeat(96) + ipv4Binary : "";
-		}
-
-		const normalizedIP = normalizeIPv6(ip);
-		if (!normalizedIP) return "";
-
-		return normalizedIP
-			.split(":")
-			.map((segment) => {
-				const num = parseInt(segment, 16);
-				if (Number.isNaN(num) || num < 0 || num > 65535) throw new Error();
-				return num.toString(2).padStart(16, "0");
-			})
-			.join("");
-	} catch {
-		return "";
-	}
-}
-
-function getIPType(ip: string): "ipv4" | "ipv6" | null {
-	const isValidOctet = (s: string) => {
-		const n = parseInt(s, 10);
-		return !Number.isNaN(n) && n >= 0 && n <= 255;
-	};
-
-	// Pure IPv4
-	if (ip.includes(".") && !ip.includes(":")) {
-		const parts = ip.split(".");
-		return parts.length === 4 && parts.every(isValidOctet) ? "ipv4" : null;
-	}
-
-	// IPv6 (possibly with embedded IPv4)
-	if (ip.includes(":")) {
-		if ((ip.match(/::/g) || []).length > 1) return null;
-
-		// IPv4-mapped IPv6
-		if (ip.includes(".") && ip.toLowerCase().includes("::ffff:")) {
-			const ipv4Part = ip.substring(ip.lastIndexOf(":") + 1);
-			const ipv4Parts = ipv4Part.split(".");
-			return ipv4Parts.length === 4 && ipv4Parts.every(isValidOctet) ? "ipv6" : null;
-		}
-
-		const parts = ip.split(":");
-		if (parts.length > 8) return null;
-		for (const part of parts) {
-			if (part === "") continue;
-			if (!/^[0-9A-Fa-f]{1,4}$/.test(part)) return null;
-		}
-		return "ipv6";
-	}
-
-	return null;
-}
-
-function isIpInCidr(ip: string, cidrIp: string, cidrSubnet: number): boolean {
-	try {
-		// Invalid IPv6 patterns
-		if (ip.includes(":") && ((ip.match(/::/g) || []).length > 1 || ip.includes("gggg"))) {
-			return false;
-		}
-
-		const ipType = getIPType(ip);
-		const cidrType = getIPType(cidrIp);
-		if (!ipType || !cidrType || ipType !== cidrType) return false;
-
-		if (ipType === "ipv4") {
-			if (cidrSubnet < 0 || cidrSubnet > 32) return false;
-			const ipBinary = ipv4ToBinary(ip);
-			const cidrBinary = ipv4ToBinary(cidrIp);
-			if (!ipBinary || !cidrBinary) return false;
-			return ipBinary.substring(0, cidrSubnet) === cidrBinary.substring(0, cidrSubnet);
-		}
-
-		if (ipType === "ipv6") {
-			if (cidrSubnet < 0 || cidrSubnet > 128) return false;
-
-			// IPv4-mapped IPv6 special case
-			const isIpv4Mapped = (addr: string) =>
-				addr.includes(".") && addr.toLowerCase().includes("::ffff:");
-			if (isIpv4Mapped(ip) && isIpv4Mapped(cidrIp)) {
-				const ipv4Subnet = cidrSubnet - 96;
-				if (ipv4Subnet < 0) return true;
-				return isIpInCidr(
-					ip.substring(ip.lastIndexOf(":") + 1),
-					cidrIp.substring(cidrIp.lastIndexOf(":") + 1),
-					ipv4Subnet,
-				);
-			}
-
-			const ipBinary = ipv6ToBinary(ip);
-			const cidrBinary = ipv6ToBinary(cidrIp);
-			if (!ipBinary || !cidrBinary) return false;
-			return ipBinary.substring(0, cidrSubnet) === cidrBinary.substring(0, cidrSubnet);
-		}
-
-		return false;
-	} catch {
-		return false;
-	}
 }
 
 export function executeVCL(

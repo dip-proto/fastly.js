@@ -129,6 +129,16 @@ async function fetchFromBackend(context: VCLContext, url: URL): Promise<BackendR
 	context.req.http["X-Selected-Backend"] = context.req.backend ?? "unknown";
 	const backend = context.current_backend!;
 
+	// The total fetch bound: bereq.fetch_timeout wins when set, then the
+	// backend's .fetch_timeout property, otherwise a 15s default.
+	const bereqFetchTimeout = Number(
+		(context.bereq as { fetch_timeout?: number }).fetch_timeout ?? 0,
+	);
+	const backendFetchTimeout = backend.fetch_timeout ?? 0;
+	const fetchTimeoutSeconds =
+		bereqFetchTimeout > 0 ? bereqFetchTimeout : backendFetchTimeout > 0 ? backendFetchTimeout : 15;
+	const fetchTimeoutMs = fetchTimeoutSeconds * 1000;
+
 	const sendTo = async (target: typeof backend): Promise<Response> => {
 		const protocol = target.ssl ? "https" : "http";
 		const targetUrl = new URL(
@@ -143,7 +153,7 @@ async function fetchFromBackend(context: VCLContext, url: URL): Promise<BackendR
 		const proxyReq = new Request(targetUrl.toString(), {
 			method: context.req.method,
 			headers: proxyHeaders,
-			signal: AbortSignal.timeout(15000),
+			signal: AbortSignal.timeout(fetchTimeoutMs),
 		});
 		proxyReq.headers.delete("host");
 		proxyReq.headers.set("host", target.host);

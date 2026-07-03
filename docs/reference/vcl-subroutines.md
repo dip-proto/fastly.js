@@ -51,6 +51,10 @@ The `vcl_recv` subroutine is called when a request is received, before any conte
 - `pipe`: Accepted for compatibility; treated like `pass`
 - `error`: Return an error response
 - `restart`: Restart the request processing (see [restart](./restart.md))
+- `upgrade`: Hand the connection off for a protocol upgrade (a WebSocket, say).
+  The cache lookup and backend fetch are skipped; the request goes straight to
+  `vcl_log` and a `101 Switching Protocols` response is returned. Only valid
+  from `vcl_recv`.
 
 ### Example
 

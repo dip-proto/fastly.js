@@ -23,6 +23,7 @@ import { runAllTests } from "./test-framework";
 import timeFunctionsTests from "./time-functions-tests";
 import uuidFunctionsTests from "./uuid-functions-tests";
 import vclFileTests from "./vcl-file-tests";
+import vclParityTests from "./vcl-parity-tests";
 import wafFunctionsTests from "./waf-functions-tests";
 
 runAllTests([
@@ -51,6 +52,7 @@ runAllTests([
 	realWorldEcommerceTests,
 	gotoTests,
 	pipelineSemanticsTests,
+	vclParityTests,
 ]).catch((error) => {
 	console.error("Error running tests:", error);
 	process.exit(1);

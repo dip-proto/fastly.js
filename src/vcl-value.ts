@@ -123,6 +123,9 @@ export function vclToString(v: any): string {
 		if (Number.isNaN(v)) return "NaN";
 		if (v === Number.POSITIVE_INFINITY) return "inf";
 		if (v === Number.NEGATIVE_INFINITY) return "-inf";
+		// Shortest-round-trip formatting turns large integral doubles like
+		// -(2^63) into "-9223372036854776000"; BigInt prints them exactly.
+		if (Number.isInteger(v) && Math.abs(v) >= 2 ** 53) return BigInt(v).toString();
 		return String(v);
 	}
 	return String(v);
