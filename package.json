@@ -1,5 +1,5 @@
 {
-	"name": "vcljs",
+	"name": "fastly.js",
 	"version": "0.9.0",
 	"description": "A reimplementation of the Fastly platform in TypeScript: parse and execute Fastly VCL locally, with the full request pipeline, caching, ESI, and the VCL standard library.",
 	"author": "Frank Denis <github@pureftpd.org>",
