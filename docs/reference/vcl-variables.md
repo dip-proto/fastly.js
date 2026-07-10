@@ -366,6 +366,33 @@ if (client.ip ~ internal_ips) {
 }
 ```
 
+#### client.ip is not shield safe
+
+`client.ip` is the address of whatever opened the TCP connection to the current data center.
+With shielding enabled, requests processed at the shield POP arrive from the edge POP, so `client.ip` reads the edge cache's address there, not the end user's.
+
+The `Fastly-Client-IP` header is not a safe substitute on its own: it is not protected, so a client can set it to anything in its initial request.
+
+The reliable pattern combines the two.
+Capture `client.ip` into the header at the edge, before the request has passed through the service, which also clobbers any spoofed value the client sent:
+
+```vcl
+sub vcl_recv {
+  if (fastly.ff.visits_this_service == 0) {
+    set req.http.Fastly-Client-IP = client.ip;
+  }
+  ...
+}
+```
+
+`fastly.ff.visits_this_service` is `0` only on the first hop through the service, where `client.ip` is still the real client.
+On later hops (the shield) it is greater than zero, so the header set at the edge is preserved.
+Read `req.http.Fastly-Client-IP` from then on; to match it against an ACL, convert it back to an IP first with `std.ip(req.http.Fastly-Client-IP, "0.0.0.0") ~ my_acl`.
+
+Locally there is no shield, `fastly.ff.visits_this_service` always reads `0`, and the header gets populated on every request, so the pattern behaves the same as single-hop production traffic.
+
+See [Fastly's client.ip reference](https://www.fastly.com/documentation/reference/vcl/variables/client-connection/client-ip/) for the upstream description of this caveat.
+
 ### client.port
 
 The port of the client.
