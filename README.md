@@ -36,15 +36,64 @@ For comprehensive documentation, tutorials, and examples, please visit the [docu
 
 ## Requirements
 
-- [Bun](https://bun.sh) runtime (v1.0.0 or higher)
-- Node.js 16+ (for some development tools)
+- [Bun](https://bun.sh) runtime (v1.0.0 or higher) for the proxy server and development
+- Node.js 18+ when using the published library
 
 ## Installation
 
+Fastly.JS is published on npm as [`vcljs`](https://www.npmjs.com/package/vcljs).
+To use it as a library in your own project:
+
 ```bash
-# Install dependencies
+npm install vcljs
+# or
+bun add vcljs
+```
+
+To hack on Fastly.JS itself, clone this repository and install the dependencies:
+
+```bash
 bun install
 ```
+
+## Using as a library
+
+The package exposes the VCL engine and the request pipeline, and runs on Node.js 18+ as well as Bun.
+Compile a VCL program with `loadVCLContent`, then drive it through `runPipeline` with your own backend fetcher:
+
+```ts
+import { createVCLContext, loadVCLContent, runPipeline } from "vcljs";
+
+const subroutines = loadVCLContent(`
+sub vcl_deliver {
+  set resp.http.X-Hello = "world";
+}
+`);
+
+const context = createVCLContext();
+context.req.url = "/";
+context.req.method = "GET";
+const cache = new Map();
+context.cache = cache;
+
+const result = await runPipeline({
+  subroutines,
+  context,
+  cache,
+  maxRestarts: 3,
+  getBackendResponse: async () => ({
+    status: 200,
+    statusText: "OK",
+    headers: { "content-type": "text/plain" },
+    body: new TextEncoder().encode("hello"),
+  }),
+});
+
+console.log(result.response.headers["X-Hello"]); // "world"
+```
+
+Browsers get their own entry point, `vcljs/browser`, which avoids Node built-ins entirely.
+It also exports `runBrowserSimulation`, the same self-contained simulator that powers the web playground: give it a VCL program, a synthetic request, and a canned backend response, and it returns the final response along with diagnostics, a full execution trace, and the cache state.
 
 ## Usage
 

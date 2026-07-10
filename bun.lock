@@ -7,7 +7,6 @@
       "dependencies": {
         "@noble/ciphers": "^2.2.0",
         "@noble/hashes": "^2.2.0",
-        "@types/uuid": "^11.0.0",
         "buffer": "^6.0.3",
         "js-xxhash": "^5.0.1",
         "uuid": "^13.0.0",
@@ -17,8 +16,6 @@
         "@types/bun": "^1.3.10",
         "@types/chai": "^5.2.3",
         "chai": "^6.2.2",
-      },
-      "peerDependencies": {
         "typescript": "^5.9.3",
       },
     },
@@ -53,8 +50,6 @@
     "@types/deep-eql": ["@types/deep-eql@4.0.2", "", {}, "sha512-c9h9dVVMigMPc4bwTvC5dxqtqJZwQPePsWjPlpSOnojbor6pGqdk541lfA7AqFQr5pB1BRdq0juY9db81BwyFw=="],
 
     "@types/node": ["@types/node@22.15.18", "", { "dependencies": { "undici-types": "~6.21.0" } }, "sha512-v1DKRfUdyW+jJhZNEI1PYy29S2YRxMV5AOO/x/SjKmW0acCIOqmbj6Haf9eHAhsPmrhlHSxEhv/1WszcLWV4cg=="],
-
-    "@types/uuid": ["@types/uuid@11.0.0", "", { "dependencies": { "uuid": "*" } }, "sha512-HVyk8nj2m+jcFRNazzqyVKiZezyhDKrGUA3jlEcg/nZ6Ms+qHwocba1Y/AaVaznJTAM9xpdFSh+ptbNrhOGvZA=="],
 
     "assertion-error": ["assertion-error@2.0.1", "", {}, "sha512-Izi8RQcffqCeNVgFigKli1ssklIbpHnCYc6AknXGYoB6grJqyeby7jv12JUQgmTAnIDnbck1uxksT4dzN3PWBA=="],
 

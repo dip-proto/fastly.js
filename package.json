@@ -1,10 +1,56 @@
 {
 	"name": "vcljs",
-	"module": "index.ts",
+	"version": "0.9.0",
+	"description": "A reimplementation of the Fastly platform in TypeScript: parse and execute Fastly VCL locally, with the full request pipeline, caching, ESI, and the VCL standard library.",
+	"author": "Frank Denis <github@pureftpd.org>",
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/jedisct1/fastly.js.git"
+	},
+	"homepage": "https://github.com/jedisct1/fastly.js#readme",
+	"bugs": {
+		"url": "https://github.com/jedisct1/fastly.js/issues"
+	},
+	"keywords": [
+		"fastly",
+		"vcl",
+		"varnish",
+		"cdn",
+		"edge",
+		"cache",
+		"proxy",
+		"esi"
+	],
 	"type": "module",
-	"private": true,
+	"main": "./dist/index.js",
+	"module": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"default": "./dist/index.js"
+		},
+		"./browser": {
+			"types": "./dist/browser.d.ts",
+			"default": "./dist/browser.js"
+		},
+		"./package.json": "./package.json"
+	},
+	"files": [
+		"dist"
+	],
+	"engines": {
+		"node": ">=18"
+	},
 	"scripts": {
 		"start": "bun run index.ts",
+		"build": "bun run build:node && bun run build:browser && bun run build:types",
+		"build:node": "bun build src/index.ts --outdir dist --target=node --packages external",
+		"build:browser": "bun build src/browser.ts --outdir dist --target=browser --packages external",
+		"build:types": "tsc -p tsconfig.build.json && bun run scripts/add-dts-extensions.ts",
+		"prepublishOnly": "rm -rf dist && bun run build && bun run test:package",
+		"test:package": "bun run test/package-smoke.ts",
 		"test": "bun run test/run-tests.ts",
 		"test:basic": "bun run test/basic-vcl-tests.ts",
 		"test:stdlib": "bun run test/stdlib-tests.ts",
@@ -31,15 +77,12 @@
 		"@biomejs/biome": "^2.4.6",
 		"@types/bun": "^1.3.10",
 		"@types/chai": "^5.2.3",
-		"chai": "^6.2.2"
-	},
-	"peerDependencies": {
+		"chai": "^6.2.2",
 		"typescript": "^5.9.3"
 	},
 	"dependencies": {
 		"@noble/ciphers": "^2.2.0",
 		"@noble/hashes": "^2.2.0",
-		"@types/uuid": "^11.0.0",
 		"buffer": "^6.0.3",
 		"js-xxhash": "^5.0.1",
 		"uuid": "^13.0.0"
