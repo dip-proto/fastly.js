@@ -378,18 +378,18 @@ Capture `client.ip` into the header at the edge, before the request has passed t
 
 ```vcl
 sub vcl_recv {
-  if (fastly.ff.visits_this_service == 0) {
+  if (fastly.ff.visits_this_service == 0 && req.restarts == 0) {
     set req.http.Fastly-Client-IP = client.ip;
   }
   ...
 }
 ```
 
-`fastly.ff.visits_this_service` is `0` only on the first hop through the service, where `client.ip` is still the real client.
-On later hops (the shield) it is greater than zero, so the header set at the edge is preserved.
+In `vcl_recv`, on the request's initial non-restarted entry, `fastly.ff.visits_this_service == 0` identifies the outermost processing step, where `client.ip` is still the real client.
+At the shield it is nonzero, so the header captured at the edge is preserved.
 Read `req.http.Fastly-Client-IP` from then on; to match it against an ACL, convert it back to an IP first with `std.ip(req.http.Fastly-Client-IP, "0.0.0.0") ~ my_acl`.
 
-Locally there is no shield, `fastly.ff.visits_this_service` always reads `0`, and the header gets populated on every request, so the pattern behaves the same as single-hop production traffic.
+Locally there is no shield, `fastly.ff.visits_this_service` always reads `0`, and the header gets populated on every fresh request, so the pattern behaves the same as single-hop production traffic.
 
 See [Fastly's client.ip reference](https://www.fastly.com/documentation/reference/vcl/variables/client-connection/client-ip/) for the upstream description of this caveat.
 
