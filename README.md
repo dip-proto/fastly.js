@@ -41,13 +41,13 @@ For comprehensive documentation, tutorials, and examples, please visit the [docu
 
 ## Installation
 
-Fastly.JS is published on npm as [`vcljs`](https://www.npmjs.com/package/vcljs).
+Fastly.JS is published on npm as [`fastly.js`](https://www.npmjs.com/package/fastly.js).
 To use it as a library in your own project:
 
 ```bash
-npm install vcljs
+npm install fastly.js
 # or
-bun add vcljs
+bun add fastly.js
 ```
 
 To hack on Fastly.JS itself, clone this repository and install the dependencies:
@@ -62,7 +62,7 @@ The package exposes the VCL engine and the request pipeline, and runs on Node.js
 Compile a VCL program with `loadVCLContent`, then drive it through `runPipeline` with your own backend fetcher:
 
 ```ts
-import { createVCLContext, loadVCLContent, runPipeline } from "vcljs";
+import { createVCLContext, loadVCLContent, runPipeline } from "fastly.js";
 
 const subroutines = loadVCLContent(`
 sub vcl_deliver {
@@ -92,7 +92,7 @@ const result = await runPipeline({
 console.log(result.response.headers["X-Hello"]); // "world"
 ```
 
-Browsers get their own entry point, `vcljs/browser`, which avoids Node built-ins entirely.
+Browsers get their own entry point, `fastly.js/browser`, which avoids Node built-ins entirely.
 It also exports `runBrowserSimulation`, the same self-contained simulator that powers the web playground: give it a VCL program, a synthetic request, and a canned backend response, and it returns the final response along with diagnostics, a full execution trace, and the cache state.
 
 ## Usage

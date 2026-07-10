@@ -17,11 +17,11 @@ if (!existsSync(join(root, "dist", "index.js"))) {
 	process.exit(1);
 }
 
-const dir = mkdtempSync(join(tmpdir(), "vcljs-pack-"));
+const dir = mkdtempSync(join(tmpdir(), "fastly.js-pack-"));
 const run = (cmd: string) => execSync(cmd, { cwd: dir, stdio: ["ignore", "pipe", "pipe"] });
 
 const smokeScript = `
-import { createVCLContext, loadVCLContent, runPipeline } from "vcljs";
+import { createVCLContext, loadVCLContent, runPipeline } from "fastly.js";
 
 const subroutines = loadVCLContent(\`
 sub vcl_recv { set req.http.X-Test = "recv-ran"; return(lookup); }
@@ -50,13 +50,13 @@ const result = await runPipeline({
 if (result.response.status !== 200) throw new Error("bad status: " + result.response.status);
 if (result.response.headers["X-Delivered"] !== "yes") throw new Error("vcl_deliver did not run");
 
-const browser = await import("vcljs/browser");
+const browser = await import("fastly.js/browser");
 if (typeof browser.runBrowserSimulation !== "function") throw new Error("browser entry broken");
 `;
 
 const typesScript = `
-import { createVCLContext, loadVCLContent, runPipeline, type VCLContext } from "vcljs";
-import { runBrowserSimulation, type SimulationResult } from "vcljs/browser";
+import { createVCLContext, loadVCLContent, runPipeline, type VCLContext } from "fastly.js";
+import { runBrowserSimulation, type SimulationResult } from "fastly.js/browser";
 
 const context: VCLContext = createVCLContext();
 export { context, loadVCLContent, runPipeline, runBrowserSimulation };
@@ -80,7 +80,7 @@ try {
 		join(dir, "package.json"),
 		JSON.stringify({ name: "pkgtest", private: true, type: "module" }),
 	);
-	run(`npm install ./vcljs-${version}.tgz --silent`);
+	run(`npm install ./fastly.js-${version}.tgz --silent`);
 	writeFileSync(join(dir, "smoke.mjs"), smokeScript);
 	writeFileSync(join(dir, "smoke-types.ts"), typesScript);
 	writeFileSync(join(dir, "tsconfig.json"), JSON.stringify(consumerTsconfig, null, "\t"));
