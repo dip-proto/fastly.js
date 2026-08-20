@@ -1,7 +1,9 @@
 import { VCLParser } from "./vcl-parser-impl";
 
 const UTF8_ENCODER = new TextEncoder();
-const UTF8_STRICT_DECODER = new TextDecoder("utf-8", { fatal: true });
+// ignoreBOM keeps a leading U+FEFF. In a literal it is a character the program
+// wrote, not a mark to remove.
+const UTF8_STRICT_DECODER = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 // Sticky matcher for a long-string opener {DELIM" at the current position.
 const LONG_STRING_OPEN_RE = /\{([A-Za-z0-9_]*)"/y;
 
@@ -737,13 +739,7 @@ export class VCLLexer {
 		const raw = this.input.substring(this.position, rawEnd);
 		let content: string;
 		if (!raw.includes("%")) {
-			for (const ch of raw) {
-				if (ch === "\n") {
-					this.line++;
-					this.column = 1;
-				}
-				this.advance();
-			}
+			while (this.position < rawEnd) this.advanceTrackingLine();
 			if (this.position < this.input.length) this.advance();
 			content = raw;
 		} else {

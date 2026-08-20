@@ -131,6 +131,28 @@ export function vclToString(v: any): string {
 	return String(v);
 }
 
+// A JS string is not valid UTF-8 only through a lone surrogate.
+const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+
+/** True when the string is valid UTF-8. */
+export function isValidUtf8(s: string): boolean {
+	return !LONE_SURROGATE.test(s);
+}
+
+/**
+ * A builtin that fails with a fastly.error returns this. The value is what the
+ * caller reads, and null means a not-set STRING.
+ */
+export class VCLFailure {
+	readonly value: string | null;
+	readonly error: string;
+
+	constructor(value: string | null, error: string) {
+		this.value = value;
+		this.error = error;
+	}
+}
+
 /** Check if a value is a NOTSET VCLString */
 export function isNotSet(v: any): v is VCLString {
 	return v instanceof VCLString && v.isNotSet;

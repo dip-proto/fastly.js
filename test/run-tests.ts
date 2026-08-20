@@ -21,6 +21,7 @@ import securityFeaturesTests from "./security-features-tests";
 import stdlibTests from "./stdlib-tests";
 import { runAllTests } from "./test-framework";
 import timeFunctionsTests from "./time-functions-tests";
+import utf8FunctionsTests from "./utf8-functions-tests";
 import uuidFunctionsTests from "./uuid-functions-tests";
 import vclFileTests from "./vcl-file-tests";
 import vclParityTests from "./vcl-parity-tests";
@@ -40,6 +41,7 @@ runAllTests([
 	digestFunctionsTests,
 	queryStringFunctionsTests,
 	uuidFunctionsTests,
+	utf8FunctionsTests,
 	wafFunctionsTests,
 	rateLimitFunctionsTests,
 	httpFunctionsTests,

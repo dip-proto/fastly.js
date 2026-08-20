@@ -16,6 +16,7 @@
  */
 
 import { hexVal } from "./vcl-strings";
+import { isValidUtf8 } from "./vcl-value";
 
 const FILTERSEP = "ÿ";
 
@@ -110,24 +111,6 @@ function bytesToString(bytes: number[]): string {
 		i += extra + 1;
 	}
 	return out;
-}
-
-function isValidUtf8(s: string): boolean {
-	for (let i = 0; i < s.length; i++) {
-		const cu = s.charCodeAt(i);
-		if (cu >= 0xd800 && cu <= 0xdbff) {
-			const lo = i + 1 < s.length ? s.charCodeAt(i + 1) : 0;
-			if (lo >= 0xdc00 && lo <= 0xdfff) {
-				i++;
-				continue;
-			}
-			return false;
-		}
-		if (cu >= 0xdc00 && cu <= 0xdfff) {
-			return false;
-		}
-	}
-	return true;
 }
 
 /**

@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { loadVCL } from "../src/node-loader";
-import { createVCLContext, executeVCL } from "../src/vcl";
+import { createVCLContext, executeVCL, loadVCLContent } from "../src/vcl";
 import type { VCLContext, VCLSubroutines } from "../src/vcl-compiler";
 
 export interface TestResult {
@@ -184,6 +184,16 @@ export function executeSubroutine(
 
 export function assert(condition: boolean, message: string): { success: boolean; message: string } {
 	return { success: condition, message: condition ? "Success" : message };
+}
+
+/** Compile a snippet, recording either "compiled" or the error message. */
+export function compileOutcome(vcl: string): string {
+	try {
+		loadVCLContent(vcl);
+		return "compiled";
+	} catch (e) {
+		return e instanceof Error ? e.message : String(e);
+	}
 }
 
 function cleanupTempFiles(): void {

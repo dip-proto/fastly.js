@@ -33,7 +33,7 @@ import {
 	xml_escape,
 } from "./vcl-strings";
 import { std_integer2time, std_time } from "./vcl-time";
-import { toRawString } from "./vcl-value";
+import { toRawString, type VCLFailure } from "./vcl-value";
 
 export interface StdModule {
 	strlen: (s: string) => number;
@@ -42,7 +42,7 @@ export interface StdModule {
 	strstr: (haystack: string, needle: string) => string | null;
 	strrev: (s: string) => string | null;
 	strrep: (s: string, count: number) => string;
-	strpad: (s: string, width: number, pad: string) => string;
+	strpad: (s: string, width: number, pad: string) => string | VCLFailure;
 	strcasecmp: (s1: string, s2: string) => boolean;
 	prefixof: (s: string, prefix: string) => boolean;
 	suffixof: (s: string, suffix: string) => boolean;
