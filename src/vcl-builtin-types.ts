@@ -260,6 +260,7 @@ export const BUILTIN_SIGNATURES: Record<string, BuiltinSignature> = {
 		],
 		ret: "STRING",
 	},
+	"utf8.translate": { args: [["STRING", "STRING", "STRING"]], ret: "STRING" },
 	"uuid.dns": { args: [], ret: "STRING" },
 	"uuid.is_valid": { args: [["STRING"]], ret: "BOOL" },
 	"uuid.is_version3": { args: [["STRING"]], ret: "BOOL" },

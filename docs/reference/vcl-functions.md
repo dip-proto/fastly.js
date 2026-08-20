@@ -195,7 +195,35 @@ The full Fastly string library is implemented. Briefly:
 - `cstr_escape(s)`, `json.escape(s)`, `xml_escape(s)`
 - `boltsort.sort(url)`: sorts query string parameters (equivalent to `querystring.sort`)
 - `url.normalize(url)`: normalizes a URL
-- `utf8.is_valid(s)`, `utf8.codepoint_count(s)`, `utf8.substr(s, offset, length)`, `utf8.strpad(s, width, pad)`: UTF-8 aware variants
+- `utf8.is_valid(s)`, `utf8.codepoint_count(s)`, `utf8.substr(s, offset, length)`, `utf8.strpad(s, width, pad)`, `utf8.translate(s, set1, set2)`: the Unicode variants, described below
+
+### Unicode functions
+
+The `utf8.*` functions measure in Unicode codepoints. Their `std.*`
+counterparts measure in bytes. All of them need valid UTF-8.
+
+Text that is not valid UTF-8 gives a not-set STRING from `utf8.substr`,
+`utf8.strpad` and `utf8.translate`. It gives zero from `utf8.codepoint_count`.
+`utf8.strpad` and `utf8.translate` also set `fastly.error` to `EUTF8`. One test
+comes first: `utf8.strpad` with an empty pad string returns the input as it is.
+
+`utf8.translate(s, set1, set2)` replaces each character of `set1` with the
+character at the same position in `set2`. Extra characters of `set1` all become
+the last character of `set2`. Every other character stays as it is.
+
+```vcl
+# ROT13
+set req.http.X-Rot13 = utf8.translate(req.http.X-Plain,
+  "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz",
+  "NOPQRSTUVWXYZABCDEFGHIJKLMnopqrstuvwxyzabcdefghijklm");
+
+# Drop the accents from the URL
+set req.url = utf8.translate(req.url, "áäåéëíïóöøúü", "aaaeeiiooouu");
+```
+
+Both sets must be constant strings, because Fastly builds the translation table
+at compile time. Each set needs one character or more. `set2` must not be longer
+than `set1`. A program that breaks one of these rules does not load.
 
 ## Math and Randomness Functions
 

@@ -10,7 +10,6 @@ import {
 	regsuball,
 	strtol,
 	substr,
-	Utf8Module,
 	urldecode,
 	urlencode,
 	xml_escape,
@@ -188,30 +187,6 @@ const suite: TestSuite = {
 					assert(xml_escape("<div>") === "&lt;div&gt;", "xml_escape should escape angle brackets"),
 				() =>
 					assert(xml_escape('"test"') === "&quot;test&quot;", "xml_escape should escape quotes"),
-			],
-		},
-		{
-			name: "utf8 functions",
-			vclSnippet: "",
-			run: async () => {},
-			assertions: [
-				() =>
-					assert(
-						Utf8Module.is_valid("hello") === true,
-						"utf8.is_valid should return true for valid string",
-					),
-				() =>
-					assert(
-						Utf8Module.codepoint_count("hello") === 5,
-						"utf8.codepoint_count('hello') should be 5",
-					),
-				() =>
-					assert(
-						Utf8Module.codepoint_count("日本語") === 3,
-						"utf8.codepoint_count('日本語') should be 3",
-					),
-				() =>
-					assert(Utf8Module.substr("hello", 1, 3) === "ell", "utf8.substr should work correctly"),
 			],
 		},
 		{

@@ -71,6 +71,7 @@ import {
 	toDisplayString,
 	toRawString,
 	VCLConcatResult,
+	VCLFailure,
 	VCLFloat,
 	VCLRTime,
 	VCLString,
@@ -272,10 +273,11 @@ export interface VCLContext {
 		[key: string]: any;
 	};
 	utf8?: {
-		is_valid: (s: string) => boolean;
-		codepoint_count: (s: string) => number;
-		substr: (s: string, offset: number, length?: number) => string | null;
-		strpad: (s: string, width: number, pad: string) => string | null;
+		is_valid: (s: unknown) => boolean;
+		codepoint_count: (s: unknown) => number;
+		substr: (s: unknown, offset: number, length?: number) => string | null;
+		strpad: (s: unknown, width: number, pad: unknown) => string | VCLFailure;
+		translate: (input: unknown, set1: unknown, set2: unknown) => string | VCLFailure;
 	};
 	waf?: Record<string, any>;
 	error?: (status: number, message: string) => string;
@@ -372,7 +374,7 @@ export interface VCLContext {
 		};
 		strrev?: (s: string) => string;
 		strrep?: (s: string, count: number) => string;
-		strpad?: (s: string, width: number, pad: string) => string;
+		strpad?: (s: string, width: number, pad: string) => string | VCLFailure;
 		strcasecmp?: (s1: string, s2: string) => number;
 		replace_prefix?: (s: string, prefix: string, replacement: string) => string;
 		replace_suffix?: (s: string, suffix: string, replacement: string) => string;
@@ -2157,6 +2159,11 @@ export class VCLCompiler {
 
 	private evaluateFunctionCall(expression: VCLFunctionCall, context: VCLContext): any {
 		const result = this.evaluateFunctionCallInner(expression, context);
+		// A builtin that fails with a fastly.error reports both at once.
+		if (result instanceof VCLFailure) {
+			if (context.fastly) context.fastly.error = result.error;
+			return coerceBuiltinReturn(expression.name, result.value);
+		}
 		const rule = NULL_RESULT_RULES[expression.name];
 		if (rule && (result === null || result === undefined)) {
 			if (context.fastly) context.fastly.error = rule.error;

@@ -3,19 +3,8 @@
 // matching, backend response metadata, PCI/HIPAA flags, fetch timeouts, and
 // return(upgrade).
 
-import { loadVCLContent } from "../src/vcl";
 import type { VCLContext, VCLSubroutines } from "../src/vcl-compiler";
-import { assert, executeSubroutine, type TestSuite } from "./test-framework";
-
-/** Compile a snippet, recording either "compiled" or the error message. */
-function compileOutcome(vcl: string): string {
-	try {
-		loadVCLContent(vcl);
-		return "compiled";
-	} catch (e) {
-		return e instanceof Error ? e.message : String(e);
-	}
-}
+import { assert, compileOutcome, executeSubroutine, type TestSuite } from "./test-framework";
 
 function recvHeader(expr: string) {
 	return `

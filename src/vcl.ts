@@ -677,6 +677,7 @@ export function createVCLContext(platform: VCLPlatform = getPlatform()): VCLCont
 		codepoint_count: UTF8Module.codepoint_count,
 		substr: UTF8Module.substr,
 		strpad: UTF8Module.strpad,
+		translate: UTF8Module.translate,
 	};
 
 	context.uuid = createUUIDModule(platform);

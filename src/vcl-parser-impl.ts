@@ -42,6 +42,7 @@ import {
 	type VCLUnsetStatement,
 } from "./vcl-parser";
 import { TIME_UNITS } from "./vcl-time";
+import { translateSetsError } from "./vcl-utf8";
 
 const INT64_MAX = 2n ** 63n - 1n;
 const INT64_MIN_MAGNITUDE = 2n ** 63n;
@@ -110,6 +111,20 @@ const RETURN_ACTIONS = new Set([
 	"hit_for_pass",
 	"upgrade",
 ]);
+
+/** The value of a literal, or of joined literals. Null for anything else. */
+function constantString(expression: VCLExpression): string | null {
+	if (expression.type === "StringLiteral") return expression.value;
+	// VCL joins strings with "+", and joins two literals by position as well.
+	if (expression.type === "BinaryExpression") {
+		if (expression.operator !== "+" && expression.operator !== " ") return null;
+		const left = constantString(expression.left);
+		if (left === null) return null;
+		const right = constantString(expression.right);
+		return right === null ? null : left + right;
+	}
+	return null;
+}
 
 export class VCLParser {
 	private tokens: Token[] = [];
@@ -2096,9 +2111,9 @@ export class VCLParser {
 		return this.tokens[this.current - 1]!;
 	}
 
-	private error(message: string): never {
-		const token = this.peek();
-		throw new Error(`${message} at line ${token.line}, column ${token.column}`);
+	private error(message: string, at?: VCLExpression): never {
+		const where = at?.location ?? this.peek();
+		throw new Error(`${message} at line ${where.line}, column ${where.column}`);
 	}
 
 	private parseFunctionCall(token: Token): VCLExpression {
@@ -2117,6 +2132,10 @@ export class VCLParser {
 
 		// Consume the closing parenthesis
 		this.consume(TokenType.PUNCTUATION, "Expected ')' after function arguments");
+
+		if (name === "utf8.translate" && args.length === 3) {
+			this.checkTranslateSets(args[1]!, args[2]!);
+		}
 
 		// Create the function call expression
 		let result: VCLExpression = {
@@ -2150,5 +2169,21 @@ export class VCLParser {
 		}
 
 		return result;
+	}
+
+	/**
+	 * Fastly builds the translation table at compile time, so both sets must be
+	 * constant strings. vcl-utf8 owns the rules about their contents.
+	 */
+	private checkTranslateSets(set1Expression: VCLExpression, set2Expression: VCLExpression): void {
+		const set1 = constantString(set1Expression);
+		if (set1 === null) this.error("Expected a constant string for set1", set1Expression);
+		const set2 = constantString(set2Expression);
+		if (set2 === null) this.error("Expected a constant string for set2", set2Expression);
+
+		const problem = translateSetsError(set1, set2);
+		if (problem !== null) {
+			this.error(problem, problem.includes("set1") ? set1Expression : set2Expression);
+		}
 	}
 }

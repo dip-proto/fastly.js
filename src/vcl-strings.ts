@@ -1,6 +1,8 @@
 // String builtins matching Fastly's behavior. Functions returning `null`
 // correspond to VCL "not set" values.
 
+import { isValidUtf8, VCLFailure } from "./vcl-value";
+
 const utf8Encoder = new TextEncoder();
 const utf8Decoder = new TextDecoder();
 
@@ -309,13 +311,10 @@ const JSON_ESCAPE_MAP = new Map<number, string>([
 	[0x0d, "\\r"],
 ]);
 
-// JS strings are invalid UTF-8 only through lone surrogates.
-const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
-
 export function json_escape(str: string): string {
 	const s = String(str);
 	// Fastly returns "" for input that is not valid UTF-8
-	if (LONE_SURROGATE.test(s)) return "";
+	if (!isValidUtf8(s)) return "";
 	let out = "";
 	for (const ch of s) {
 		const r = ch.codePointAt(0)!;
@@ -531,8 +530,14 @@ export function strstr(haystack: string, needle: string): string | null {
 
 // std.strpad: width and padding are measured in bytes. A positive width pads
 // on the left, a negative width on the right.
-export function strpad(s: string, width: number, pad: string): string {
+export function strpad(s: string, width: number, pad: string): string | VCLFailure {
 	const str = String(s);
+	// Fastly cannot negate the smallest INTEGER, and reports a domain error. The
+	// threshold here is wider: below it, the padded string needs more memory than
+	// a request can hold.
+	if (!Number.isFinite(width) || width <= -Number.MAX_SAFE_INTEGER) {
+		return new VCLFailure("", "EDOM");
+	}
 	const w = Math.abs(Math.trunc(width));
 	const sLen = utf8Bytes(str).length;
 	if (sLen >= w) return str;
@@ -1148,49 +1153,3 @@ export function setcookie_delete_by_name(setCookieHeader: string, name: string):
 	}
 	return kept.join(", ");
 }
-
-export const Utf8Module = {
-	is_valid: (str: string): boolean => {
-		try {
-			const encoded = new TextEncoder().encode(String(str));
-			new TextDecoder("utf-8", { fatal: true }).decode(encoded);
-			return true;
-		} catch {
-			return false;
-		}
-	},
-
-	codepoint_count: (str: string): number => {
-		return [...String(str)].length;
-	},
-
-	substr: (str: string, offset: number, length?: number): string => {
-		const codepoints = [...String(str)];
-		const len = codepoints.length;
-
-		let start = offset < 0 ? len + offset : offset;
-		if (start < 0) start = 0;
-		if (start >= len) return "";
-
-		const end = length === undefined ? len : start + length;
-		return codepoints.slice(start, Math.min(end, len)).join("");
-	},
-
-	strpad: (str: string, width: number, pad: string): string => {
-		const s = String(str);
-		const p = String(pad);
-		if (p === "") return s;
-		const codepoints = [...s];
-		const padCodepoints = [...p];
-		const w = Math.abs(width);
-
-		if (codepoints.length >= w) return s;
-
-		const needed = w - codepoints.length;
-		const padStr = padCodepoints.join("");
-		const repeated = padStr.repeat(Math.ceil(needed / padCodepoints.length));
-		const padding = [...repeated].slice(0, needed).join("");
-
-		return width < 0 ? s + padding : padding + s;
-	},
-};
