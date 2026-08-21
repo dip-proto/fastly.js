@@ -4,26 +4,63 @@ This guide will walk you through the process of installing and setting up Fastly
 
 ## Prerequisites
 
-Before you begin, make sure you have the following installed:
+Before you begin, choose the setup that matches your use case:
 
-- [Bun](https://bun.sh) runtime (v1.0.0 or higher)
-- Node.js 16+ (for some development tools)
-- Git (for cloning the repository)
+- [Node.js](https://nodejs.org/) 18 or later for the published library
+- [Bun](https://bun.sh) 1.0.0 or later for the proxy, playground, and development
+- Git for cloning the repository
 
 ## Installation
 
-1. Clone the Fastly.JS repository:
+Install the published library with npm or Bun:
 
 ```bash
-git clone <repository-url>
-cd fastly.js
+npm install fastly.js
+# or
+bun add fastly.js
 ```
 
-2. Install dependencies:
+To run the proxy or contribute, clone the repository and install its dependencies:
 
 ```bash
+git clone https://github.com/jedisct1/fastly.js.git
+cd fastly.js
 bun install
 ```
+
+## Using the Library
+
+The package exports the VCL compiler and request pipeline for Node.js and Bun:
+
+```ts
+import { createVCLContext, loadVCLContent, runPipeline } from "fastly.js";
+
+const subroutines = loadVCLContent(`
+  sub vcl_deliver {
+    set resp.http.X-Hello = "world";
+  }
+`);
+const context = createVCLContext();
+const cache = new Map();
+
+const result = await runPipeline({
+  subroutines,
+  context,
+  cache,
+  maxRestarts: 3,
+  getBackendResponse: async () => ({
+    status: 200,
+    statusText: "OK",
+    headers: { "content-type": "text/plain" },
+    body: new TextEncoder().encode("hello"),
+  }),
+});
+
+console.log(result.response.headers["X-Hello"]); // "world"
+```
+
+The `fastly.js/browser` entry point avoids Node built-ins.
+It exports `runBrowserSimulation` for synthetic browser-side requests.
 
 ## Basic Concepts
 
