@@ -15,6 +15,7 @@ The Standard Library consists of several modules:
 7. **Geo Functions**: Functions for geolocation
 8. **Ratelimit Functions**: Functions for rate limiting
 9. **WAF Functions**: Functions for web application firewall
+10. **Unicode Functions**: Functions for valid UTF-8 text
 
 ## How the standard library is exposed
 
@@ -139,6 +140,30 @@ Replaces all occurrences of a pattern with a replacement.
 ```typescript
 const replaced = std.regsuball('hello world', 'o', 'x');  // "hellx wxrld"
 ```
+
+## Unicode Functions
+
+`context.utf8` implements Fastly's Unicode helpers. They work in Unicode
+codepoints. The string helpers under `context.std` work in UTF-8 bytes.
+
+```typescript
+const translated = context.utf8.translate("être", "éèê", "e");
+// "etre"
+```
+
+`utf8.is_valid(s)` checks whether text is valid UTF-8.
+`utf8.codepoint_count(s)` returns its codepoint count.
+`utf8.substr(s, offset, length?)` slices at codepoint boundaries.
+`utf8.strpad(s, width, pad)` pads to a codepoint width.
+`utf8.translate(s, set1, set2)` maps set characters by position.
+
+In VCL, `utf8.translate` needs constant, nonempty character sets.
+The second set cannot exceed the first set's length.
+Extra characters in the first set map to the second set's last character.
+
+Invalid text yields a not-set STRING from `utf8.substr`, `utf8.strpad`, and
+`utf8.translate`. The last two set `fastly.error` to `EUTF8`.
+`utf8.strpad` sets `fastly.error` to `EDOM` for an impossible negative width.
 
 ## Math Functions
 

@@ -477,7 +477,11 @@ Request timing variables, each with `.sec`, `.msec`, `.usec`, `.msec_frac`, and 
 
 ### fastly.error
 
-The last error raised by a builtin function (for example `EPARSENUM` from `std.atoi`, or `EINVAL` from `time.units`). Empty when no error has occurred.
+The last error raised by a builtin function. It is empty when no error has occurred.
+
+Common values include `EPARSENUM` from `std.atoi`, `EINVAL` from `time.units`,
+`EDOM` from an invalid `utf8.strpad` width, and `EUTF8` from invalid text passed
+to `utf8.strpad` or `utf8.translate`. A later failure replaces the earlier value.
 
 **Example:**
 ```vcl
