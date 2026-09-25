@@ -23,7 +23,7 @@ bun add fastly.js
 To run the proxy or contribute, clone the repository and install its dependencies:
 
 ```bash
-git clone https://github.com/jedisct1/fastly.js.git
+git clone https://github.com/dip-proto/fastly.js.git
 cd fastly.js
 bun install
 ```
