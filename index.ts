@@ -141,17 +141,12 @@ async function fetchFromBackend(context: VCLContext, url: URL): Promise<BackendR
 
 	const sendTo = async (target: typeof backend): Promise<Response> => {
 		const protocol = target.ssl ? "https" : "http";
-		const targetUrl = new URL(
-			url.pathname + url.search,
-			`${protocol}://${target.host}:${target.port}`,
-		);
-		context.bereq.url = targetUrl.toString();
-		for (const [key, value] of Object.entries(context.req.http)) {
-			context.bereq.http[key] = value;
-		}
+		// Don't resolve bereq.url against the backend URL, or a path like //LOGIN turns into a hostname.
+		// Bun's HTTP client still sends a leading // as a single slash, though.
+		const targetUrl = `${protocol}://${target.host}:${target.port}${context.bereq.url}`;
 		const proxyHeaders = toFragmentedHeaders(context.bereq.http);
-		const proxyReq = new Request(targetUrl.toString(), {
-			method: context.req.method,
+		const proxyReq = new Request(targetUrl, {
+			method: context.bereq.method,
 			headers: proxyHeaders,
 			signal: AbortSignal.timeout(fetchTimeoutMs),
 		});
@@ -220,7 +215,7 @@ const _server = Bun.serve({
 	async fetch(req) {
 		const url = new URL(req.url);
 		const context = createVCLContext();
-		context.req.url = url.pathname + url.search;
+		context.req.url = req.url.slice(url.origin.length);
 		context.req.method = req.method;
 		context.cache = cache;
 		context.backends = { ...setupContext.backends };

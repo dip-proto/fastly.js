@@ -83,6 +83,51 @@ function computeCacheKey(context: VCLContext): string {
 		: `${context.req.url}:${context.req.http.host || ""}`;
 }
 
+// Request headers that Fastly doesn't copy into bereq.
+// Each list adds to the one before it.
+const DROPPED_ON_PASS = new Set([
+	"alt-svc",
+	"connection",
+	"fastly-dsr-request",
+	"fastly-shield-rp",
+	"keep-alive",
+	"te",
+	"trailer",
+	"upgrade",
+]);
+const DROPPED_ON_POST_MISS = new Set([
+	...DROPPED_ON_PASS,
+	"accept-ranges",
+	"cache-control",
+	"cdn-cache-control",
+	"content-range",
+	"fastly-cache-control",
+	"proxy-authenticate",
+	"proxy-authorization",
+	"range",
+]);
+const DROPPED_ON_MISS = new Set([
+	...DROPPED_ON_POST_MISS,
+	"content-length",
+	"if-modified-since",
+	"if-none-match",
+	"if-range",
+	"transfer-encoding",
+]);
+
+/** Builds bereq from req before vcl_miss or vcl_pass, the way Fastly does. */
+function initBackendRequest(context: VCLContext, mode: "miss" | "pass") {
+	const post = context.req.method === "POST";
+	const dropped = mode === "pass" ? DROPPED_ON_PASS : post ? DROPPED_ON_POST_MISS : DROPPED_ON_MISS;
+	context.bereq = {
+		url: context.req.url,
+		method: mode === "miss" && !post ? "GET" : context.req.method,
+		http: Object.fromEntries(
+			Object.entries(context.req.http).filter(([name]) => !dropped.has(name.toLowerCase())),
+		),
+	};
+}
+
 function errorResult(context: VCLContext, key: string, restarts: number): PipelineResult {
 	return {
 		response: {
@@ -204,14 +249,24 @@ async function runPass(opts: PipelineOptions): Promise<PipelineResult | "restart
 				}
 			} else {
 				cache.delete(key);
+				initBackendRequest(context, "miss");
 				action = executeVCL(subroutines, "vcl_miss", context) || "fetch";
 			}
 		} else {
+			initBackendRequest(context, "miss");
 			action = executeVCL(subroutines, "vcl_miss", context) || "fetch";
 		}
-	} else if (action === "pass") {
+	}
+
+	// A pass from vcl_hit or vcl_miss also goes through vcl_pass, and nothing gets cached.
+	if (action === "pass") {
+		key = "";
+		initBackendRequest(context, "pass");
 		action = executeVCL(subroutines, "vcl_pass", context) || "fetch";
 	}
+
+	// The error statement has already run vcl_error, so stop here instead of going to the backend.
+	if (action === "error") return errorResult(context, key, restarts);
 
 	const passing = key === "";
 	let backendResponse: BackendResponse;

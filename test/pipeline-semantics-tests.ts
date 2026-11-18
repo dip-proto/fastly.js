@@ -470,6 +470,82 @@ const pipelineSemanticsTests: TestSuite = {
 					assert(context.req.http["X-Cache-Header"] === "HIT", "the cached object is delivered"),
 			],
 		},
+		{
+			name: "bereq is built from req for vcl_miss, and built again when vcl_miss passes",
+			vclSnippet: `
+        sub vcl_miss {
+          set req.http.X-Miss = bereq.method " " bereq.url " " bereq.http.Range " " bereq.http.X-A;
+          set bereq.http.X-A = "changed";
+          return(pass);
+        }
+        sub vcl_pass {
+          set req.http.X-Pass = bereq.method " " bereq.http.Range " " bereq.http.Connection " " bereq.http.X-A;
+        }
+      `,
+			run: async (context: VCLContext, subroutines: VCLSubroutines) => {
+				context.req.url = "//LOGIN?x";
+				context.req.method = "HEAD";
+				context.req.http = { Range: "bytes=0-1", Connection: "close", "X-A": "1" };
+				const result = await runPipeline({
+					subroutines,
+					context,
+					cache: new Map(),
+					maxRestarts: 0,
+					getBackendResponse: fakeBackend,
+				});
+				context.req.http["X-Outcome"] = result.cache.outcome;
+			},
+			assertions: [
+				(context) =>
+					assert(
+						context.req.http["X-Miss"] === "GET //LOGIN?x (null) 1",
+						`vcl_miss saw "${context.req.http["X-Miss"]}"`,
+					),
+				(context) =>
+					assert(
+						context.req.http["X-Pass"] === "HEAD bytes=0-1 (null) 1",
+						`vcl_pass saw "${context.req.http["X-Pass"]}"`,
+					),
+				(context) => assert(context.req.http["X-Outcome"] === "pass", "nothing is cached"),
+			],
+		},
+		{
+			name: "an error in vcl_miss runs vcl_error once and skips the backend",
+			vclSnippet: `
+        sub vcl_miss { error 403 "Denied"; }
+        sub vcl_error {
+          if (req.http.X-Error) { set req.http.X-Error = "twice"; } else { set req.http.X-Error = "once"; }
+        }
+      `,
+			run: async (context: VCLContext, subroutines: VCLSubroutines) => {
+				context.req.url = "/denied";
+				const result = await runPipeline({
+					subroutines,
+					context,
+					cache: new Map(),
+					maxRestarts: 0,
+					getBackendResponse: async () => {
+						context.req.http["X-Fetched"] = "yes";
+						return fakeBackend();
+					},
+				});
+				context.req.http["X-Status"] = String(result.response.status);
+			},
+			assertions: [
+				(context) =>
+					assert(
+						context.req.http["X-Status"] === "403",
+						`status is ${context.req.http["X-Status"]}`,
+					),
+				(context) =>
+					assert(context.req.http["X-Fetched"] === undefined, "the backend is not called"),
+				(context) =>
+					assert(
+						context.req.http["X-Error"] === "once",
+						`vcl_error ran ${context.req.http["X-Error"]}`,
+					),
+			],
+		},
 	],
 };
 
