@@ -584,8 +584,13 @@ export class VCLLexer {
 					this.tokenizeLongString(delimMatch[1]!);
 					continue;
 				}
-				// The non-standard synthetic {expr} brace form is still scanned as one token.
-				if (prevToken?.type === TokenType.KEYWORD && prevToken.value === "synthetic") {
+				// The non-standard synthetic {expr} brace form is still scanned as one token,
+				// but not the body of a subroutine named "synthetic".
+				if (
+					prevToken?.type === TokenType.KEYWORD &&
+					prevToken.value === "synthetic" &&
+					this.tokens[this.tokens.length - 2]?.value !== "sub"
+				) {
 					this.tokenizeSyntheticBlock();
 					continue;
 				}

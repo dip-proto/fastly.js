@@ -50,6 +50,22 @@ const INT64_MIN_MAGNITUDE = 2n ** 63n;
 // binary exponent.
 const HEX_LITERAL = /^0x([0-9a-fA-F]*)(?:\.([0-9a-fA-F]*))?(?:p([+-]?[0-9]+))?$/;
 
+// Words Fastly refuses as subroutine names. Other keywords, like log or pass, are allowed.
+const RESERVED_SUBROUTINE_NAMES = new Set(
+	`add break call case client cstr_escape declare deliver deliver_stale early_hints else elseif elsif
+	esi fallthrough false fetch for foreach goto hit_for_pass http_status_matches if import lookup now
+	parse_time_delta penaltybox pipe pragma randombool randombool_seeded randomint randomint_seeded
+	randomstr ratecounter regsub regsuball remove return set strftime sub subfield substr switch table
+	true unset upgrade urldecode urlencode vcl xml_escape`.split(/\s+/),
+);
+
+// The only vcl_* subroutines Fastly lets you define.
+const VCL_SUBROUTINES = new Set(
+	"vcl_recv vcl_hash vcl_hit vcl_miss vcl_pass vcl_fetch vcl_error vcl_deliver vcl_log vcl_pipe".split(
+		" ",
+	),
+);
+
 /**
  * Convert the numeric part of a NUMBER token to its value.
  * Handles decimal and hex integers, decimal-exponent floats, and hex floats
@@ -526,7 +542,12 @@ export class VCLParser {
 	}
 
 	private parseSubroutine(): VCLSubroutine {
-		const nameToken = this.consumeName("Expected subroutine name");
+		const nameToken = this.consumeSubroutineName("Expected subroutine name");
+		if (nameToken.value.startsWith("vcl_") && !VCL_SUBROUTINES.has(nameToken.value)) {
+			throw new Error(
+				`\`vcl_*\` is a reserved name at line ${nameToken.line}, column ${nameToken.column}`,
+			);
+		}
 		let params: VCLSubroutineParam[] | undefined;
 		let returnType: string | undefined;
 
@@ -1279,10 +1300,13 @@ export class VCLParser {
 
 	private parseCallStatement(): VCLCallStatement {
 		const token = this.previous();
-		const subroutineName = this.consume(
-			TokenType.IDENTIFIER,
-			"Expected subroutine name after 'call'",
-		).value;
+		const nameToken = this.consumeSubroutineName("Expected subroutine name after 'call'");
+		if (nameToken.value.startsWith("vcl_")) {
+			throw new Error(
+				`Cannot call a \`vcl_\` subroutine at line ${nameToken.line}, column ${nameToken.column}`,
+			);
+		}
+		const subroutineName = nameToken.value;
 		const args: VCLExpression[] = [];
 		// Optional argument list
 		if (this.check(TokenType.PUNCTUATION, "(")) {
@@ -2073,6 +2097,17 @@ export class VCLParser {
 		if (this.check(TokenType.IDENTIFIER) || this.check(TokenType.KEYWORD)) return this.advance();
 
 		throw new Error(`${message} at line ${this.peek().line}, column ${this.peek().column}`);
+	}
+
+	private consumeSubroutineName(message: string): Token {
+		while (this.check(TokenType.COMMENT)) this.advance();
+		const token = this.consumeName(message);
+		if (RESERVED_SUBROUTINE_NAMES.has(token.value)) {
+			throw new Error(
+				`\`${token.value}\` cannot be used as an identifier at line ${token.line}, column ${token.column}`,
+			);
+		}
+		return token;
 	}
 
 	private check(type: TokenType, value?: string): boolean {

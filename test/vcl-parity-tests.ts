@@ -3,6 +3,7 @@
 // return(upgrade).
 
 import type { VCLContext, VCLSubroutines } from "../src/vcl-compiler";
+import { parseVCL } from "../src/vcl-parser";
 import { assert, compileOutcome, executeSubroutine, type TestSuite } from "./test-framework";
 
 function recvHeader(expr: string) {
@@ -104,6 +105,29 @@ function expectAcl(expected: boolean) {
 				`expected ${expected ? "match" : "no match"}, got R=${context.req.http.R}`,
 			),
 	];
+}
+
+// Fastly rejects the first list as subroutine names, and accepts the second one.
+const RESERVED_SUB_NAMES = `add break call case client cstr_escape declare deliver deliver_stale
+	early_hints else elseif elsif esi fallthrough false fetch for foreach goto hit_for_pass
+	http_status_matches if import lookup now parse_time_delta penaltybox pipe pragma randombool
+	randombool_seeded randomint randomint_seeded randomstr ratecounter regsub regsuball remove return
+	set strftime sub subfield substr switch table true unset upgrade urldecode urlencode vcl
+	xml_escape`.split(/\s+/);
+const ALLOWED_SUB_NAMES = `abandon accept acl addr backend bereq beresp bin boltsort catch crypto
+	default digest director edge elif error fastly geoip h2 h3 hash hash_data header hit in include
+	init json_escape local log loop math miss notset null obj pass purge querystring quic ratelimit
+	recv req resp restart server setcookie stale std synthetic time tls transport uuid var waf while
+	workspace`.split(/\s+/);
+
+/** The parse error for `vcl`, or "" if it parses. Unlike compileOutcome, it logs nothing. */
+function parseError(vcl: string): string {
+	try {
+		parseVCL(vcl);
+		return "";
+	} catch (e) {
+		return (e as Error).message;
+	}
 }
 
 const vclParityTests: TestSuite = {
@@ -431,6 +455,56 @@ const vclParityTests: TestSuite = {
 					),
 				(context) => context.results?.boolLit === "compiled",
 			],
+		},
+		{
+			name: "reserved words can't name or call a subroutine",
+			run: async (context: VCLContext) => {
+				context.results = {
+					wrong: RESERVED_SUB_NAMES.filter((n) =>
+						[`sub ${n} {}`, `sub vcl_recv { call ${n}; }`].some(
+							(vcl) => !parseError(vcl).startsWith(`\`${n}\` cannot be used as an identifier`),
+						),
+					),
+				};
+			},
+			assertions: [
+				(context) =>
+					assert(
+						context.results?.wrong.length === 0,
+						`not rejected like Fastly: ${context.results?.wrong}`,
+					),
+			],
+		},
+		{
+			name: "vcl_* subroutine names and comments before a name follow Fastly",
+			run: async (context: VCLContext) => {
+				context.results = {
+					customVclSub: parseError("sub vcl_example {}"),
+					vclInit: parseError("sub vcl_init {}"),
+					vclPipe: parseError("sub vcl_pipe {}"),
+					callVclSub: parseError("sub vcl_recv { call vcl_hash; }"),
+					comments: parseError("sub /* c */ helper {} sub vcl_recv { call /* c */ helper; }"),
+				};
+			},
+			assertions: [
+				(context) => context.results?.customVclSub.startsWith("`vcl_*` is a reserved name"),
+				(context) => context.results?.vclInit.startsWith("`vcl_*` is a reserved name"),
+				(context) => context.results?.vclPipe === "",
+				(context) => context.results?.callVclSub.startsWith("Cannot call a `vcl_` subroutine"),
+				(context) => context.results?.comments === "",
+			],
+		},
+		{
+			name: "other words, keywords included, can name and call a subroutine",
+			vclSnippet: `
+        ${ALLOWED_SUB_NAMES.map((n) => `sub ${n} { set req.http.X = req.http.X + "${n},"; }`).join("\n")}
+        sub vcl_recv {
+          set req.http.X = "";
+          ${ALLOWED_SUB_NAMES.map((n) => `call ${n};`).join(" ")}
+        }
+      `,
+			run: runRecv,
+			assertions: expectHeader(ALLOWED_SUB_NAMES.map((n) => `${n},`).join("")),
 		},
 	],
 };

@@ -16,10 +16,6 @@ backend default {
 }
 
 # VCL Initialization
-sub vcl_init {
-  return(ok);
-}
-
 # Request processing
 sub vcl_recv {
   # Set X-Forwarded-For header
