@@ -37,7 +37,7 @@ For comprehensive documentation, tutorials, and examples, please visit the [docu
 ## Requirements
 
 - [Bun](https://bun.sh) runtime (v1.0.0 or higher) for the proxy server and development
-- Node.js 18+ when using the published library
+- Node.js 20.19+ when using the published library
 
 ## Installation
 
@@ -58,7 +58,7 @@ bun install
 
 ## Using as a library
 
-The package exposes the VCL engine and the request pipeline, and runs on Node.js 18+ as well as Bun.
+The package exposes the VCL engine and the request pipeline, and runs on Node.js 20.19+ as well as Bun.
 Compile a VCL program with `loadVCLContent`, then drive it through `runPipeline` with your own backend fetcher:
 
 ```ts

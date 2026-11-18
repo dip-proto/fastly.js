@@ -151,19 +151,19 @@ sub vcl_deliver {
 				<div class="card">
 					<h2>Request</h2>
 					<div class="row">
-						<div><label>Method</label><input id="method" value="GET" /></div>
-						<div style="flex: 3"><label>URL</label><input id="url" value="/index.html" /></div>
+						<div><label for="method">Method</label><input id="method" value="GET" /></div>
+						<div style="flex: 3"><label for="url">URL</label><input id="url" value="/index.html" /></div>
 					</div>
-					<label>Headers</label>
+					<label for="req-headers">Headers</label>
 					<textarea id="req-headers" rows="2" spellcheck="false">Host: example.com</textarea>
 				</div>
 				<div class="card">
 					<h2>Backend response (synthetic)</h2>
-					<label>Status</label>
+					<label for="be-status">Status</label>
 					<input id="be-status" value="200" />
-					<label>Headers</label>
+					<label for="be-headers">Headers</label>
 					<textarea id="be-headers" rows="2" spellcheck="false">Content-Type: text/html</textarea>
-					<label>Body</label>
+					<label for="be-body">Body</label>
 					<textarea id="be-body" rows="3" spellcheck="false">&lt;h1&gt;Hello from the backend&lt;/h1&gt;</textarea>
 					<div class="actions">
 						<button type="button" id="run">Run</button>

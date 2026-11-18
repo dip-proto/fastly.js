@@ -6,7 +6,7 @@ This guide will walk you through the process of installing and setting up Fastly
 
 Before you begin, choose the setup that matches your use case:
 
-- [Node.js](https://nodejs.org/) 18 or later for the published library
+- [Node.js](https://nodejs.org/) 20.19 or later for the published library
 - [Bun](https://bun.sh) 1.0.0 or later for the proxy, playground, and development
 - Git for cloning the repository
 
