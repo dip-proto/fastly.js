@@ -21,6 +21,11 @@ sub vcl_recv {
     #     error 301 "Redirect to HTTPS";
     # }
 
+    # Like Fastly's default VCL, anything other than GET, HEAD or a purge skips the cache
+    if (req.method != "HEAD" && req.method != "GET" && req.method != "FASTLYPURGE") {
+        return(pass);
+    }
+
     # Continue with normal processing
     return(lookup);
 }
