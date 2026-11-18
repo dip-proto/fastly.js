@@ -799,6 +799,23 @@ function fastlyHash(key: string, seed: number, from: number, to: number): number
 /** Largest representable RTIME (2^63 - 1 nanoseconds), in seconds. */
 const MAX_RTIME_SECONDS = 9223372036.854776;
 
+/** Splits a URL into the parts behind req.url.path, .qs, .dirname, .basename and .ext, the way Fastly does. */
+function urlComponents(url: string) {
+	const pathEnd = url.search(/[?#]/);
+	const path = pathEnd < 0 ? url : url.substring(0, pathEnd);
+	const qs = url[pathEnd] === "?" ? url.substring(pathEnd + 1).split("#")[0]! : "";
+	const lastSlash = path.lastIndexOf("/");
+	const basename = path.substring(lastSlash + 1);
+	const dot = basename.lastIndexOf(".");
+	return {
+		path,
+		qs,
+		dirname: lastSlash > 0 ? path.substring(0, lastSlash) : "/",
+		basename,
+		ext: dot >= 0 ? basename.substring(dot + 1) : "",
+	};
+}
+
 /** Render a header map as "Name: value" lines. */
 function serializeHeaders(headers: Record<string, string> | undefined): string {
 	if (!headers) return "";
@@ -2645,33 +2662,11 @@ export class VCLCompiler {
 		if (name === "testing.synthetic_body") return context.obj.response ?? "";
 
 		if (name === "req.url") return context.req.url;
-		if (name === "req.url.path") {
-			const url = context.req.url || "";
-			const qIdx = url.indexOf("?");
-			return qIdx >= 0 ? url.substring(0, qIdx) : url;
-		}
-		if (name === "req.url.qs") {
-			const url = context.req.url || "";
-			const qIdx = url.indexOf("?");
-			return qIdx >= 0 ? url.substring(qIdx + 1) : "";
-		}
-		if (name === "req.url.basename") {
-			const path = this.resolveVariable("req.url.path", context) as string;
-			if (path === "") return ".";
-			const lastSlash = path.lastIndexOf("/");
-			return lastSlash >= 0 ? path.substring(lastSlash + 1) : path;
-		}
-		if (name === "req.url.dirname") {
-			const path = this.resolveVariable("req.url.path", context) as string;
-			if (path === "") return ".";
-			const lastSlash = path.lastIndexOf("/");
-			return lastSlash >= 0 ? path.substring(0, lastSlash + 1) : "/";
-		}
-		if (name === "req.url.ext") {
-			const basename = this.resolveVariable("req.url.basename", context) as string;
-			const dotIdx = basename.lastIndexOf(".");
-			return dotIdx >= 0 ? basename.substring(dotIdx + 1) : "";
-		}
+		if (name === "req.url.path") return urlComponents(context.req.url).path;
+		if (name === "req.url.qs") return urlComponents(context.req.url).qs;
+		if (name === "req.url.basename") return urlComponents(context.req.url).basename;
+		if (name === "req.url.dirname") return urlComponents(context.req.url).dirname;
+		if (name === "req.url.ext") return urlComponents(context.req.url).ext;
 		if (name === "req.method" || name === "req.request") return context.req.method;
 		if (name === "req.backend") return context.req.backend || "";
 		if (name === "req.restarts") return context.req.restarts || 0;
@@ -2747,33 +2742,11 @@ export class VCLCompiler {
 		if (name === "bereq.url") return context.bereq.url;
 		if (name === "bereq.method" || name === "bereq.request") return context.bereq.method;
 		if (name === "bereq.proto") return ctx.bereq?.proto || "HTTP/1.1";
-		if (name === "bereq.url.path") {
-			const url = context.bereq.url || "";
-			const qIdx = url.indexOf("?");
-			return qIdx >= 0 ? url.substring(0, qIdx) : url;
-		}
-		if (name === "bereq.url.qs") {
-			const url = context.bereq.url || "";
-			const qIdx = url.indexOf("?");
-			return qIdx >= 0 ? url.substring(qIdx + 1) : "";
-		}
-		if (name === "bereq.url.basename") {
-			const path = this.resolveVariable("bereq.url.path", context) as string;
-			if (path === "") return ".";
-			const lastSlash = path.lastIndexOf("/");
-			return lastSlash >= 0 ? path.substring(lastSlash + 1) : path;
-		}
-		if (name === "bereq.url.dirname") {
-			const path = this.resolveVariable("bereq.url.path", context) as string;
-			if (path === "") return ".";
-			const lastSlash = path.lastIndexOf("/");
-			return lastSlash >= 0 ? path.substring(0, lastSlash + 1) : "/";
-		}
-		if (name === "bereq.url.ext") {
-			const basename = this.resolveVariable("bereq.url.basename", context) as string;
-			const dotIdx = basename.lastIndexOf(".");
-			return dotIdx >= 0 ? basename.substring(dotIdx + 1) : "";
-		}
+		if (name === "bereq.url.path") return urlComponents(context.bereq.url).path;
+		if (name === "bereq.url.qs") return urlComponents(context.bereq.url).qs;
+		if (name === "bereq.url.basename") return urlComponents(context.bereq.url).basename;
+		if (name === "bereq.url.dirname") return urlComponents(context.bereq.url).dirname;
+		if (name === "bereq.url.ext") return urlComponents(context.bereq.url).ext;
 		if (name === "bereq.headers") return serializeHeaders(context.bereq.http);
 		if (name === "bereq.max_reuse_idle_time") return ctx.bereq?.max_reuse_idle_time ?? 0;
 		if (name === "bereq.fetch_timeout") return ctx.bereq?.fetch_timeout ?? 0;

@@ -43,6 +43,39 @@ function aclCheck(aclBody: string, ip: string) {
 	};
 }
 
+/**
+ * Sets req.url and bereq.url to `url`, then checks what both read back.
+ * `expected` is "url|path|qs|dirname|basename|ext".
+ */
+function urlComponentsCheck(url: string, expected: string) {
+	const read = (obj: string) =>
+		["", ".path", ".qs", ".dirname", ".basename", ".ext"]
+			.map((p) => `${obj}.url${p}`)
+			.join(' "|" ');
+	return {
+		name: `URL components of ${JSON.stringify(url)}`,
+		vclSnippet: `
+      sub vcl_recv {
+        set req.url = {"${url}"};
+        set req.http.X = ${read("req")};
+      }
+      sub vcl_miss {
+        set bereq.url = {"${url}"};
+        set bereq.http.X = ${read("bereq")};
+      }
+    `,
+		run: async (context: VCLContext, subroutines: VCLSubroutines) => {
+			executeSubroutine(context, subroutines, "vcl_recv");
+			executeSubroutine(context, subroutines, "vcl_miss");
+		},
+		assertions: [
+			...expectHeader(expected),
+			(context: VCLContext) =>
+				assert(context.bereq.http.X === expected, `bereq.http.X is "${context.bereq.http.X}"`),
+		],
+	};
+}
+
 function expectAcl(expected: boolean) {
 	return [
 		(context: VCLContext) =>
@@ -56,6 +89,9 @@ function expectAcl(expected: boolean) {
 const vclParityTests: TestSuite = {
 	name: "VCL Parity Tests",
 	tests: [
+		urlComponentsCheck("//a/b.c?x=1#f", "//a/b.c?x=1#f|//a/b.c|x=1|//a|b.c|c"),
+		urlComponentsCheck("/x.y#f?x=1.z", "/x.y#f?x=1.z|/x.y||/|x.y|y"),
+		urlComponentsCheck("?x=1", "?x=1||x=1|/||"),
 		{
 			name: "ACL exact IPv4 match",
 			...aclCheck('"127.0.0.1";', "127.0.0.1"),
