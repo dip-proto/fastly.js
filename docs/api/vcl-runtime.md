@@ -102,7 +102,7 @@ interface VCLContext {
   acls: Record<string, VCLACL>;
   tables: Record<string, VCLTable>;
   current_backend?: VCLBackend;
-  re?: { groups?: Record<number, string> };   // last regex match, read as re.group.N
+  re?: { groups?: Record<string, string> };   // last regex match, read as re.group.N or re.group.NAME
 
   std: { /* standard library — see below */ };
   fastly: { error: string; state: string };

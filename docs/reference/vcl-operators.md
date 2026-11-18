@@ -277,11 +277,27 @@ set var.full_url = "https://" req.http.host req.url;
 
 ### Regular Expression Match (~)
 
-Checks if a string matches a regular expression. Capture groups from the most
-recent successful match are available as `re.group.1` through `re.group.9`
-(and `re.group.0` for the whole match). There is no `~*` operator; use an
-inline `(?i)` flag for case-insensitive matching. When the right-hand side
-names an ACL, `~` performs an ACL membership check instead.
+Checks if a string matches a regular expression.
+
+After a match, `re.group.0` holds the whole match, `re.group.1` and up hold the capture groups, and named groups show up as `re.group.NAME`.
+A failed match clears them all, and a group that didn't match is not set.
+
+There is no `~*` operator; use `(?i)` for a case-insensitive match.
+When the right-hand side names an ACL, `~` checks ACL membership instead.
+
+Like on Fastly, patterns use PCRE2 syntax and match the UTF-8 bytes of the string.
+So `.` matches a single byte, and `\xC3\xA9` matches "é".
+`$` also matches before a final newline, while `\z` only matches at the very end.
+`(?i)` only ignores case for ASCII letters.
+
+Patterns work the same way in `regsub`, `regsuball`, `querystring.regfilter`, `table.lookup_regex` and switch cases.
+
+Fastly.JS converts patterns to JavaScript regexes.
+That covers `(?i)`, `(?m)` and `(?s)` (also scoped, like `(?i:...)` or `(?-i)`), `\A`, `\z`, `\Z`, POSIX classes like `[[:alpha:]]`, `\h`, `\v`, `\R`, `\x{..}`, comments and Python-style named groups.
+
+Atomic groups, possessive quantifiers, `\K`, `\G`, `\Q...\E`, `\p{..}`, recursion and conditionals aren't supported.
+A pattern using them never matches with `~` and logs an error, and `regsub` returns the string unchanged.
+Backreferences inside `(?i)` still compare case-sensitively.
 
 **Syntax:**
 ```vcl

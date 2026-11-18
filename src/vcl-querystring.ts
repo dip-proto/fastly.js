@@ -15,6 +15,7 @@
  * - If the serialized query is empty, the "?" is dropped.
  */
 
+import { compileRegex, toBytes } from "./vcl-regex";
 import { hexVal } from "./vcl-strings";
 import { isValidUtf8 } from "./vcl-value";
 
@@ -396,39 +397,16 @@ function globMatcher(pattern: string): (name: string) => boolean {
 	};
 }
 
-// ---------------------------------------------------------------------------
-// PCRE-flavored regex support
-// ---------------------------------------------------------------------------
-
-function pcreToRegExp(pattern: string): RegExp {
-	let p = String(pattern);
-	let flags = "";
-	// Translate leading inline flag groups like (?i) to JS regex flags.
-	for (;;) {
-		const m = /^\(\?([a-zA-Z]+)\)/.exec(p);
-		if (!m) break;
-		for (const ch of m[1]!) {
-			if (ch === "i" || ch === "m" || ch === "s") {
-				if (!flags.includes(ch)) flags += ch;
-			} else {
-				throw new Error(`Unsupported inline regex flag: ${ch}`);
-			}
-		}
-		p = p.substring(m[0].length);
-	}
-	return new RegExp(p, `${flags}g`);
-}
-
 /**
  * Fastly's PCRE matching never returns zero-length matches; an empty match at
  * a position is skipped and matching resumes at the next position. A name
  * matches only if some non-empty match exists.
  */
 function regexMatcher(pattern: string): (name: string) => boolean {
-	const re = pcreToRegExp(pattern);
+	const re = compileRegex(pattern, "g");
 	return (name: string) => {
 		re.lastIndex = 0;
-		for (const m of name.matchAll(re)) {
+		for (const m of toBytes(name).matchAll(re)) {
 			if (m[0].length > 0) return true;
 		}
 		return false;

@@ -1,3 +1,4 @@
+import { compileRegex, toBytes } from "./vcl-regex";
 import { isNotSet, VCLString } from "./vcl-value";
 
 export interface TestingState {
@@ -128,14 +129,14 @@ export function createAssertModule(state: TestingState) {
 		match: (str: any, pattern: any, message?: string) => {
 			const s = String(normalizeValue(str));
 			const p = String(normalizeValue(pattern));
-			if (!new RegExp(p).test(s)) {
+			if (!compileRegex(p).test(toBytes(s))) {
 				throw new AssertionError(message || `Expected "${s}" to match pattern "${p}"`);
 			}
 		},
 		not_match: (str: any, pattern: any, message?: string) => {
 			const s = String(normalizeValue(str));
 			const p = String(normalizeValue(pattern));
-			if (new RegExp(p).test(s)) {
+			if (compileRegex(p).test(toBytes(s))) {
 				throw new AssertionError(message || `Expected "${s}" to not match pattern "${p}"`);
 			}
 		},

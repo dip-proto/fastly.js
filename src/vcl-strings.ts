@@ -1,6 +1,7 @@
 // String builtins matching Fastly's behavior. Functions returning `null`
 // correspond to VCL "not set" values.
 
+import { compileRegex, fromBytes, toBytes } from "./vcl-regex";
 import { isValidUtf8, VCLFailure } from "./vcl-value";
 
 const utf8Encoder = new TextEncoder();
@@ -403,14 +404,13 @@ function expandReplacement(_input: string, replacement: string, match: RegExpExe
 
 export function regsub(str: string, pattern: string, replacement: string): string {
 	try {
-		const s = String(str);
-		const re = new RegExp(pattern);
-		const match = re.exec(s);
-		if (!match) return s;
-		return (
+		const s = toBytes(String(str));
+		const match = compileRegex(String(pattern)).exec(s);
+		if (!match) return String(str);
+		return fromBytes(
 			s.slice(0, match.index) +
-			expandReplacement(s, replacement, match) +
-			s.slice(match.index + match[0].length)
+				expandReplacement(s, toBytes(String(replacement)), match) +
+				s.slice(match.index + match[0].length),
 		);
 	} catch {
 		return str;
@@ -419,21 +419,23 @@ export function regsub(str: string, pattern: string, replacement: string): strin
 
 export function regsuball(str: string, pattern: string, replacement: string): string {
 	try {
-		const s = String(str);
-		const re = new RegExp(pattern, "g");
+		const s = toBytes(String(str));
+		const re = compileRegex(String(pattern), "g");
+		re.lastIndex = 0;
+		const sub = toBytes(String(replacement));
 		let result = "";
 		let lastEnd = 0;
 		let match: RegExpExecArray | null;
 		while ((match = re.exec(s)) !== null) {
 			result += s.slice(lastEnd, match.index);
-			result += expandReplacement(s, replacement, match);
+			result += expandReplacement(s, sub, match);
 			lastEnd = match.index + match[0].length;
 			if (match[0].length === 0) {
 				re.lastIndex++;
 			}
 		}
 		result += s.slice(lastEnd);
-		return result;
+		return fromBytes(result);
 	} catch {
 		return str;
 	}

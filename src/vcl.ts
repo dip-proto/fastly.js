@@ -25,7 +25,9 @@ import { VCLLexer } from "./vcl-parser";
 import { VCLParser } from "./vcl-parser-impl";
 import { QueryStringModule } from "./vcl-querystring";
 import { RateLimitModule } from "./vcl-ratelimit";
+import { compileRegex } from "./vcl-regex";
 import { createStdModule } from "./vcl-std";
+import { regsub, regsuball } from "./vcl-strings";
 import { createTableModule } from "./vcl-table";
 import { createParseTimeDelta, createStrftime, createTimeModule } from "./vcl-time";
 import { UTF8Module } from "./vcl-utf8";
@@ -179,22 +181,8 @@ export function createVCLContext(platform: VCLPlatform = getPlatform()): VCLCont
 		replaceall: (str: string, search: string, replacement: string) =>
 			String(str).split(String(search)).join(String(replacement)),
 
-		regsub: (str: string, regex: string, replacement: string) => {
-			try {
-				return String(str).replace(new RegExp(regex), replacement);
-			} catch (e) {
-				logError(`Invalid regex: ${regex}`, e);
-				return str;
-			}
-		},
-		regsuball: (str: string, regex: string, replacement: string) => {
-			try {
-				return String(str).replace(new RegExp(regex, "g"), replacement);
-			} catch (e) {
-				logError(`Invalid regex: ${regex}`, e);
-				return str;
-			}
-		},
+		regsub,
+		regsuball,
 
 		integer: (value: any) => parseInt(String(value), 10) || 0,
 		real: (value: any) => parseFloat(String(value)) || 0.0,
@@ -597,13 +585,13 @@ export function createVCLContext(platform: VCLPlatform = getPlatform()): VCLCont
 		},
 		lookup_regex: (tableName: string, key: string, defaultValue: string = "") => {
 			const table = context.tables[tableName];
-			const defaultRegex = () => (defaultValue ? new RegExp(defaultValue) : /(?:)/);
+			const defaultRegex = () => (defaultValue ? compileRegex(defaultValue) : /(?:)/);
 			if (!table || !(key in table.entries)) return defaultRegex();
 			const value = table.entries[key];
 			if (value instanceof RegExp) return value;
 			if (typeof value === "string") {
 				try {
-					return new RegExp(value);
+					return compileRegex(value);
 				} catch (e) {
 					logError(`Invalid regex pattern: ${value}`, e);
 					return defaultRegex();

@@ -47,6 +47,7 @@ import type {
 	VCLUnaryExpression,
 	VCLUnsetStatement,
 } from "./vcl-parser";
+import { compileRegex, fromBytes, toBytes } from "./vcl-regex";
 import {
 	boltsort_sort as boltsortImpl,
 	cstr_escape as cstrEscapeImpl,
@@ -177,7 +178,7 @@ export interface VCLContext {
 	acls: Record<string, VCLACL>;
 	tables: Record<string, VCLTable>;
 	client?: { ip: string };
-	re?: { groups?: Record<number, string> };
+	re?: { groups?: Record<string, string> };
 	platform: VCLPlatform;
 
 	// Local variables (declared with "declare local var.xxx TYPE;")
@@ -2628,12 +2629,8 @@ export class VCLCompiler {
 		}
 
 		if (parts.length === 3 && idPart0 === "re" && idPart1 === "group") {
-			const groupNumber = parseInt(idPart2, 10);
-			if (!Number.isNaN(groupNumber) && context.re?.groups?.[groupNumber] !== undefined) {
-				return context.re.groups[groupNumber];
-			}
-			// No recorded match or out-of-range group reads as notset.
-			return VCLString.notset();
+			// Works for numbered and named groups.
+			return context.re?.groups?.[idPart2] ?? VCLString.notset();
 		}
 
 		if (parts.length >= 2 && idPart0 === "var") {
@@ -3236,13 +3233,19 @@ export class VCLCompiler {
 
 	private regexMatch(left: any, right: any, context: VCLContext, negate: boolean): boolean {
 		try {
-			const regex = right instanceof RegExp ? right : new RegExp(String(right));
-			const match = String(left).match(regex);
+			const regex = right instanceof RegExp ? right : compileRegex(String(right));
+			const match = regex.exec(toBytes(String(left)));
+			// Like on Fastly, a failed match clears re.group, and a group that didn't match stays not set.
+			context.re = undefined;
 			if (match) {
-				const groups: Record<number, string> = {};
+				const groups: Record<string, string> = Object.create(null);
 				match.forEach((val, i) => {
-					groups[i] = val ?? "";
+					if (val !== undefined) groups[i] = fromBytes(val);
 				});
+				for (const name in match.groups) {
+					const val = match.groups[name];
+					if (val !== undefined) groups[name] = fromBytes(val);
+				}
 				context.re = { groups };
 				return !negate;
 			}

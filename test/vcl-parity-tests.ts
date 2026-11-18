@@ -76,6 +76,26 @@ function urlComponentsCheck(url: string, expected: string) {
 	};
 }
 
+/** Matches each subject against its pattern with ~ and checks which ones match. */
+function regexChecks(cases: [pattern: string, subject: string, matches: boolean][]) {
+	const checks = cases.map(
+		([p, s]) => `set var.s = "${s}"; set var.r = var.r + if(var.s ~ {"${p}"}, "1", "0");`,
+	);
+	return {
+		vclSnippet: `
+      sub vcl_recv {
+        declare local var.s STRING;
+        declare local var.r STRING;
+        set var.r = "";
+        ${checks.join("\n        ")}
+        set req.http.X = var.r;
+      }
+    `,
+		run: runRecv,
+		assertions: expectHeader(cases.map(([, , m]) => (m ? "1" : "0")).join("")),
+	};
+}
+
 function expectAcl(expected: boolean) {
 	return [
 		(context: VCLContext) =>
@@ -92,6 +112,47 @@ const vclParityTests: TestSuite = {
 		urlComponentsCheck("//a/b.c?x=1#f", "//a/b.c?x=1#f|//a/b.c|x=1|//a|b.c|c"),
 		urlComponentsCheck("/x.y#f?x=1.z", "/x.y#f?x=1.z|/x.y||/|x.y|y"),
 		urlComponentsCheck("?x=1", "?x=1||x=1|/||"),
+		{
+			name: "regexes use PCRE2 syntax and match on UTF-8 bytes",
+			...regexChecks([
+				["(?i)googlebot", "Googlebot/2.1", true],
+				["^/admin(/.*)?\\z", "/adminz", false],
+				["^abc$", "abc%0A", true],
+				["^abc\\z", "abc%0A", false],
+				["a.c", "a%0Dc", true],
+				["^[[:alpha:]]+[[:digit:]]$", "abc1", true],
+				["(a(?i)b)c", "aBC", false],
+				["^.{2}$", "é", true],
+				["^\\xC3\\xA9$", "é", true],
+			]),
+		},
+		{
+			name: "regsub, regsuball and querystring.regfilter use the same regexes",
+			vclSnippet: `
+        sub vcl_recv {
+          set req.http.X = regsuball("é", ".", "x")
+            + " " + std.regsub("/A/b", "(?i)^/a/(.*)", "/x/\\1")
+            + " " + querystring.regfilter("/?utm_a=1&b=2", "^utm_a\\z");
+        }
+      `,
+			run: runRecv,
+			assertions: expectHeader("xx /x/b /?b=2"),
+		},
+		{
+			name: "re.group reads named groups, and a failed match clears it",
+			vclSnippet: `
+        sub vcl_recv {
+          set req.url = "/fr/café";
+          if (req.url ~ "^/(?P<lang>[a-z]{2})(/x)?/(.*)$") {
+            set req.http.X = re.group.lang + " " + re.group.2 + " " + re.group.3;
+          }
+          if (req.url ~ "nomatch") {}
+          set req.http.X = req.http.X + "|" + re.group.lang;
+        }
+      `,
+			run: runRecv,
+			assertions: expectHeader("fr (null) café|(null)"),
+		},
 		{
 			name: "ACL exact IPv4 match",
 			...aclCheck('"127.0.0.1";', "127.0.0.1"),

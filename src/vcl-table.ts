@@ -5,6 +5,8 @@
  * Reference: https://developer.fastly.com/reference/vcl/functions/table/
  */
 
+import { compileRegex } from "./vcl-regex";
+
 export interface Table {
 	name: string;
 	type?: string;
@@ -154,7 +156,7 @@ export function createTableModule(): TableModule {
 			const value = findInTable(tables, tableName, key);
 			if (value === undefined) return null;
 			try {
-				return new RegExp(String(value));
+				return compileRegex(String(value));
 			} catch {
 				return null;
 			}
